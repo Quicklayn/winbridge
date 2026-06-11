@@ -32,6 +32,17 @@ The relay runtime SHALL be verifiable through WebSocket integration tests for ac
 - **WHEN** a viewer joins a host session with a mismatched pairing credential
 - **THEN** the relay rejects the join and does not register the viewer as authorized in the room
 
+### Requirement: Unsafe signal rejection verification
+The relay runtime SHALL expose tests proving unsafe `signal` payloads are rejected before forwarding and that rejection audit metadata remains secret-safe.
+
+#### Scenario: Relay rejects unsafe signal payload
+- **WHEN** a registered peer sends a schema-invalid `signal` message because its payload is empty, oversized, or contains sensitive key names
+- **THEN** the relay returns a relay error to the sender and does not deliver the message to the remaining peer
+
+#### Scenario: Unsafe signal rejection audit is secret-safe
+- **WHEN** the relay records an unsafe `signal` rejection
+- **THEN** the audit record identifies the rejection without raw tokens, raw pairing codes, credentials, raw protocol payloads, keystrokes, screenshots, screen contents, or full secrets
+
 ### Requirement: Testable audit behavior
 The relay runtime SHALL allow tests to inject audit sinks and inspect security-relevant runtime events.
 

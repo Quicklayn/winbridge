@@ -940,18 +940,17 @@ describe("agent shell consent workflow", () => {
       fromPeerId: "host-1",
       toPeerId: "viewer-1",
       payload: {
-        token: "secret-token",
-        pairingCode: "123-456",
-        nested: { credential: "viewer-password" }
+        kind: "offer",
+        sdp: "safe-offer-data",
+        nested: { candidate: "safe-candidate" }
       }
     });
     await waitForMessage(viewerEvents, (message) => message.type === "signal");
 
     const logOutput = viewerLogs.join("\n");
     expect(logOutput).toContain("received signal");
-    expect(logOutput).not.toContain("secret-token");
-    expect(logOutput).not.toContain("123-456");
-    expect(logOutput).not.toContain("viewer-password");
+    expect(logOutput).not.toContain("safe-offer-data");
+    expect(logOutput).not.toContain("safe-candidate");
     expect(logOutput).not.toContain("payload");
   });
 
@@ -1035,9 +1034,9 @@ describe("agent shell consent workflow", () => {
       fromPeerId: "host-1",
       toPeerId: "viewer-1",
       payload: {
-        token: "secret-token",
-        pairingCode: "123-456",
-        screenData: "raw-screen"
+        kind: "offer",
+        sdp: "safe-offer-data",
+        nested: { candidate: "safe-candidate" }
       }
     });
     await waitForMessage(viewerEvents, (message) => message.type === "signal");
@@ -1135,12 +1134,13 @@ describe("agent shell consent workflow", () => {
       ...createMessageBase("different-session"),
       type: "signal",
       fromPeerId: "host-1",
-      payload: { secret: "do-not-log" }
+      payload: { kind: "offer", sdp: "do-not-log" }
     });
     await waitForRawMessage(hostEvents);
 
     const logOutput = hostLogs.join("\n");
     expect(logOutput).toContain("received non-protocol message bytes=");
+    expect(logOutput).not.toContain("do-not-log");
     expect(logOutput).not.toContain("relay-error");
     expect(logOutput).not.toContain("Message session does not match registered peer");
   });

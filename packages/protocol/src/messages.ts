@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { z } from "zod";
 import { AuditOutcomeSchema, redactAuditDetail } from "./audit.js";
 import { SessionAuthorizationStatusSchema } from "./authorization.js";
@@ -6,6 +7,19 @@ import { DeviceIdentitySchema } from "./identity.js";
 import { PairingCodeSchema, PermissionSchema, SessionRoleSchema } from "./session.js";
 
 export const PROTOCOL_VERSION = 1;
+const MAX_SIGNAL_PAYLOAD_BYTES = 16 * 1024;
+const SENSITIVE_SIGNAL_PAYLOAD_KEY_INDICATORS = [
+  "token",
+  "credential",
+  "password",
+  "pairingcode",
+  "keystroke",
+  "keylog",
+  "screenshot",
+  "screendata",
+  "screencontent",
+  "secret"
+] as const;
 
 const BaseMessageSchema = z.object({
   protocolVersion: z.literal(PROTOCOL_VERSION),
@@ -201,6 +215,32 @@ export const SignalMessageSchema = BaseMessageSchema.extend({
   fromPeerId: z.string().min(3),
   toPeerId: z.string().min(3).optional(),
   payload: z.record(z.unknown())
+}).superRefine((message, context) => {
+  if (Object.keys(message.payload).length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Signal payload must not be empty",
+      path: ["payload"]
+    });
+  }
+
+  const payloadBytes = measureSignalPayloadBytes(message.payload, context);
+  if (payloadBytes !== undefined && payloadBytes > MAX_SIGNAL_PAYLOAD_BYTES) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Signal payload must be ${MAX_SIGNAL_PAYLOAD_BYTES} bytes or less`,
+      path: ["payload"]
+    });
+  }
+
+  const sensitivePath = findSensitiveSignalPayloadPath(message.payload);
+  if (sensitivePath) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Signal payload must not contain sensitive remote-assistance data",
+      path: ["payload", ...sensitivePath]
+    });
+  }
 });
 
 export const SessionControlMessageSchema = BaseMessageSchema.extend({
@@ -290,4 +330,54 @@ function rejectDuplicatePermissions(
     message: `${path} must be unique`,
     path: [path]
   });
+}
+
+function measureSignalPayloadBytes(
+  payload: Record<string, unknown>,
+  context: z.RefinementCtx
+): number | undefined {
+  try {
+    return Buffer.byteLength(JSON.stringify(payload), "utf8");
+  } catch {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Signal payload must be JSON serializable",
+      path: ["payload"]
+    });
+    return undefined;
+  }
+}
+
+function findSensitiveSignalPayloadPath(
+  value: unknown,
+  path: Array<string | number> = []
+): Array<string | number> | undefined {
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      const found = findSensitiveSignalPayloadPath(item, [...path, index]);
+      if (found) {
+        return found;
+      }
+    }
+
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+    const normalizedKey = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    if (SENSITIVE_SIGNAL_PAYLOAD_KEY_INDICATORS.some((indicator) => normalizedKey.includes(indicator))) {
+      return [...path, key];
+    }
+
+    const found = findSensitiveSignalPayloadPath(nested, [...path, key]);
+    if (found) {
+      return found;
+    }
+  }
+
+  return undefined;
 }

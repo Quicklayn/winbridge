@@ -76,6 +76,50 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(auditRecords)).not.toContain("123-456");
   });
 
+  it("rejects unsafe signal payloads before forwarding", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    host.send(
+      JSON.stringify({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "offer",
+          nested: {
+            token: "secret-token",
+            pairingCode: "123-456"
+          }
+        }
+      })
+    );
+
+    const relayError = await waitForJsonMessage(host, (message) => message.type === "relay-error");
+    expect(String(relayError.reason)).toContain("Signal payload must not contain sensitive");
+    await expectNoProtocolMessage(viewer, (message) => message.type === "signal");
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.rejected" &&
+        typeof record.reason === "string" &&
+        record.reason.includes("Signal payload must not contain sensitive")
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      detail: {
+        registered: true
+      }
+    });
+    expect(JSON.stringify(rejected)).not.toContain("secret-token");
+    expect(JSON.stringify(rejected)).not.toContain("123-456");
+  });
+
   it("notifies the viewer when the host disconnects", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });

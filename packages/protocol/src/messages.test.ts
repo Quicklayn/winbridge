@@ -41,6 +41,86 @@ describe("protocol envelopes", () => {
     expect(JSON.parse(encoded)).toMatchObject({ type: "relay-ready" });
   });
 
+  it("accepts safe non-empty signal payloads", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        kind: "offer",
+        sdp: "v=0",
+        candidates: [{ candidate: "candidate:1 1 udp 1 127.0.0.1 9 typ host" }]
+      }
+    });
+
+    expect(parsed).toMatchObject({
+      type: "signal",
+      fromPeerId: "host-1",
+      payload: {
+        kind: "offer",
+        sdp: "v=0"
+      }
+    });
+  });
+
+  it("rejects empty signal payloads", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {}
+      })
+    ).toThrow("Signal payload must not be empty");
+  });
+
+  it("rejects oversized signal payloads", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "offer",
+          sdp: "x".repeat(16 * 1024)
+        }
+      })
+    ).toThrow("Signal payload must be 16384 bytes or less");
+  });
+
+  it("rejects signal payloads with nested sensitive keys", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "offer",
+          nested: [{ pairingCode: "123-456" }]
+        }
+      })
+    ).toThrow("must not contain sensitive remote-assistance data");
+  });
+
+  it("rejects unsafe signal payloads when encoding protocol messages", () => {
+    expect(() =>
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "offer",
+          screenContent: "raw screen"
+        }
+      })
+    ).toThrow("must not contain sensitive remote-assistance data");
+  });
+
   it("accepts peer disconnect notices with bounded reason codes", () => {
     const parsed = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
