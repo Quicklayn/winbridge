@@ -68,6 +68,7 @@ Provides a development WebSocket relay:
 - Validates protocol envelopes before forwarding.
 - Bounds raw WebSocket message size before protocol decoding.
 - Rejects empty, oversized, or sensitive-key `signal` payloads before forwarding.
+- Normalizes malformed-message `relay-error` and invalid-message audit reasons to bounded secret-safe strings.
 - Emits structured development audit records for joins, denials, forwarding, and disconnects.
 - Rate-limits repeated invalid token and malformed-message attempts with in-memory development defaults.
 - Sends WebSocket heartbeat pings, closes peers that miss heartbeat timeout, and audits heartbeat timeout failures.

@@ -121,6 +121,8 @@ The relay rejects inbound WebSocket messages larger than the development message
 
 `signal` protocol messages are restricted to non-empty, bounded JSON payloads. Payloads containing obvious token, credential, pairing-code, keystroke, screenshot, screen-data, screen-content, or secret keys are rejected before forwarding and are not treated as trusted remote-assistance data.
 
+Malformed relay messages receive bounded secret-safe rejection reasons such as `Invalid relay message`. Parser details and raw malformed message contents are not returned to peers or stored in invalid-message audit reasons.
+
 Rate-limit audit details are secret-safe:
 
 - They may include booleans, remaining attempts, limits, and reset times.
