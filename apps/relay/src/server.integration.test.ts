@@ -654,6 +654,103 @@ describe("relay runtime integration", () => {
     });
   });
 
+  it("rejects viewer-originated host workflow messages before forwarding", async () => {
+    const cases: Array<{
+      name: string;
+      buildMessage: () => ProtocolEnvelope;
+      rejectedType: ProtocolEnvelope["type"];
+      privateMarker: string;
+    }> = [
+      {
+        name: "authorization state",
+        rejectedType: "session-authorization-state",
+        privateMarker: "viewer-state-private-reason",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz-demo",
+          actorPeerId: "viewer-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          reason: "viewer-state-private-reason"
+        })
+      },
+      {
+        name: "permission revoked",
+        rejectedType: "permission-revoked",
+        privateMarker: "viewer-revoke-private-reason",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "permission-revoked",
+          authorizationId: "authz-demo",
+          actorPeerId: "viewer-1",
+          revokedPermission: "screen:view",
+          reason: "viewer-revoke-private-reason"
+        })
+      },
+      {
+        name: "session control",
+        rejectedType: "session-control",
+        privateMarker: "viewer-control-private-reason",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          actorPeerId: "viewer-1",
+          action: "pause",
+          reason: "viewer-control-private-reason"
+        })
+      },
+      {
+        name: "audit event",
+        rejectedType: "audit-event",
+        privateMarker: "viewer-audit-private-marker",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "audit-event",
+          eventId: "audit_viewer_workflow",
+          actorPeerId: "viewer-1",
+          action: "agent-shell.viewer.workflow",
+          outcome: "accepted",
+          detail: {
+            note: "viewer-audit-private-marker"
+          }
+        })
+      }
+    ];
+
+    for (const { buildMessage, name, privateMarker, rejectedType } of cases) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+
+      viewer.send(encodeProtocolEnvelope(buildMessage()));
+
+      expect(await waitForJsonMessage(viewer, (message) => message.type === "relay-error"), name).toEqual({
+        type: "relay-error",
+        reason: "Message role does not match registered peer"
+      });
+      await expectNoProtocolMessage(host, (message) => message.type === rejectedType);
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) =>
+          record.action === "relay.message.rejected" &&
+          record.reason === "Message role does not match registered peer"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain(privateMarker);
+    }
+  });
+
   it("rejects registered messages when no recipient peer is registered", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });

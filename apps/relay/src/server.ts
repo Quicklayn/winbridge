@@ -533,6 +533,7 @@ function assertRegisteredPeerCanForward(envelope: ProtocolEnvelope, peer: RelayP
     case "permission-revoked":
     case "session-control":
     case "audit-event":
+      assertEnvelopeRole("host", peer);
       assertEnvelopePeer(envelope.actorPeerId, peer);
       return;
     default: {

@@ -124,7 +124,7 @@ The relay SHALL treat `peer-disconnected` as a relay-originated lifecycle notice
 - **THEN** the remaining peer MUST NOT receive that forged notice and MUST NOT change session lifecycle state because of it
 
 ### Requirement: Registered peer message authority
-The relay SHALL reject registered-peer messages before forwarding when the message is join-only, relay-originated, declares a sender or actor peer id different from the registered peer, or uses a role-bound authorization field that does not match the registered peer role.
+The relay SHALL reject registered-peer messages before forwarding when the message is join-only, relay-originated, declares a sender or actor peer id different from the registered peer, uses a role-bound authorization field that does not match the registered peer role, or uses host-only workflow authority from a non-host peer.
 
 #### Scenario: Registered peer replays join message
 - **WHEN** a registered peer sends a `join-session` message as an ordinary peer message
@@ -142,9 +142,14 @@ The relay SHALL reject registered-peer messages before forwarding when the messa
 - **WHEN** a registered host sends a viewer-originated authorization request or a registered viewer sends a host-originated authorization decision
 - **THEN** the relay rejects the message before forwarding it
 
+#### Scenario: Viewer sends host-only workflow authority message
+- **WHEN** a registered viewer sends `session-authorization-state`, `permission-revoked`, `session-control`, or `audit-event` as an ordinary peer message
+- **THEN** the relay rejects the message before forwarding it
+- **AND** the remaining host MUST NOT receive that host-only workflow authority message
+
 #### Scenario: Registered peer authority rejection is secret-safe
 - **WHEN** the relay rejects a registered-peer message authority violation
-- **THEN** the peer-facing relay error and audit reason MUST use bounded metadata-only text and MUST NOT include raw pairing codes, tokens, credentials, protocol payloads, keystrokes, screenshots, screen contents, or full secrets
+- **THEN** the peer-facing relay error and audit reason MUST use bounded metadata-only text and MUST NOT include raw pairing codes, tokens, credentials, protocol payloads, private reasons, keystrokes, screenshots, screen contents, or full secrets
 
 ### Requirement: Registered recipient targeting
 The relay SHALL reject registered-peer messages before forwarding when no remaining registered recipient is available or when an explicit target peer id does not match the remaining recipient in the two-party room.

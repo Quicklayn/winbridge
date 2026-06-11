@@ -70,6 +70,7 @@ Provides a development WebSocket relay:
 - Limits a room to one host and one viewer.
 - Validates protocol envelopes before forwarding.
 - Binds registered-peer forwarding to the socket's peer id and rejects join-only, relay-originated, spoofed sender/actor, or role-mismatched authorization messages.
+- Requires host role before forwarding host-only workflow authority messages such as authorization state, permission revocation, session control, and development workflow audit events.
 - Requires a remaining registered recipient and rejects explicit target peer ids that do not match that recipient.
 - Rejects malformed protocol identifiers before relay room registration.
 - Bounds raw WebSocket message size before protocol decoding.

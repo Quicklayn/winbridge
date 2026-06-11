@@ -149,6 +149,7 @@ Protocol-facing machine identifiers such as session ids, peer ids, message ids, 
 `signal` protocol messages are restricted to non-empty, bounded JSON payloads. Payloads containing obvious token, credential, pairing-code, API-key, authorization-header, auth-header, cookie, private-key, keystroke, screenshot, screen-data, screen-content, or secret keys are rejected before forwarding and are not treated as trusted remote-assistance data. Non-secret lifecycle identifiers such as `authorizationId` remain permitted.
 
 After a peer registers, the relay rejects peer messages that attempt to replay `join-session`, forge relay-originated lifecycle messages, spoof another peer's sender or actor id, or use host/viewer role-bound authorization fields from the wrong registered role. Rejections use bounded reasons and do not expose raw pairing codes or protocol payloads to the remaining peer.
+Host-only workflow authority messages, including authorization state, permission revocation, session control, and development workflow audit events, must originate from the registered host role in the current two-party product scope.
 
 Registered-peer messages also require a concrete remaining recipient in the two-party room. If an explicit target such as `signal.toPeerId` or an authorization decision `viewerPeerId` is present, it must match the remaining registered peer or the relay rejects the message before forwarding.
 
