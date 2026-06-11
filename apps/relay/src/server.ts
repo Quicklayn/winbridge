@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import WebSocket, { WebSocketServer } from "ws";
+import { Buffer } from "node:buffer";
+import WebSocket, { WebSocketServer, type RawData } from "ws";
 import type { AuditSink } from "@winbridge/audit-log";
 import { createRelayAuditSink, writeRelayAudit } from "./audit.js";
 import {
@@ -22,6 +23,9 @@ import {
   type ProtocolEnvelope
 } from "@winbridge/protocol";
 import { RoomRegistry, type RelayJoinResult, type RelayPairingConfig, type RelayPeer } from "./rooms.js";
+
+const MAX_RELAY_MESSAGE_BYTES = 64 * 1024;
+const RELAY_MESSAGE_TOO_LARGE_REASON = `Relay message exceeds ${MAX_RELAY_MESSAGE_BYTES} bytes`;
 
 export type RelayRuntimeOptions = {
   port?: number;
@@ -64,7 +68,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
     createDevelopmentRateLimiter(process.env, "WINBRIDGE_RELAY_INVALID_MESSAGE");
   const logger = options.logger ?? console;
   const server = createServer();
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ server, maxPayload: MAX_RELAY_MESSAGE_BYTES });
 
   wss.on("connection", (socket, request) => {
     const requestUrl = new URL(request.url ?? "/", "ws://localhost");
@@ -97,7 +101,12 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
 
     socket.on("message", (data) => {
       try {
-        const envelope = decodeProtocolEnvelope(data.toString());
+        const messageBytes = rawDataByteLength(data);
+        if (messageBytes > MAX_RELAY_MESSAGE_BYTES) {
+          throw new Error(RELAY_MESSAGE_TOO_LARGE_REASON);
+        }
+
+        const envelope = decodeProtocolEnvelope(rawDataToString(data));
 
         if (!registeredPeer) {
           let joinResult: RelayJoinResult | undefined;
@@ -198,6 +207,30 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
       }
     });
 
+    socket.on("error", (error) => {
+      const reason = websocketErrorReason(error);
+      if (!reason) {
+        return;
+      }
+
+      const decision = invalidMessageLimiter.consume(registeredPeer?.peerId ?? remoteKey);
+      writeRelayAudit(auditSink, {
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: registeredPeer?.sessionId,
+        peerId: registeredPeer?.peerId,
+        reason,
+        detail: {
+          registered: Boolean(registeredPeer),
+          transport: "websocket",
+          rateLimit: rateLimitAuditDetail(decision)
+        }
+      });
+      if (!decision.allowed && socket.readyState === WebSocket.OPEN) {
+        socket.close(1008, "Relay message rate limit exceeded");
+      }
+    });
+
     socket.on("close", () => {
       stopHeartbeat();
       if (registeredPeer) {
@@ -275,6 +308,35 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
       return serverUrl(server);
     }
   };
+}
+
+function rawDataByteLength(data: RawData): number {
+  if (Array.isArray(data)) {
+    return data.reduce((total, chunk) => total + chunk.byteLength, 0);
+  }
+
+  return data.byteLength;
+}
+
+function rawDataToString(data: RawData): string {
+  if (Array.isArray(data)) {
+    return Buffer.concat(data).toString("utf8");
+  }
+
+  if (Buffer.isBuffer(data)) {
+    return data.toString("utf8");
+  }
+
+  return Buffer.from(data).toString("utf8");
+}
+
+function websocketErrorReason(error: Error): string | undefined {
+  const code = (error as { code?: unknown }).code;
+  if (code === "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH") {
+    return RELAY_MESSAGE_TOO_LARGE_REASON;
+  }
+
+  return undefined;
 }
 
 function startPeerHeartbeat(options: {

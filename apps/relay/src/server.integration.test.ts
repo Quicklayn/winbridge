@@ -120,6 +120,45 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(rejected)).not.toContain("123-456");
   });
 
+  it("rejects oversized relay messages before forwarding", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const oversizedMessage = JSON.stringify({
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        kind: "oversized-offer-marker",
+        sdp: "x".repeat(70 * 1024)
+      }
+    });
+
+    expect(Buffer.byteLength(oversizedMessage, "utf8")).toBeGreaterThan(64 * 1024);
+
+    host.send(oversizedMessage);
+
+    await waitForClose(host);
+    await expectNoProtocolMessage(viewer, (message) => message.type === "signal");
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.rejected" &&
+        record.reason === "Relay message exceeds 65536 bytes"
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      detail: {
+        registered: true
+      }
+    });
+    expect(JSON.stringify(rejected)).not.toContain("oversized-offer-marker");
+  });
+
   it("notifies the viewer when the host disconnects", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
