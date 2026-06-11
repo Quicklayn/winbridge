@@ -72,6 +72,16 @@ npm run dev:relay
 
 Set `WINBRIDGE_RELAY_HEARTBEAT_ENABLED=false` only for focused development tests that should not start heartbeat timers.
 
+Development relay pairing tickets are host-created, hashed, expiring, and consumed by viewer joins:
+
+```powershell
+$env:WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS = "300000"
+$env:WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES = "1"
+npm run dev:relay
+```
+
+The host should join before the viewer. Pairing only admits the viewer to the relay room; it does not grant screen, input, clipboard, file, or diagnostic permissions.
+
 In separate terminals, exercise the protocol:
 
 ```powershell

@@ -60,6 +60,7 @@ Provides a development WebSocket relay:
 - Starts through a managed runtime with explicit `start()` and `stop()` lifecycle.
 - Accepts host/viewer peers.
 - Requires session id, peer id, role, and pairing credential.
+- Creates a hashed expiring pairing ticket when the host joins, then requires the viewer to consume that ticket before room registration.
 - Optionally enforces a shared development token.
 - Limits a room to one host and one viewer.
 - Validates protocol envelopes before forwarding.
@@ -75,6 +76,7 @@ The CLI entrypoint and integration tests use the same runtime implementation. Te
 
 Set `WINBRIDGE_RELAY_AUDIT_LOG_PATH` to write relay audit events to a local JSONL file during development.
 Heartbeat defaults are controlled by `WINBRIDGE_RELAY_HEARTBEAT_ENABLED`, `WINBRIDGE_RELAY_HEARTBEAT_INTERVAL_MS`, and `WINBRIDGE_RELAY_HEARTBEAT_TIMEOUT_MS`.
+Pairing ticket defaults are controlled by `WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS` and `WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES`.
 
 ### apps/agent-shell
 

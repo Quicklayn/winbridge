@@ -7,7 +7,12 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket, { type ClientOptions, type RawData } from "ws";
 import { SlidingWindowRateLimiter } from "./rate-limit.js";
-import { createRelayRuntime, type RelayRuntime, type RelayRuntimeOptions } from "./server.js";
+import {
+  createRelayPairingConfig,
+  createRelayRuntime,
+  type RelayRuntime,
+  type RelayRuntimeOptions
+} from "./server.js";
 
 const runtimes: RelayRuntime[] = [];
 const silentLogger = {
@@ -27,7 +32,8 @@ describe("relay runtime integration", () => {
   });
 
   it("accepts host and viewer joins and forwards protocol messages", async () => {
-    const runtime = await startRuntime();
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
     const host = await openSocket(runtime.url());
     const viewer = await openSocket(runtime.url());
 
@@ -62,6 +68,35 @@ describe("relay runtime integration", () => {
       fromPeerId: "host-1",
       payload: { kind: "test-signal" }
     });
+
+    const auditRecords = auditSink.records().filter(
+      (record) => record.action === "relay.peer.join.accepted"
+    );
+    expect(JSON.stringify(auditRecords)).not.toContain("123-456");
+  });
+
+  it("rejects a viewer before the host creates a pairing ticket", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const viewer = await openSocket(runtime.url());
+
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+
+    expect(await waitForJsonMessage(viewer, (message) => message.type === "relay-error")).toMatchObject({
+      type: "relay-error",
+      reason: "Host pairing ticket required"
+    });
+    const denied = auditSink.records().find((record) => record.action === "relay.peer.join.denied");
+    expect(denied).toMatchObject({
+      action: "relay.peer.join.denied",
+      outcome: "denied",
+      detail: {
+        pairing: {
+          ticketMissing: true
+        }
+      }
+    });
+    expect(JSON.stringify(denied)).not.toContain("123-456");
   });
 
   it("rejects a viewer with mismatched pairing credentials", async () => {
@@ -82,6 +117,64 @@ describe("relay runtime integration", () => {
     expect(auditSink.records().some((record) => record.action === "relay.peer.join.denied")).toBe(
       true
     );
+    expect(JSON.stringify(auditSink.records())).not.toContain("999-000");
+  });
+
+  it("rejects a viewer after the host pairing ticket expires", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({
+      auditSink,
+      pairing: {
+        ticketTtlMs: 0
+      }
+    });
+    const host = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url());
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+
+    expect(await waitForJsonMessage(viewer, (message) => message.type === "relay-error")).toMatchObject({
+      type: "relay-error",
+      reason: "Pairing ticket is expired"
+    });
+    const denied = auditSink.records().find((record) => record.reason === "Pairing ticket is expired");
+    expect(denied).toMatchObject({
+      detail: {
+        pairing: {
+          ticketExpired: true
+        }
+      }
+    });
+    expect(JSON.stringify(denied)).not.toContain("123-456");
+  });
+
+  it("rejects a new viewer after the host pairing ticket is consumed", async () => {
+    const runtime = await startRuntime({
+      pairing: {
+        ticketTtlMs: 60_000,
+        maxUses: 1
+      }
+    });
+    const host = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url());
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+    await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready");
+    viewer.close();
+    await waitForClose(viewer);
+
+    const secondViewer = await openSocket(runtime.url());
+    secondViewer.send(joinMessage("session-demo", "viewer-2", "viewer", "123-456"));
+
+    expect(await waitForJsonMessage(secondViewer, (message) => message.type === "relay-error")).toMatchObject({
+      type: "relay-error",
+      reason: "Pairing ticket has no remaining uses"
+    });
   });
 
   it("audits invalid shared-token attempts without logging the raw token", async () => {
@@ -146,6 +239,18 @@ describe("relay runtime integration", () => {
       }
     });
     expect(JSON.stringify(timeout)).not.toContain("123-456");
+  });
+
+  it("parses development pairing ticket environment configuration", () => {
+    expect(
+      createRelayPairingConfig({
+        WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS: "1000",
+        WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES: "2"
+      })
+    ).toEqual({
+      ticketTtlMs: 1000,
+      maxUses: 2
+    });
   });
 });
 

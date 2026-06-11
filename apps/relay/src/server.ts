@@ -21,7 +21,7 @@ import {
   JoinSessionMessageSchema,
   type ProtocolEnvelope
 } from "@winbridge/protocol";
-import { RoomRegistry, type RelayPeer } from "./rooms.js";
+import { RoomRegistry, type RelayJoinResult, type RelayPairingConfig, type RelayPeer } from "./rooms.js";
 
 export type RelayRuntimeOptions = {
   port?: number;
@@ -29,6 +29,7 @@ export type RelayRuntimeOptions = {
   rooms?: RoomRegistry;
   auditSink?: AuditSink;
   heartbeat?: RelayHeartbeatSetting;
+  pairing?: Partial<RelayPairingConfig>;
   invalidTokenLimiter?: SlidingWindowRateLimiter;
   invalidMessageLimiter?: SlidingWindowRateLimiter;
   logger?: {
@@ -46,7 +47,8 @@ export type RelayRuntime = {
 export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRuntime {
   const port = options.port ?? 8787;
   const sharedToken = options.sharedToken;
-  const rooms = options.rooms ?? new RoomRegistry();
+  const pairingConfig = normalizeRelayPairingConfig(options.pairing);
+  const rooms = options.rooms ?? new RoomRegistry(pairingConfig);
   const auditSink = options.auditSink ?? createRelayAuditSink();
   const heartbeat =
     options.heartbeat === undefined
@@ -98,21 +100,31 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
         const envelope = decodeProtocolEnvelope(data.toString());
 
         if (!registeredPeer) {
+          let joinResult: RelayJoinResult | undefined;
           try {
-            registeredPeer = registerFirstMessage(rooms, envelope, (payload) => {
+            const registeredJoin = registerFirstMessage(rooms, envelope, (payload) => {
               if (socket.readyState === WebSocket.OPEN) {
                 socket.send(payload);
               }
             });
+            registeredPeer = registeredJoin.peer;
+            joinResult = registeredJoin.result;
           } catch (error) {
             const reason = error instanceof Error ? error.message : "Join rejected";
             writeRelayAudit(auditSink, {
               action: "relay.peer.join.denied",
               outcome: "denied",
               reason,
-              detail: { messageType: envelope.type }
+              detail: {
+                messageType: envelope.type,
+                pairing: pairingDeniedAuditDetail(reason)
+              }
             });
             throw error;
+          }
+
+          if (!joinResult) {
+            throw new Error("Peer join result missing");
           }
 
           const ready = encodeProtocolEnvelope({
@@ -127,7 +139,14 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
             outcome: "accepted",
             sessionId: registeredPeer.sessionId,
             peerId: registeredPeer.peerId,
-            detail: { role: registeredPeer.role, roomSize: rooms.size(registeredPeer.sessionId) }
+            detail: {
+              role: registeredPeer.role,
+              roomSize: rooms.size(registeredPeer.sessionId),
+              pairingTicketCreated: joinResult.ticketCreated,
+              pairingTicketConsumed: joinResult.ticketConsumed,
+              pairingTicketRemainingUses: joinResult.ticketRemainingUses,
+              pairedDeviceRecorded: Boolean(joinResult.pairedDevice)
+            }
           });
           return;
         }
@@ -295,25 +314,25 @@ function registerFirstMessage(
   rooms: RoomRegistry,
   envelope: ProtocolEnvelope,
   send: (data: string) => void
-): RelayPeer {
+): { peer: RelayPeer; result: RelayJoinResult } {
   const join = JoinSessionMessageSchema.parse(envelope);
-  const peer: RelayPeer = {
+  const peer = {
     peerId: join.peerId,
     role: join.role,
     sessionId: join.sessionId,
+    deviceId: join.deviceIdentity?.deviceId ?? developmentDeviceIdForPeer(join.peerId),
     pairingCode: join.pairingCode,
     send
   };
 
-  const peers = rooms.join(peer);
-  const mismatch = peers.find((existing) => existing.pairingCode !== peer.pairingCode);
+  const result = rooms.join(peer);
+  const registeredPeer = result.peers.find((existing) => existing.peerId === peer.peerId);
 
-  if (mismatch) {
-    rooms.leave(peer.sessionId, peer.peerId);
-    throw new Error("Pairing code mismatch");
+  if (!registeredPeer) {
+    throw new Error("Peer was not registered");
   }
 
-  return peer;
+  return { peer: registeredPeer, result };
 }
 
 function rateLimitAuditDetail(decision: RateLimitDecision) {
@@ -322,6 +341,83 @@ function rateLimitAuditDetail(decision: RateLimitDecision) {
     limit: decision.limit,
     remaining: decision.remaining,
     resetAt: decision.resetAt
+  };
+}
+
+export function createRelayPairingConfig(
+  env: NodeJS.ProcessEnv = process.env
+): RelayPairingConfig {
+  return {
+    ticketTtlMs: parseNonNegativeIntegerEnv(
+      env.WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS,
+      5 * 60_000,
+      "WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS"
+    ),
+    maxUses: parseBoundedIntegerEnv(
+      env.WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES,
+      1,
+      1,
+      10,
+      "WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES"
+    )
+  };
+}
+
+function normalizeRelayPairingConfig(
+  setting: Partial<RelayPairingConfig> | undefined
+): RelayPairingConfig {
+  return {
+    ...createRelayPairingConfig(),
+    ...setting
+  };
+}
+
+function parseNonNegativeIntegerEnv(
+  raw: string | undefined,
+  fallback: number,
+  name: string
+): number {
+  if (raw === undefined || raw === "") {
+    return fallback;
+  }
+
+  const value = Number.parseInt(raw, 10);
+
+  if (!Number.isInteger(value) || value < 0 || String(value) !== raw) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+
+  return value;
+}
+
+function parseBoundedIntegerEnv(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+  name: string
+): number {
+  const value = parseNonNegativeIntegerEnv(raw, fallback, name);
+
+  if (value < min || value > max) {
+    throw new Error(`${name} must be between ${min} and ${max}`);
+  }
+
+  return value;
+}
+
+function developmentDeviceIdForPeer(peerId: string): string {
+  const candidate = `dev_${peerId}`;
+  const padded = candidate.length >= 8 ? candidate : `${candidate}_peer`;
+  return padded.length <= 128 ? padded : padded.slice(0, 128);
+}
+
+function pairingDeniedAuditDetail(reason: string) {
+  return {
+    ticketMissing: reason === "Host pairing ticket required",
+    credentialMismatch: reason === "Pairing code mismatch",
+    ticketExpired: reason === "Pairing ticket is expired",
+    ticketConsumed: reason === "Pairing ticket has no remaining uses"
   };
 }
 

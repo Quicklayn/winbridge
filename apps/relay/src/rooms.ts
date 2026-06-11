@@ -1,31 +1,126 @@
-import type { SessionRole } from "@winbridge/protocol";
+import {
+  consumePairingTicket,
+  createPairedDevice,
+  createPairingTicket,
+  type PairedDevice,
+  type PairingTicket,
+  type SessionRole
+} from "@winbridge/protocol";
 
 export type RelayPeer = {
   peerId: string;
   role: SessionRole;
   sessionId: string;
-  pairingCode: string;
+  deviceId: string;
   send: (data: string) => void;
 };
 
-export class RoomRegistry {
-  private readonly rooms = new Map<string, Map<string, RelayPeer>>();
+export type RelayPeerJoin = RelayPeer & {
+  pairingCode: string;
+};
 
-  join(peer: RelayPeer): RelayPeer[] {
-    const room = this.rooms.get(peer.sessionId) ?? new Map<string, RelayPeer>();
-    const sameRole = [...room.values()].find((existing) => existing.role === peer.role);
+export type RelayPairingConfig = {
+  ticketTtlMs: number;
+  maxUses: number;
+  now?: () => Date;
+};
+
+export type RelayJoinResult = {
+  peers: RelayPeer[];
+  ticketCreated: boolean;
+  ticketConsumed: boolean;
+  ticketRemainingUses?: number;
+  pairedDevice?: PairedDevice;
+};
+
+type RelayRoom = {
+  peers: Map<string, RelayPeer>;
+  pairingTicket?: PairingTicket;
+};
+
+export class RoomRegistry {
+  private readonly rooms = new Map<string, RelayRoom>();
+  private readonly pairingConfig: Required<RelayPairingConfig>;
+
+  constructor(pairingConfig: RelayPairingConfig = { ticketTtlMs: 5 * 60_000, maxUses: 1 }) {
+    this.pairingConfig = {
+      ...pairingConfig,
+      now: pairingConfig.now ?? (() => new Date())
+    };
+  }
+
+  join(peer: RelayPeerJoin): RelayJoinResult {
+    const room = this.rooms.get(peer.sessionId) ?? { peers: new Map<string, RelayPeer>() };
+    const sameRole = [...room.peers.values()].find((existing) => existing.role === peer.role);
 
     if (sameRole && sameRole.peerId !== peer.peerId) {
       throw new Error(`A ${peer.role} is already connected to session ${peer.sessionId}`);
     }
 
-    if (room.size >= 2 && !room.has(peer.peerId)) {
+    if (room.peers.size >= 2 && !room.peers.has(peer.peerId)) {
       throw new Error(`Session ${peer.sessionId} already has two peers`);
     }
 
-    room.set(peer.peerId, peer);
+    let ticketCreated = false;
+    let ticketConsumed = false;
+    let pairedDevice: PairedDevice | undefined;
+
+    if (peer.role === "host") {
+      room.pairingTicket = createPairingTicket({
+        sessionId: peer.sessionId,
+        hostDeviceId: peer.deviceId,
+        pairingCode: peer.pairingCode,
+        ttlMs: this.pairingConfig.ticketTtlMs,
+        maxUses: this.pairingConfig.maxUses,
+        now: this.pairingConfig.now()
+      });
+      ticketCreated = true;
+    }
+
+    if (peer.role === "viewer") {
+      if (!room.pairingTicket) {
+        throw new Error("Host pairing ticket required");
+      }
+
+      try {
+        const consumedTicket = consumePairingTicket(
+          room.pairingTicket,
+          peer.pairingCode,
+          this.pairingConfig.now()
+        );
+        pairedDevice = createPairedDevice({
+          ticket: room.pairingTicket,
+          viewerDeviceId: peer.deviceId,
+          pairedAt: this.pairingConfig.now()
+        });
+        room.pairingTicket = consumedTicket;
+        ticketConsumed = true;
+      } catch (error) {
+        if (error instanceof Error && error.message === "Pairing code does not match ticket") {
+          throw new Error("Pairing code mismatch");
+        }
+
+        throw error;
+      }
+    }
+
+    const registeredPeer: RelayPeer = {
+      peerId: peer.peerId,
+      role: peer.role,
+      sessionId: peer.sessionId,
+      deviceId: peer.deviceId,
+      send: peer.send
+    };
+    room.peers.set(peer.peerId, registeredPeer);
     this.rooms.set(peer.sessionId, room);
-    return [...room.values()];
+
+    return {
+      peers: [...room.peers.values()],
+      ticketCreated,
+      ticketConsumed,
+      ticketRemainingUses: room.pairingTicket?.remainingUses,
+      pairedDevice
+    };
   }
 
   leave(sessionId: string, peerId: string): void {
@@ -34,9 +129,9 @@ export class RoomRegistry {
       return;
     }
 
-    room.delete(peerId);
+    room.peers.delete(peerId);
 
-    if (room.size === 0) {
+    if (room.peers.size === 0) {
       this.rooms.delete(sessionId);
     }
   }
@@ -48,10 +143,10 @@ export class RoomRegistry {
       return [];
     }
 
-    return [...room.values()].filter((peer) => peer.peerId !== exceptPeerId);
+    return [...room.peers.values()].filter((peer) => peer.peerId !== exceptPeerId);
   }
 
   size(sessionId: string): number {
-    return this.rooms.get(sessionId)?.size ?? 0;
+    return this.rooms.get(sessionId)?.peers.size ?? 0;
   }
 }

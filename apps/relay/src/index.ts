@@ -1,8 +1,9 @@
-import { createRelayRuntime } from "./server.js";
+import { createRelayPairingConfig, createRelayRuntime } from "./server.js";
 
 const runtime = createRelayRuntime({
   port: Number.parseInt(process.env.WINBRIDGE_RELAY_PORT ?? "8787", 10),
-  sharedToken: process.env.WINBRIDGE_RELAY_SHARED_TOKEN
+  sharedToken: process.env.WINBRIDGE_RELAY_SHARED_TOKEN,
+  pairing: createRelayPairingConfig(process.env)
 });
 
 const shutdown = async () => {

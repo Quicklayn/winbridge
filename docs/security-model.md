@@ -37,6 +37,8 @@ Pairing tickets:
 - Have limited remaining uses.
 - Do not grant screen, input, clipboard, file, or diagnostic permissions by themselves.
 
+The development relay creates pairing tickets when the host joins a room. Viewer joins must consume that host-created ticket before relay registration. Viewer-first, mismatched, expired, or consumed tickets are rejected before message forwarding.
+
 Remote actions still require an explicit host-approved active session grant.
 
 ## Session Authorization Lifecycle
@@ -90,6 +92,14 @@ The implementation must reject:
 - Evasion of security software.
 - Bypassing UAC or Windows consent prompts.
 - Silent install/uninstall flows that hide the product from the host user.
+
+## Development Relay Pairing
+
+The relay stores hashed in-memory pairing tickets rather than raw pairing codes in peer state. Pairing ticket audit details may record safe metadata such as ticket presence, mismatch/expired/consumed booleans, and remaining use counts.
+
+Relay pairing audit details must not include raw pairing codes, shared tokens, credentials, protocol payloads, keystrokes, screenshots, screen contents, or full secrets.
+
+This is not production identity. Production pairing needs durable storage, account binding, device trust, revocation, and reconnect semantics specified in a future OpenSpec change.
 
 ## Development Relay Abuse Protection
 
