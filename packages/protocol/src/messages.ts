@@ -204,6 +204,30 @@ export const SessionControlMessageSchema = BaseMessageSchema.extend({
   action: z.enum(["pause", "resume", "terminate", "revoke-permission"]),
   permission: PermissionSchema.optional(),
   reason: z.string().max(240).optional()
+}).superRefine((message, context) => {
+  if (message.action === "revoke-permission" && !message.permission) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Revoke-permission session control messages require permission",
+      path: ["permission"]
+    });
+  }
+
+  if (message.action !== "revoke-permission" && message.permission) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${message.action} session control messages cannot include permission`,
+      path: ["permission"]
+    });
+  }
+
+  if (message.reason !== undefined && message.reason.trim().length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Session control reason must not be blank",
+      path: ["reason"]
+    });
+  }
 });
 
 export const AuditEventMessageSchema = BaseMessageSchema.extend({

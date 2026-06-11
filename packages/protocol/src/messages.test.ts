@@ -439,7 +439,7 @@ describe("protocol envelopes", () => {
     ).toThrow();
   });
 
-  it("accepts pause and resume session control messages", () => {
+  it("accepts valid session control messages", () => {
     const pause = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
       type: "session-control",
@@ -454,9 +454,67 @@ describe("protocol envelopes", () => {
       action: "resume",
       reason: "Host resumed"
     });
+    const terminate = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-control",
+      actorPeerId: "host-1",
+      action: "terminate",
+      reason: "Host terminated"
+    });
+    const revokePermission = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-control",
+      actorPeerId: "host-1",
+      action: "revoke-permission",
+      permission: "screen:view",
+      reason: "Host revoked screen"
+    });
 
     expect(pause).toMatchObject({ type: "session-control", action: "pause" });
     expect(resume).toMatchObject({ type: "session-control", action: "resume" });
+    expect(terminate).toMatchObject({ type: "session-control", action: "terminate" });
+    expect(revokePermission).toMatchObject({
+      type: "session-control",
+      action: "revoke-permission",
+      permission: "screen:view"
+    });
+  });
+
+  it("rejects ambiguous session control permission payloads", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-control",
+        actorPeerId: "host-1",
+        action: "revoke-permission",
+        reason: "Host revoked screen"
+      })
+    ).toThrow("require permission");
+
+    for (const action of ["pause", "resume", "terminate"] as const) {
+      expect(() =>
+        parseProtocolEnvelope({
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          actorPeerId: "host-1",
+          action,
+          permission: "screen:view",
+          reason: "Invalid permission payload"
+        })
+      ).toThrow("cannot include permission");
+    }
+  });
+
+  it("rejects blank session control reasons", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-control",
+        actorPeerId: "host-1",
+        action: "pause",
+        reason: "   "
+      })
+    ).toThrow("must not be blank");
   });
 
   it("accepts permission revoke messages", () => {
