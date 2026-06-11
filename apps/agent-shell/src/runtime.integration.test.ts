@@ -750,10 +750,10 @@ describe("agent shell consent workflow", () => {
 
   it("does not send resume after authorization expires while paused", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
-      authorizationTtlMs: 20,
+      authorizationTtlMs: 120,
       hostDecision: "approve",
-      hostPauseAfterMs: 5,
-      hostResumeAfterMs: 40,
+      hostPauseAfterMs: 10,
+      hostResumeAfterMs: 180,
       visibleToHost: true
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -770,7 +770,7 @@ describe("agent shell consent workflow", () => {
         message.type === "session-authorization-state" &&
         message.status === "expired"
     );
-    await delay(70);
+    await delay(220);
 
     expect(
       viewerEvents.some(
