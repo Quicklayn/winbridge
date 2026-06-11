@@ -97,6 +97,15 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 Revocation simulation only sends protocol messages; it does not perform remote actions.
 
+Simulate host session termination during development:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --terminate-after-ms 5000
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+Termination simulation only sends protocol messages; it does not capture the screen, send input, or install any background service.
+
 ## OpenSpec
 
 Use OpenSpec for behavior changes:

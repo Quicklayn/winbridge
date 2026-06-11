@@ -281,6 +281,109 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("sends terminated state and audit after host terminates visible session", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostTerminateAfterMs: 10,
+      hostTerminateReason: "private terminate reason",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view", "input:pointer"], viewerEvents);
+
+    const control = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-control" && message.action === "terminate"
+    );
+    const terminatedState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "terminated"
+    );
+    const terminateAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.terminated"
+    );
+
+    expect(control).toMatchObject({
+      type: "session-control",
+      action: "terminate",
+      actorPeerId: "host-1"
+    });
+    expect(terminatedState).toMatchObject({
+      type: "session-authorization-state",
+      status: "terminated",
+      visibleToHost: true,
+      permissions: []
+    });
+    expect(terminateAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        previouslyGrantedPermissionCount: 2,
+        visibleToHost: true,
+        terminated: true
+      }
+    });
+    expect(JSON.stringify(terminateAudit)).not.toContain("private terminate reason");
+  });
+
+  it("does not send terminate messages when visible active state is withheld", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostTerminateAfterMs: 10,
+      visibleToHost: false
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(viewerEvents, (message) => message.type === "session-authorization-decision");
+    await delay(50);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-control" &&
+          event.message.action === "terminate"
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "terminated"
+      )
+    ).toBe(false);
+  });
+
+  it("does not send later revoke messages after termination", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostRevokeAfterMs: 30,
+      hostRevokePermission: "screen:view",
+      hostTerminateAfterMs: 10,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "terminated"
+    );
+    await delay(60);
+
+    expect(
+      viewerEvents.some(
+        (event) => event.direction === "received" && event.message.type === "permission-revoked"
+      )
+    ).toBe(false);
+  });
+
   it("logs protocol message summaries without raw payloads", async () => {
     const { relay, host, viewerEvents } = await startRelayAndHost();
     const viewerLogs: string[] = [];
@@ -343,6 +446,8 @@ async function startRelayAndHost(options: {
   hostRevokeAfterMs?: number;
   hostRevokePermission?: Permission;
   hostRevokeReason?: string;
+  hostTerminateAfterMs?: number;
+  hostTerminateReason?: string;
   visibleToHost?: boolean;
 } = {}) {
   const relay = createRelayRuntime({
@@ -369,6 +474,8 @@ async function startRelayAndHost(options: {
     hostRevokeAfterMs: options.hostRevokeAfterMs,
     hostRevokePermission: options.hostRevokePermission,
     hostRevokeReason: options.hostRevokeReason,
+    hostTerminateAfterMs: options.hostTerminateAfterMs,
+    hostTerminateReason: options.hostTerminateReason,
     visibleToHost: options.visibleToHost ?? false,
     logger: options.hostLogger ?? silentLogger,
     onEvent: (event) => hostEvents.push(event)
