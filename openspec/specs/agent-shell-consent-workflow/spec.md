@@ -71,6 +71,17 @@ The agent shell SHALL emit local `raw` runtime events without exposing raw non-p
 - **WHEN** the managed runtime receives a relay rejection or other malformed inbound text that includes parser details or raw payload fragments
 - **THEN** the local `raw` runtime event MUST NOT expose those details or fragments
 
+### Requirement: Closed runtime events are secret-safe
+The agent shell SHALL emit local `closed` runtime events without exposing raw WebSocket close reasons, tokens, pairing codes, credentials, parser details, protocol payload fragments, keystrokes, screenshots, screen contents, or input contents.
+
+#### Scenario: WebSocket close reason is redacted
+- **WHEN** the managed runtime receives a WebSocket close frame with a reason
+- **THEN** the local `closed` runtime event MUST expose only secret-safe metadata such as close code and reason byte length and MUST NOT expose the raw reason text
+
+#### Scenario: Disconnect log remains summary-only
+- **WHEN** the managed runtime logs a WebSocket disconnect
+- **THEN** the log MUST include only summary metadata and MUST NOT include the raw close reason text
+
 ### Requirement: Agent shell CLI argument validation
 The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime, including duplicate requested permissions.
 

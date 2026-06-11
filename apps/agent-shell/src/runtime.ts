@@ -57,7 +57,7 @@ export type AgentShellEvent =
   | { direction: "received"; message: ProtocolEnvelope }
   | { direction: "raw"; text: typeof REDACTED_EVENT_VALUE; byteLength: number }
   | { direction: "error"; error: Error }
-  | { direction: "closed"; code: number; reason: string };
+  | { direction: "closed"; code: number; reason: typeof REDACTED_EVENT_VALUE; reasonBytes: number };
 
 export type AgentShellSentProtocolEnvelope =
   | Exclude<ProtocolEnvelope, { type: "join-session" }>
@@ -135,9 +135,10 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       });
 
       socket.on("close", (code, reason) => {
-        const event = { direction: "closed", code, reason: reason.toString() } as const;
+        const reasonBytes = reason.length;
+        const event = { direction: "closed", code, reason: REDACTED_EVENT_VALUE, reasonBytes } as const;
         options.onEvent?.(event);
-        logger.log(`[winbridge-agent] disconnected code=${code} reasonBytes=${reason.length}`);
+        logger.log(`[winbridge-agent] disconnected code=${code} reasonBytes=${reasonBytes}`);
       });
 
       socket.on("error", (error) => {

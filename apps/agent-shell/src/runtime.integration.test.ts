@@ -1,9 +1,12 @@
+import { once } from "node:events";
 import { readFileSync, rmSync, mkdtempSync } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileAuditSink, MemoryAuditSink, type AuditSink } from "@winbridge/audit-log";
 import { createMessageBase, type Permission, type ProtocolEnvelope } from "@winbridge/protocol";
 import { afterEach, describe, expect, it } from "vitest";
+import { WebSocketServer } from "ws";
 import { createRelayRuntime, type RelayRuntime } from "../../relay/src/server.js";
 import {
   createAgentShellRuntime,
@@ -1308,6 +1311,40 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(rawEvent)).not.toContain("relay-error");
     expect(JSON.stringify(rawEvent)).not.toContain("Message session does not match registered peer");
   });
+
+  it("emits closed events without raw websocket close reason text", async () => {
+    const privateCloseReason = "private close token raw-close-token";
+    const closeServer = await startCloseReasonServer(privateCloseReason);
+    const closeEvents: AgentShellEvent[] = [];
+    const closeLogs: string[] = [];
+
+    try {
+      const runtime = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: closeServer.url,
+        logger: captureLogger(closeLogs),
+        onEvent: (event) => closeEvents.push(event)
+      }));
+      await runtime.start();
+      agentRuntimes.push(runtime);
+
+      const closedEvent = await waitForClosedEvent(closeEvents);
+      const logOutput = closeLogs.join("\n");
+
+      expect(closedEvent).toMatchObject({
+        direction: "closed",
+        code: 4000,
+        reason: "[REDACTED]",
+        reasonBytes: Buffer.byteLength(privateCloseReason)
+      });
+      expect(JSON.stringify(closedEvent)).not.toContain(privateCloseReason);
+      expect(JSON.stringify(closedEvent)).not.toContain("raw-close-token");
+      expect(logOutput).toContain("disconnected code=4000 reasonBytes=");
+      expect(logOutput).not.toContain(privateCloseReason);
+      expect(logOutput).not.toContain("raw-close-token");
+    } finally {
+      await closeServer.stop();
+    }
+  });
 });
 
 function createRuntimeOptions(
@@ -1446,6 +1483,23 @@ function waitForRawEvent(
   );
 }
 
+function waitForClosedEvent(
+  events: AgentShellEvent[]
+): Promise<Extract<AgentShellEvent, { direction: "closed" }>> {
+  return withTimeout(
+    new Promise((resolve) => {
+      const interval = setInterval(() => {
+        const match = events.find((event) => event.direction === "closed");
+
+        if (match?.direction === "closed") {
+          clearInterval(interval);
+          resolve(match);
+        }
+      }, 5);
+    })
+  );
+}
+
 function waitForRuntimeError(events: AgentShellEvent[]): Promise<Error> {
   return withTimeout(
     new Promise((resolve) => {
@@ -1471,6 +1525,37 @@ function captureLogger(logs: string[]): TestLogger {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function startCloseReasonServer(closeReason: string): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    setTimeout(() => socket.close(4000, closeReason), 10);
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Close reason test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
 }
 
 function withTimeout<T>(promise: Promise<T>): Promise<T> {
