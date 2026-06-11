@@ -654,6 +654,213 @@ describe("relay runtime integration", () => {
     });
   });
 
+  it("rejects registered messages when no recipient peer is registered", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    const auditStart = auditSink.records().length;
+
+    host.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "missing-recipient-private-marker"
+        }
+      })
+    );
+
+    expect(await waitForJsonMessage(host, (message) => message.type === "relay-error")).toEqual({
+      type: "relay-error",
+      reason: "No recipient peer is registered"
+    });
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.rejected" &&
+        record.reason === "No recipient peer is registered",
+      auditStart
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      detail: {
+        registered: true
+      }
+    });
+    expect(auditSink.records().slice(auditStart).some((record) => record.action === "relay.message.forwarded")).toBe(false);
+    expect(JSON.stringify(rejected)).not.toContain("missing-recipient-private-marker");
+  });
+
+  it("rejects registered messages after the recipient peer leaves", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    viewer.close();
+    await waitForProtocolMessage(host, (message) => message.type === "peer-disconnected");
+    const auditStart = auditSink.records().length;
+
+    host.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "departed-recipient-private-marker"
+        }
+      })
+    );
+
+    expect(await waitForJsonMessage(host, (message) => message.type === "relay-error")).toEqual({
+      type: "relay-error",
+      reason: "No recipient peer is registered"
+    });
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.rejected" &&
+        record.reason === "No recipient peer is registered",
+      auditStart
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      detail: {
+        registered: true
+      }
+    });
+    expect(auditSink.records().slice(auditStart).some((record) => record.action === "relay.message.forwarded")).toBe(false);
+    expect(JSON.stringify(rejected)).not.toContain("departed-recipient-private-marker");
+  });
+
+  it("rejects misaddressed signal targets before forwarding", async () => {
+    const cases = [
+      { name: "self target", toPeerId: "host-1" },
+      { name: "unknown target", toPeerId: "viewer-2" }
+    ];
+
+    for (const { name, toPeerId } of cases) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+
+      host.send(
+        encodeProtocolEnvelope({
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId,
+          payload: {
+            kind: `wrong-target-private-marker-${toPeerId}`
+          }
+        })
+      );
+
+      expect(await waitForJsonMessage(host, (message) => message.type === "relay-error"), name).toEqual({
+        type: "relay-error",
+        reason: "Message target does not match registered recipient"
+      });
+      await expectNoProtocolMessage(viewer, (message) => message.type === "signal");
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) =>
+          record.action === "relay.message.rejected" &&
+          record.reason === "Message target does not match registered recipient"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain(`wrong-target-private-marker-${toPeerId}`);
+    }
+  });
+
+  it("rejects misaddressed authorization decisions before forwarding", async () => {
+    const cases: Array<{
+      name: string;
+      buildMessage: () => ProtocolEnvelope;
+      rejectedType: ProtocolEnvelope["type"];
+      privateMarker: string;
+    }> = [
+      {
+        name: "legacy host consent decision",
+        rejectedType: "host-consent-decision",
+        privateMarker: "legacy-target-private-marker",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "host-consent-decision",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-2",
+          approved: true,
+          grantedPermissions: ["screen:view"],
+          reason: "legacy-target-private-marker"
+        })
+      },
+      {
+        name: "session authorization decision",
+        rejectedType: "session-authorization-decision",
+        privateMarker: "authorization-target-private-marker",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz-demo",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-2",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          reason: "authorization-target-private-marker"
+        })
+      }
+    ];
+
+    for (const { buildMessage, name, privateMarker, rejectedType } of cases) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+
+      host.send(encodeProtocolEnvelope(buildMessage()));
+
+      expect(await waitForJsonMessage(host, (message) => message.type === "relay-error"), name).toEqual({
+        type: "relay-error",
+        reason: "Message target does not match registered recipient"
+      });
+      await expectNoProtocolMessage(viewer, (message) => message.type === rejectedType);
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) =>
+          record.action === "relay.message.rejected" &&
+          record.reason === "Message target does not match registered recipient"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain(privateMarker);
+    }
+  });
+
   it("rejects a viewer before the host creates a pairing ticket", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });

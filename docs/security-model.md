@@ -148,6 +148,8 @@ Protocol-facing machine identifiers such as session ids, peer ids, message ids, 
 
 After a peer registers, the relay rejects peer messages that attempt to replay `join-session`, forge relay-originated lifecycle messages, spoof another peer's sender or actor id, or use host/viewer role-bound authorization fields from the wrong registered role. Rejections use bounded reasons and do not expose raw pairing codes or protocol payloads to the remaining peer.
 
+Registered-peer messages also require a concrete remaining recipient in the two-party room. If an explicit target such as `signal.toPeerId` or an authorization decision `viewerPeerId` is present, it must match the remaining registered peer or the relay rejects the message before forwarding.
+
 Malformed relay messages receive bounded secret-safe rejection reasons such as `Invalid relay message`. Parser details and raw malformed message contents are not returned to peers or stored in invalid-message audit reasons.
 
 Rate-limit audit details are secret-safe:

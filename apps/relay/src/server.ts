@@ -49,6 +49,8 @@ const SAFE_RELAY_REJECTION_REASONS = new Set([
   "Message session does not match registered peer",
   "Message peer identity does not match registered peer",
   "Message role does not match registered peer",
+  "No recipient peer is registered",
+  "Message target does not match registered recipient",
   "Peer disconnect notices are relay-originated",
   "Signal payload must not be empty",
   "Signal payload must be 16384 bytes or less",
@@ -200,7 +202,11 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
 
         assertRegisteredPeerCanForward(envelope, registeredPeer);
 
-        for (const peer of rooms.peers(registeredPeer.sessionId, registeredPeer.peerId)) {
+        const recipientPeers = rooms.peers(registeredPeer.sessionId, registeredPeer.peerId);
+        const recipient = assertSingleRecipient(recipientPeers);
+        assertEnvelopeTargetsRecipient(envelope, recipient);
+
+        for (const peer of recipientPeers) {
           peer.send(encodeProtocolEnvelope(envelope));
         }
         writeRelayAudit(auditSink, {
@@ -545,6 +551,60 @@ function assertEnvelopePeer(peerId: string, peer: RelayPeer): void {
 function assertEnvelopeRole(role: RelayPeer["role"], peer: RelayPeer): void {
   if (role !== peer.role) {
     throw new Error("Message role does not match registered peer");
+  }
+}
+
+function assertSingleRecipient(peers: RelayPeer[]): RelayPeer {
+  const [peer] = peers;
+  if (peers.length !== 1 || !peer) {
+    throw new Error("No recipient peer is registered");
+  }
+
+  return peer;
+}
+
+function assertEnvelopeTargetsRecipient(envelope: ProtocolEnvelope, recipient: RelayPeer): void {
+  switch (envelope.type) {
+    case "host-consent-required":
+    case "session-authorization-request":
+      assertRecipientRole("host", recipient);
+      return;
+    case "host-consent-decision":
+    case "session-authorization-decision":
+      assertRecipientRole("viewer", recipient);
+      assertTargetPeer(envelope.viewerPeerId, recipient);
+      return;
+    case "signal":
+      if (envelope.toPeerId) {
+        assertTargetPeer(envelope.toPeerId, recipient);
+      }
+      return;
+    case "hello":
+    case "session-authorization-state":
+    case "permission-revoked":
+    case "session-control":
+    case "audit-event":
+      return;
+    case "join-session":
+    case "relay-ready":
+    case "peer-disconnected":
+      return;
+    default: {
+      const exhaustive: never = envelope;
+      return exhaustive;
+    }
+  }
+}
+
+function assertRecipientRole(role: RelayPeer["role"], recipient: RelayPeer): void {
+  if (recipient.role !== role) {
+    throw new Error("Message target does not match registered recipient");
+  }
+}
+
+function assertTargetPeer(peerId: string, recipient: RelayPeer): void {
+  if (peerId !== recipient.peerId) {
+    throw new Error("Message target does not match registered recipient");
   }
 }
 
