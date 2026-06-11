@@ -1,0 +1,107 @@
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { PairingCodeSchema, PermissionSchema, SessionRoleSchema } from "./session.js";
+
+export const PROTOCOL_VERSION = 1;
+
+const BaseMessageSchema = z.object({
+  protocolVersion: z.literal(PROTOCOL_VERSION),
+  messageId: z.string().min(3),
+  sessionId: z.string().min(3),
+  createdAt: z.string().datetime()
+});
+
+export const HelloMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("hello"),
+  peerId: z.string().min(3),
+  role: SessionRoleSchema,
+  displayName: z.string().min(1).max(120),
+  capabilities: z.array(z.string().min(1).max(80)).max(32)
+});
+
+export const JoinSessionMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("join-session"),
+  peerId: z.string().min(3),
+  role: SessionRoleSchema,
+  pairingCode: PairingCodeSchema
+});
+
+export const HostConsentRequiredMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("host-consent-required"),
+  viewerPeerId: z.string().min(3),
+  viewerDisplayName: z.string().min(1).max(120),
+  requestedPermissions: z.array(PermissionSchema).max(16)
+});
+
+export const HostConsentDecisionMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("host-consent-decision"),
+  hostPeerId: z.string().min(3),
+  viewerPeerId: z.string().min(3),
+  approved: z.boolean(),
+  grantedPermissions: z.array(PermissionSchema).max(16),
+  reason: z.string().max(240).optional()
+});
+
+export const RelayReadyMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("relay-ready"),
+  peerId: z.string().min(3),
+  roomSize: z.number().int().min(1).max(2)
+});
+
+export const SignalMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("signal"),
+  fromPeerId: z.string().min(3),
+  toPeerId: z.string().min(3).optional(),
+  payload: z.record(z.unknown())
+});
+
+export const SessionControlMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("session-control"),
+  actorPeerId: z.string().min(3),
+  action: z.enum(["pause", "resume", "terminate", "revoke-permission"]),
+  permission: PermissionSchema.optional(),
+  reason: z.string().max(240).optional()
+});
+
+export const AuditEventMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("audit-event"),
+  eventId: z.string().min(3),
+  actorPeerId: z.string().min(3),
+  action: z.string().min(1).max(120),
+  outcome: z.enum(["accepted", "denied", "failed"]),
+  detail: z.record(z.unknown()).default({})
+});
+
+export const ProtocolEnvelopeSchema = z.discriminatedUnion("type", [
+  HelloMessageSchema,
+  JoinSessionMessageSchema,
+  HostConsentRequiredMessageSchema,
+  HostConsentDecisionMessageSchema,
+  RelayReadyMessageSchema,
+  SignalMessageSchema,
+  SessionControlMessageSchema,
+  AuditEventMessageSchema
+]);
+
+export type ProtocolEnvelope = z.infer<typeof ProtocolEnvelopeSchema>;
+
+export function parseProtocolEnvelope(input: unknown): ProtocolEnvelope {
+  return ProtocolEnvelopeSchema.parse(input);
+}
+
+export function decodeProtocolEnvelope(raw: string): ProtocolEnvelope {
+  return parseProtocolEnvelope(JSON.parse(raw));
+}
+
+export function encodeProtocolEnvelope(envelope: ProtocolEnvelope): string {
+  return JSON.stringify(parseProtocolEnvelope(envelope));
+}
+
+export function createMessageBase(sessionId: string) {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    messageId: randomUUID(),
+    sessionId,
+    createdAt: new Date().toISOString()
+  } as const;
+}

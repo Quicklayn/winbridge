@@ -1,0 +1,36 @@
+name: Security review
+description: Request review for a high-risk area.
+title: "[Security Review]: "
+labels: ["type:security", "area:security"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - capture
+        - input
+        - authentication
+        - authorization
+        - relay
+        - tokens
+        - audit logs
+        - installer
+        - startup or service
+        - privilege elevation
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: change
+    attributes:
+      label: Change summary
+    validations:
+      required: true
+  - type: textarea
+    id: review
+    attributes:
+      label: Required checks
+      description: List consent, visibility, revocation, auth, audit, and abuse-case checks.
+    validations:
+      required: true

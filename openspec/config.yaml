@@ -1,0 +1,28 @@
+schema: spec-driven
+
+context: |
+  Project: WinBridge, a consent-first Windows-to-Windows remote assistance product.
+  Bootstrap stack: TypeScript, Node.js, npm workspaces, WebSocket development relay.
+  Current scope: protocol schemas, development relay, non-native agent shell, docs, GitHub-ready workflow.
+  Future scope: native Windows UI/capture/input only after explicit OpenSpec changes and security review.
+  Safety invariants:
+  - Host consent is explicit before any access.
+  - Active sessions are visible on the host machine.
+  - Host can pause, revoke permissions, or disconnect immediately.
+  - Sensitive actions require authentication, authorization, permission grant, and audit event.
+  - Prohibited: hidden sessions, stealth install, unauthorized persistence, credential theft, keylogging, AV/EDR evasion, Windows prompt bypass, hidden capture, hidden input.
+
+rules:
+  proposal:
+    - Include safety impact and non-goals for any remote capability.
+    - Identify whether the change touches capture, input, auth, relay, installer, startup, services, tokens, logs, or privilege elevation.
+  specs:
+    - Use SHALL or MUST for normative requirements.
+    - Include denial, revocation, and failure scenarios for sensitive capabilities.
+    - Do not add covert access, stealth, credential theft, keylogging, evasion, or bypass capabilities.
+  design:
+    - Explain security rationale and alternatives for high-risk areas.
+    - Keep production security separate from development shortcuts.
+  tasks:
+    - Include verification tasks for typecheck, tests, build, and OpenSpec validation.
+    - Add a security review task for capture, input, auth, relay, installer, startup, service, token, log, or privilege changes.
