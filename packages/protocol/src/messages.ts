@@ -13,6 +13,11 @@ const BaseMessageSchema = z.object({
   sessionId: z.string().min(3),
   createdAt: z.string().datetime()
 });
+const ProtocolReasonSchema = z
+  .string()
+  .min(1)
+  .max(240)
+  .refine((reason) => reason.trim().length > 0, "Reason must not be blank");
 
 export const HelloMessageSchema = BaseMessageSchema.extend({
   type: z.literal("hello"),
@@ -45,7 +50,7 @@ export const HostConsentDecisionMessageSchema = BaseMessageSchema.extend({
   viewerPeerId: z.string().min(3),
   approved: z.boolean(),
   grantedPermissions: z.array(PermissionSchema).max(16),
-  reason: z.string().min(1).max(240).optional()
+  reason: ProtocolReasonSchema.optional()
 }).superRefine((message, context) => {
   rejectDuplicatePermissions(message.grantedPermissions, context, "grantedPermissions");
 
@@ -78,7 +83,7 @@ export const SessionAuthorizationRequestMessageSchema = BaseMessageSchema.extend
   type: z.literal("session-authorization-request"),
   viewerPeerId: z.string().min(3),
   requestedPermissions: z.array(PermissionSchema).min(1).max(16),
-  reason: z.string().min(1).max(240).optional()
+  reason: ProtocolReasonSchema.optional()
 }).superRefine((message, context) => {
   rejectDuplicatePermissions(message.requestedPermissions, context, "requestedPermissions");
 });
@@ -91,7 +96,7 @@ export const SessionAuthorizationDecisionMessageSchema = BaseMessageSchema.exten
   decision: z.enum(["approved", "denied"]),
   grantedPermissions: z.array(PermissionSchema).max(16),
   expiresAt: z.string().datetime().optional(),
-  reason: z.string().min(1).max(240).optional()
+  reason: ProtocolReasonSchema.optional()
 }).superRefine((message, context) => {
   rejectDuplicatePermissions(message.grantedPermissions, context, "grantedPermissions");
 
@@ -136,7 +141,7 @@ export const SessionAuthorizationStateMessageSchema = BaseMessageSchema.extend({
   visibleToHost: z.boolean(),
   permissions: z.array(PermissionSchema).max(16),
   expiresAt: z.string().datetime(),
-  reason: z.string().min(1).max(240).optional()
+  reason: ProtocolReasonSchema.optional()
 }).superRefine((message, context) => {
   rejectDuplicatePermissions(message.permissions, context, "permissions");
 
@@ -173,7 +178,7 @@ export const PermissionRevokedMessageSchema = BaseMessageSchema.extend({
   authorizationId: z.string().min(8),
   actorPeerId: z.string().min(3),
   revokedPermission: PermissionSchema,
-  reason: z.string().min(1).max(240)
+  reason: ProtocolReasonSchema
 });
 
 export const RelayReadyMessageSchema = BaseMessageSchema.extend({
@@ -203,7 +208,7 @@ export const SessionControlMessageSchema = BaseMessageSchema.extend({
   actorPeerId: z.string().min(3),
   action: z.enum(["pause", "resume", "terminate", "revoke-permission"]),
   permission: PermissionSchema.optional(),
-  reason: z.string().max(240).optional()
+  reason: ProtocolReasonSchema.optional()
 }).superRefine((message, context) => {
   if (message.action === "revoke-permission" && !message.permission) {
     context.addIssue({
@@ -221,13 +226,6 @@ export const SessionControlMessageSchema = BaseMessageSchema.extend({
     });
   }
 
-  if (message.reason !== undefined && message.reason.trim().length === 0) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Session control reason must not be blank",
-      path: ["reason"]
-    });
-  }
 });
 
 export const AuditEventMessageSchema = BaseMessageSchema.extend({

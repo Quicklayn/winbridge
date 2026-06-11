@@ -266,6 +266,63 @@ describe("session authorization state machine", () => {
     ).toThrow("pausedAt");
   });
 
+  it("rejects blank lifecycle reasons in state-machine transitions", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+    const paused = pauseSessionAuthorization(active, { now: baseTime });
+
+    expect(() =>
+      denySessionAuthorization(pending(), {
+        reason: "   ",
+        now: baseTime
+      })
+    ).toThrow("reason must not be blank");
+    expect(() =>
+      revokeSessionPermission(active, {
+        permission: "screen:view",
+        reason: "   ",
+        now: baseTime
+      })
+    ).toThrow("reason must not be blank");
+    expect(() =>
+      pauseSessionAuthorization(active, {
+        reason: "   ",
+        now: baseTime
+      })
+    ).toThrow("reason must not be blank");
+    expect(() =>
+      resumeSessionAuthorization(paused, {
+        reason: "   ",
+        now: baseTime
+      })
+    ).toThrow("reason must not be blank");
+    expect(() =>
+      terminateSessionAuthorization(active, {
+        reason: "   ",
+        now: baseTime
+      })
+    ).toThrow("reason must not be blank");
+  });
+
+  it("rejects parsed authorization records with blank reasons", () => {
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+
+    expect(() =>
+      SessionAuthorizationSchema.parse({
+        ...denied,
+        reason: "   "
+      })
+    ).toThrow("reason must not be blank");
+  });
+
   it("authorizes granted actions only when active and visible", () => {
     const active = activateSessionAuthorization(
       approveSessionAuthorization(pending(), {

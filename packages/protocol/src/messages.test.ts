@@ -193,7 +193,7 @@ describe("protocol envelopes", () => {
         grantedPermissions: [],
         reason: "   "
       })
-    ).toThrow("require a reason");
+    ).toThrow("must not be blank");
   });
 
   it("accepts session authorization request messages", () => {
@@ -217,6 +217,32 @@ describe("protocol envelopes", () => {
         requestedPermissions: ["screen:view", "screen:view"]
       })
     ).toThrow("requestedPermissions must be unique");
+  });
+
+  it("rejects blank authorization request reasons", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        reason: "   "
+      })
+    ).toThrow("must not be blank");
+  });
+
+  it("accepts authorization request messages that omit optional reason", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-authorization-request",
+      viewerPeerId: "viewer-1",
+      requestedPermissions: ["screen:view"]
+    });
+
+    expect(parsed).toMatchObject({
+      type: "session-authorization-request",
+      requestedPermissions: ["screen:view"]
+    });
   });
 
   it("accepts approved session authorization decisions with expiration", () => {
@@ -292,6 +318,21 @@ describe("protocol envelopes", () => {
         reason: "Host denied"
       })
     ).toThrow("cannot grant permissions");
+  });
+
+  it("rejects blank session authorization decision reasons", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-decision",
+        authorizationId: "authz-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        decision: "denied",
+        grantedPermissions: [],
+        reason: "   "
+      })
+    ).toThrow("must not be blank");
   });
 
   it("rejects approved session authorization decisions without expiration", () => {
@@ -402,6 +443,22 @@ describe("protocol envelopes", () => {
         reason: "Host terminated"
       })
     ).toThrow("cannot carry permissions");
+  });
+
+  it("rejects blank session authorization state reasons", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        status: "revoked",
+        visibleToHost: true,
+        permissions: [],
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        reason: "   "
+      })
+    ).toThrow("must not be blank");
   });
 
   it("accepts paused visible session authorization state updates", () => {
@@ -528,6 +585,19 @@ describe("protocol envelopes", () => {
     });
 
     expect(parsed.type).toBe("permission-revoked");
+  });
+
+  it("rejects blank permission revoke reasons", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "permission-revoked",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        revokedPermission: "input:keyboard",
+        reason: "   "
+      })
+    ).toThrow("must not be blank");
   });
 
   it("rejects malformed authorization permissions", () => {

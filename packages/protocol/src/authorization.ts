@@ -15,6 +15,11 @@ export const SessionAuthorizationStatusSchema = z.enum([
 export type SessionAuthorizationStatus = z.infer<typeof SessionAuthorizationStatusSchema>;
 
 const grantBearingStatuses = new Set<SessionAuthorizationStatus>(["pending", "approved", "active", "paused"]);
+const AuthorizationReasonSchema = z
+  .string()
+  .min(1)
+  .max(240)
+  .refine((reason) => reason.trim().length > 0, "Authorization reason must not be blank");
 
 const SessionAuthorizationBaseSchema = z.object({
   authorizationId: z.string().min(8),
@@ -35,7 +40,7 @@ const SessionAuthorizationBaseSchema = z.object({
   revokedAt: z.string().datetime().optional(),
   terminatedAt: z.string().datetime().optional(),
   expiredAt: z.string().datetime().optional(),
-  reason: z.string().min(1).max(240).optional()
+  reason: AuthorizationReasonSchema.optional()
 });
 export const SessionAuthorizationSchema = SessionAuthorizationBaseSchema.superRefine((authorization, ctx) => {
   if (new Set(authorization.permissions).size !== authorization.permissions.length) {
