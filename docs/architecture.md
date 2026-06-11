@@ -66,6 +66,8 @@ Provides a development WebSocket relay:
 - Optionally enforces a shared development token.
 - Limits a room to one host and one viewer.
 - Validates protocol envelopes before forwarding.
+- Bounds raw WebSocket message size before protocol decoding.
+- Rejects empty, oversized, or sensitive-key `signal` payloads before forwarding.
 - Emits structured development audit records for joins, denials, forwarding, and disconnects.
 - Rate-limits repeated invalid token and malformed-message attempts with in-memory development defaults.
 - Sends WebSocket heartbeat pings, closes peers that miss heartbeat timeout, and audits heartbeat timeout failures.
@@ -93,6 +95,7 @@ The shell has a managed runtime shared by CLI and tests. Development consent wor
 - Host mode does nothing by default when a request is received.
 - Host mode can send approval or denial only with explicit `--host-decision`.
 - Host mode emits active state only when `--visible-session true` is also provided.
+- CLI argument parsing rejects unknown, duplicate, missing-value, malformed permission, malformed pairing, and non-`true`/`false` visible-session values before runtime start.
 - Host mode can simulate permission revocation only after explicit visible approval with `--revoke-after-ms` and `--revoke-permission`.
 - Host mode can simulate session termination only after explicit visible approval with `--terminate-after-ms`.
 - Host mode can simulate authorization expiration after visible activation with `--authorization-ttl-ms`.

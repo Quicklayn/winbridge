@@ -75,6 +75,7 @@ The non-native agent shell can simulate consent messages for development:
 - Host approval is not automatic.
 - Host approval requires `--host-decision approve`.
 - Active session state is withheld unless `--visible-session true` is set.
+- CLI parsing rejects unknown, duplicate, missing-value, malformed permission, malformed pairing, and non-`true`/`false` `--visible-session` values before starting the runtime.
 - Authorization expiration simulation uses `--authorization-ttl-ms` and only runs after visible activation.
 - Pause/resume simulation requires explicit visible approval plus `--pause-after-ms` and optional `--resume-after-ms`.
 - Permission revocation simulation requires explicit visible approval plus `--revoke-after-ms` and `--revoke-permission`.
@@ -115,6 +116,10 @@ This is not production identity. Production pairing needs durable storage, accou
 ## Development Relay Abuse Protection
 
 The development relay includes in-memory rate limiting for repeated invalid shared-token attempts and malformed or rejected protocol messages.
+
+The relay rejects inbound WebSocket messages larger than the development message size bound at the transport boundary or before protocol decoding. Oversized message rejection is audited through the invalid-message path without storing raw bytes or payload contents.
+
+`signal` protocol messages are restricted to non-empty, bounded JSON payloads. Payloads containing obvious token, credential, pairing-code, keystroke, screenshot, screen-data, screen-content, or secret keys are rejected before forwarding and are not treated as trusted remote-assistance data.
 
 Rate-limit audit details are secret-safe:
 
