@@ -97,6 +97,15 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 Expiration simulation sends protocol state and audit messages only.
 
+Simulate host pause/resume during development:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --pause-after-ms 5000 --resume-after-ms 5000
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+Pause/resume simulation only sends protocol state, control, and audit messages. It does not perform remote actions.
+
 Simulate host revocation during development:
 
 ```powershell

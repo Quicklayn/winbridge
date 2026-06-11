@@ -37,6 +37,7 @@ Preferred future clients should use the session authorization protocol messages 
 - `session-authorization-request`
 - `session-authorization-decision`
 - `session-authorization-state`
+- `session-control`
 - `permission-revoked`
 
 These messages are wire contracts only. Sensitive actions still require the shared session authorization state-machine checks.
@@ -88,7 +89,8 @@ The shell has a managed runtime shared by CLI and tests. Development consent wor
 - Host mode can simulate permission revocation only after explicit visible approval with `--revoke-after-ms` and `--revoke-permission`.
 - Host mode can simulate session termination only after explicit visible approval with `--terminate-after-ms`.
 - Host mode can simulate authorization expiration after visible activation with `--authorization-ttl-ms`.
-- Host mode emits development `audit-event` protocol messages for decision, activation, revocation, termination, and expiration workflow events.
+- Host mode can simulate pause/resume only after explicit visible approval with `--pause-after-ms` and optional `--resume-after-ms`.
+- Host mode emits development `audit-event` protocol messages for decision, activation, revocation, termination, expiration, pause, and resume workflow events.
 - Received message logs contain summaries only, not raw protocol payloads.
 
 This workflow is a protocol simulator, not production host consent UI.
@@ -117,4 +119,4 @@ Future native adapters must call the shared protocol authorization checks before
 - The host-visible session flag is true.
 - The authorization has not expired.
 - The requested permission is present.
-- The session has not been revoked or terminated.
+- The session is not paused, revoked, or terminated.

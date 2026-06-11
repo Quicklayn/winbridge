@@ -7,6 +7,7 @@ export const SessionAuthorizationStatusSchema = z.enum([
   "denied",
   "approved",
   "active",
+  "paused",
   "revoked",
   "terminated",
   "expired"
@@ -26,6 +27,8 @@ export const SessionAuthorizationSchema = z.object({
   expiresAt: z.string().datetime(),
   approvedAt: z.string().datetime().optional(),
   activatedAt: z.string().datetime().optional(),
+  pausedAt: z.string().datetime().optional(),
+  resumedAt: z.string().datetime().optional(),
   revokedAt: z.string().datetime().optional(),
   terminatedAt: z.string().datetime().optional(),
   reason: z.string().min(1).max(240).optional()
@@ -144,6 +147,64 @@ export function revokeSessionPermission(
     revokedAt: now.toISOString(),
     updatedAt: now.toISOString(),
     reason: input.reason ?? `Permission revoked: ${permission}`
+  });
+}
+
+export function pauseSessionAuthorization(
+  authorization: SessionAuthorization,
+  input: {
+    reason?: string;
+    now?: Date;
+  } = {}
+): SessionAuthorization {
+  const parsed = SessionAuthorizationSchema.parse(authorization);
+
+  if (parsed.status !== "active") {
+    throw new Error(`Cannot pause session authorization from ${parsed.status} state`);
+  }
+
+  if (!parsed.visibleToHost) {
+    throw new Error("Cannot pause session authorization without visible host session");
+  }
+
+  const now = input.now ?? new Date();
+  assertNotExpired(parsed, now);
+
+  return SessionAuthorizationSchema.parse({
+    ...parsed,
+    status: "paused",
+    pausedAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    reason: input.reason ?? "Host paused session"
+  });
+}
+
+export function resumeSessionAuthorization(
+  authorization: SessionAuthorization,
+  input: {
+    reason?: string;
+    now?: Date;
+  } = {}
+): SessionAuthorization {
+  const parsed = SessionAuthorizationSchema.parse(authorization);
+
+  if (parsed.status !== "paused") {
+    throw new Error(`Cannot resume session authorization from ${parsed.status} state`);
+  }
+
+  if (!parsed.visibleToHost) {
+    throw new Error("Cannot resume session authorization without visible host session");
+  }
+
+  const now = input.now ?? new Date();
+  assertNotExpired(parsed, now);
+
+  return SessionAuthorizationSchema.parse({
+    ...parsed,
+    status: "active",
+    resumedAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    reason: input.reason ?? "Host resumed session"
   });
 }
 

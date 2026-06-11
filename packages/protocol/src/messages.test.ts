@@ -146,6 +146,61 @@ describe("protocol envelopes", () => {
     ).toThrow();
   });
 
+  it("accepts paused visible session authorization state updates", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-authorization-state",
+      authorizationId: "authz-demo",
+      actorPeerId: "host-1",
+      status: "paused",
+      visibleToHost: true,
+      permissions: ["screen:view"],
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      reason: "Host paused"
+    });
+
+    expect(parsed).toMatchObject({
+      type: "session-authorization-state",
+      status: "paused",
+      visibleToHost: true
+    });
+  });
+
+  it("rejects paused session authorization state updates that are not visible to host", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        status: "paused",
+        visibleToHost: false,
+        permissions: ["screen:view"],
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      })
+    ).toThrow();
+  });
+
+  it("accepts pause and resume session control messages", () => {
+    const pause = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-control",
+      actorPeerId: "host-1",
+      action: "pause",
+      reason: "Host paused"
+    });
+    const resume = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-control",
+      actorPeerId: "host-1",
+      action: "resume",
+      reason: "Host resumed"
+    });
+
+    expect(pause).toMatchObject({ type: "session-control", action: "pause" });
+    expect(resume).toMatchObject({ type: "session-control", action: "resume" });
+  });
+
   it("accepts permission revoke messages", () => {
     const parsed = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),

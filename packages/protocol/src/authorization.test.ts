@@ -6,6 +6,8 @@ import {
   createPendingSessionAuthorization,
   denySessionAuthorization,
   expireSessionAuthorization,
+  pauseSessionAuthorization,
+  resumeSessionAuthorization,
   revokeSessionPermission,
   terminateSessionAuthorization
 } from "./authorization.js";
@@ -170,6 +172,64 @@ describe("session authorization state machine", () => {
         now: afterExpiry
       })
     ).toThrow("expired");
+  });
+
+  it("denies actions while paused and resumes granted permissions", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view", "input:pointer"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+    const paused = pauseSessionAuthorization(active, {
+      reason: "Host paused",
+      now: baseTime
+    });
+
+    expect(paused).toMatchObject({
+      status: "paused",
+      permissions: ["screen:view", "input:pointer"],
+      visibleToHost: true
+    });
+    expect(() =>
+      assertSessionActionAuthorized({
+        authorization: paused,
+        permission: "screen:view",
+        now: baseTime
+      })
+    ).toThrow("paused");
+
+    const resumed = resumeSessionAuthorization(paused, {
+      reason: "Host resumed",
+      now: baseTime
+    });
+
+    expect(resumed.status).toBe("active");
+    expect(
+      assertSessionActionAuthorized({
+        authorization: resumed,
+        permission: "screen:view",
+        now: baseTime
+      }).status
+    ).toBe("active");
+  });
+
+  it("rejects unsafe pause and resume transitions", () => {
+    const approved = approveSessionAuthorization(pending(), {
+      grantedPermissions: ["screen:view"],
+      now: baseTime
+    });
+    const active = activateSessionAuthorization(approved, {
+      visibleToHost: true,
+      now: baseTime
+    });
+    const paused = pauseSessionAuthorization(active, { now: baseTime });
+    const expiredTime = new Date("2026-06-11T00:31:00.000Z");
+
+    expect(() => pauseSessionAuthorization(approved, { now: baseTime })).toThrow("approved");
+    expect(() => resumeSessionAuthorization(active, { now: baseTime })).toThrow("active");
+    expect(() => resumeSessionAuthorization(paused, { now: expiredTime })).toThrow("expired");
   });
 
   it("does not treat pairing as active session authorization", () => {

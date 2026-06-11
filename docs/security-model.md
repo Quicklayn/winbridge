@@ -46,7 +46,8 @@ Remote assistance authorization is deny-by-default:
 1. `pending`: viewer requested access; no remote action is allowed.
 2. `approved`: host consented to scoped permissions; no remote action is allowed until the session is visible.
 3. `active`: host consent and visible host session state are both present; only granted unexpired permissions are allowed.
-4. `denied`, `revoked`, `terminated`, `expired`: all remote action checks fail closed.
+4. `paused`: host temporarily paused the visible session; permissions are retained but all remote action checks fail closed until host resume.
+5. `denied`, `revoked`, `terminated`, `expired`: all remote action checks fail closed.
 
 Pairing is only a prerequisite relationship. It never grants screen viewing, pointer input, keyboard input, clipboard access, file transfer, or diagnostics by itself.
 
@@ -55,6 +56,7 @@ Protocol messages for session authorization lifecycle are explicit:
 - `session-authorization-request`: viewer asks for scoped permissions.
 - `session-authorization-decision`: host approves or denies with grants, expiration, and reason where applicable.
 - `session-authorization-state`: peers receive current authorization state and host visibility.
+- `session-control`: host controls pause, resume, termination, or permission-revocation workflow intent.
 - `permission-revoked`: host or authorized actor revokes a specific permission.
 
 Receiving one of these messages is not enough to perform a sensitive action. Components must still evaluate the shared authorization state and requested permission.
@@ -68,9 +70,10 @@ The non-native agent shell can simulate consent messages for development:
 - Host approval requires `--host-decision approve`.
 - Active session state is withheld unless `--visible-session true` is set.
 - Authorization expiration simulation uses `--authorization-ttl-ms` and only runs after visible activation.
+- Pause/resume simulation requires explicit visible approval plus `--pause-after-ms` and optional `--resume-after-ms`.
 - Permission revocation simulation requires explicit visible approval plus `--revoke-after-ms` and `--revoke-permission`.
 - Session termination simulation requires explicit visible approval plus `--terminate-after-ms`.
-- Development `audit-event` messages are emitted for host decisions, visible activation, revocation, termination, and expiration using secret-safe metadata only.
+- Development `audit-event` messages are emitted for host decisions, visible activation, revocation, termination, expiration, pause, and resume using secret-safe metadata only.
 - Received message logs use summaries and must not contain raw protocol payloads or raw non-protocol message text.
 
 The shell never captures the screen, injects input, syncs clipboard, transfers files, installs services, or enables unattended access.

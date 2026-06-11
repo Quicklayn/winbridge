@@ -384,6 +384,301 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("sends paused state and audit after host pauses visible session", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostPauseAfterMs: 10,
+      hostPauseReason: "private pause reason",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view", "input:pointer"], viewerEvents);
+
+    const control = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-control" && message.action === "pause"
+    );
+    const pausedState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "paused"
+    );
+    const pauseAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.paused"
+    );
+
+    expect(control).toMatchObject({
+      type: "session-control",
+      action: "pause",
+      actorPeerId: "host-1"
+    });
+    expect(pausedState).toMatchObject({
+      type: "session-authorization-state",
+      status: "paused",
+      visibleToHost: true,
+      permissions: ["screen:view", "input:pointer"]
+    });
+    expect(pauseAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        grantedPermissionCount: 2,
+        visibleToHost: true,
+        paused: true,
+        reasonConfigured: true
+      }
+    });
+    expect(JSON.stringify(pauseAudit)).not.toContain("private pause reason");
+  });
+
+  it("sends active state and audit after host resumes paused session", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostPauseAfterMs: 10,
+      hostResumeAfterMs: 10,
+      hostResumeReason: "private resume reason",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-control" && message.action === "pause"
+    );
+    const resumeControl = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-control" && message.action === "resume"
+    );
+    const resumeAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.resumed"
+    );
+    const activeStates = viewerEvents.flatMap((event) =>
+      event.direction === "received" &&
+      event.message.type === "session-authorization-state" &&
+      event.message.status === "active"
+        ? [event.message]
+        : []
+    );
+
+    expect(resumeControl).toMatchObject({
+      type: "session-control",
+      action: "resume",
+      actorPeerId: "host-1"
+    });
+    expect(activeStates).toHaveLength(2);
+    expect(activeStates.at(-1)).toMatchObject({
+      type: "session-authorization-state",
+      status: "active",
+      visibleToHost: true,
+      permissions: ["screen:view"]
+    });
+    expect(resumeAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        grantedPermissionCount: 1,
+        visibleToHost: true,
+        resumed: true,
+        reasonConfigured: true
+      }
+    });
+    expect(JSON.stringify(resumeAudit)).not.toContain("private resume reason");
+  });
+
+  it("does not send pause or resume messages when visible active state is withheld", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostPauseAfterMs: 10,
+      hostResumeAfterMs: 10,
+      visibleToHost: false
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(viewerEvents, (message) => message.type === "session-authorization-decision");
+    await delay(50);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-control" &&
+          (event.message.action === "pause" || event.message.action === "resume")
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "paused"
+      )
+    ).toBe(false);
+  });
+
+  it("keeps authorization paused after partial permission revocation", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostPauseAfterMs: 10,
+      hostRevokeAfterMs: 20,
+      hostRevokePermission: "screen:view",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view", "input:pointer"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "paused"
+    );
+    const partialRevokeState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "paused" &&
+        !message.permissions.includes("screen:view")
+    );
+
+    expect(partialRevokeState).toMatchObject({
+      type: "session-authorization-state",
+      status: "paused",
+      visibleToHost: true,
+      permissions: ["input:pointer"]
+    });
+  });
+
+  it("does not send pause or resume after expiration", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 10,
+      hostDecision: "approve",
+      hostPauseAfterMs: 30,
+      hostResumeAfterMs: 10,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "expired"
+    );
+    await delay(60);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-control" &&
+          (event.message.action === "pause" || event.message.action === "resume")
+      )
+    ).toBe(false);
+  });
+
+  it("does not send pause when authorization reaches the ttl boundary first", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 0,
+      hostDecision: "approve",
+      hostPauseAfterMs: 0,
+      hostResumeAfterMs: 10,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "expired"
+    );
+    await delay(40);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-control" &&
+          event.message.action === "pause"
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "paused"
+      )
+    ).toBe(false);
+  });
+
+  it("does not send resume after authorization expires while paused", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 20,
+      hostDecision: "approve",
+      hostPauseAfterMs: 5,
+      hostResumeAfterMs: 40,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "paused"
+    );
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "expired"
+    );
+    await delay(70);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-control" &&
+          event.message.action === "resume"
+      )
+    ).toBe(false);
+  });
+
+  it("does not send resume after session termination", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostPauseAfterMs: 10,
+      hostResumeAfterMs: 40,
+      hostTerminateAfterMs: 20,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "terminated"
+    );
+    await delay(70);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-control" &&
+          event.message.action === "resume"
+      )
+    ).toBe(false);
+  });
+
   it("sends expired state and audit after authorization ttl elapses", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
       authorizationTtlMs: 10,
@@ -559,6 +854,10 @@ async function startRelayAndHost(options: {
   decisionReason?: string;
   hostDecision?: "none" | "approve" | "deny";
   hostLogger?: TestLogger;
+  hostPauseAfterMs?: number;
+  hostPauseReason?: string;
+  hostResumeAfterMs?: number;
+  hostResumeReason?: string;
   hostRevokeAfterMs?: number;
   hostRevokePermission?: Permission;
   hostRevokeReason?: string;
@@ -588,6 +887,10 @@ async function startRelayAndHost(options: {
     hostDecision: options.hostDecision ?? "none",
     decisionReason: options.decisionReason,
     authorizationTtlMs: options.authorizationTtlMs,
+    hostPauseAfterMs: options.hostPauseAfterMs,
+    hostPauseReason: options.hostPauseReason,
+    hostResumeAfterMs: options.hostResumeAfterMs,
+    hostResumeReason: options.hostResumeReason,
     hostRevokeAfterMs: options.hostRevokeAfterMs,
     hostRevokePermission: options.hostRevokePermission,
     hostRevokeReason: options.hostRevokeReason,

@@ -98,10 +98,10 @@ export const SessionAuthorizationStateMessageSchema = BaseMessageSchema.extend({
   expiresAt: z.string().datetime(),
   reason: z.string().min(1).max(240).optional()
 }).superRefine((message, context) => {
-  if (message.status === "active" && !message.visibleToHost) {
+  if ((message.status === "active" || message.status === "paused") && !message.visibleToHost) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Active session authorization state requires visibleToHost",
+      message: "Active or paused session authorization state requires visibleToHost",
       path: ["visibleToHost"]
     });
   }

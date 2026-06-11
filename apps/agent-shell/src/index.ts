@@ -17,6 +17,10 @@ type Args = {
   hostRevokeAfterMs?: number;
   hostRevokePermission?: Permission;
   hostRevokeReason?: string;
+  hostPauseAfterMs?: number;
+  hostPauseReason?: string;
+  hostResumeAfterMs?: number;
+  hostResumeReason?: string;
   hostTerminateAfterMs?: number;
   hostTerminateReason?: string;
 };
@@ -91,6 +95,10 @@ function parseArgs(raw: string[]): Args {
     hostRevokeAfterMs: parseOptionalNonNegativeInteger(options.get("revoke-after-ms")),
     hostRevokePermission: parseOptionalPermission(options.get("revoke-permission")),
     hostRevokeReason: options.get("revoke-reason"),
+    hostPauseAfterMs: parseOptionalNonNegativeInteger(options.get("pause-after-ms")),
+    hostPauseReason: options.get("pause-reason"),
+    hostResumeAfterMs: parseOptionalNonNegativeInteger(options.get("resume-after-ms")),
+    hostResumeReason: options.get("resume-reason"),
     hostTerminateAfterMs: parseOptionalNonNegativeInteger(options.get("terminate-after-ms")),
     hostTerminateReason: options.get("terminate-reason")
   };
@@ -132,7 +140,7 @@ function parseOptionalNonNegativeInteger(raw: string | undefined): number | unde
 
 function printUsageAndExit(): never {
   console.error(
-    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason]"
+    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason]"
   );
   process.exit(1);
 }
