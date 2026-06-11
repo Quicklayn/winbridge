@@ -832,6 +832,60 @@ describe("protocol envelopes", () => {
     expect(JSON.stringify(parsed)).not.toContain("nested-credential");
   });
 
+  it("redacts expanded audit-event authentication detail fields while preserving safe identifiers", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "audit-event",
+      eventId: "audit-demo",
+      actorPeerId: "host-1",
+      action: "agent-shell.test",
+      outcome: "accepted",
+      detail: {
+        apiKey: "api-key-secret",
+        authorization: "Bearer raw-token",
+        authHeaderValue: "decorated-auth-header",
+        rawAuthorizationHeader: "raw-authorization-header",
+        proxyAuthorization: "proxy-authorization-secret",
+        cookie: "sid=raw-cookie",
+        privateKey: "raw-private-key",
+        authorizationId: "authz-demo",
+        attempts: [
+          {
+            sessionCookie: "array-cookie",
+            authorizationId: "authz-array"
+          }
+        ]
+      }
+    });
+
+    expect(parsed).toMatchObject({
+      type: "audit-event",
+      detail: {
+        apiKey: "[REDACTED]",
+        authorization: "[REDACTED]",
+        authHeaderValue: "[REDACTED]",
+        rawAuthorizationHeader: "[REDACTED]",
+        proxyAuthorization: "[REDACTED]",
+        cookie: "[REDACTED]",
+        privateKey: "[REDACTED]",
+        authorizationId: "authz-demo",
+        attempts: [
+          {
+            sessionCookie: "[REDACTED]",
+            authorizationId: "authz-array"
+          }
+        ]
+      }
+    });
+    expect(JSON.stringify(parsed)).not.toContain("api-key-secret");
+    expect(JSON.stringify(parsed)).not.toContain("raw-token");
+    expect(JSON.stringify(parsed)).not.toContain("decorated-auth-header");
+    expect(JSON.stringify(parsed)).not.toContain("raw-authorization-header");
+    expect(JSON.stringify(parsed)).not.toContain("proxy-authorization-secret");
+    expect(JSON.stringify(parsed)).not.toContain("raw-cookie");
+    expect(JSON.stringify(parsed)).not.toContain("raw-private-key");
+  });
+
   it("redacts audit-event detail fields when encoding protocol messages", () => {
     const encoded = encodeProtocolEnvelope({
       ...createMessageBase("session-demo"),
@@ -852,6 +906,40 @@ describe("protocol envelopes", () => {
       safe: "kept"
     });
     expect(encoded).not.toContain("raw-token");
+  });
+
+  it("redacts expanded audit-event authentication detail fields when encoding protocol messages", () => {
+    const encoded = encodeProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "audit-event",
+      eventId: "audit-demo",
+      actorPeerId: "host-1",
+      action: "agent-shell.test",
+      outcome: "accepted",
+      detail: {
+        apiKey: "api-key-secret",
+        authorization: "Bearer raw-token",
+        rawAuthorizationHeader: "raw-authorization-header",
+        cookie: "sid=raw-cookie",
+        privateKey: "raw-private-key",
+        authorizationId: "authz-demo"
+      }
+    });
+    const decoded = JSON.parse(encoded);
+
+    expect(decoded.detail).toEqual({
+      apiKey: "[REDACTED]",
+      authorization: "[REDACTED]",
+      rawAuthorizationHeader: "[REDACTED]",
+      cookie: "[REDACTED]",
+      privateKey: "[REDACTED]",
+      authorizationId: "authz-demo"
+    });
+    expect(encoded).not.toContain("api-key-secret");
+    expect(encoded).not.toContain("raw-token");
+    expect(encoded).not.toContain("raw-authorization-header");
+    expect(encoded).not.toContain("raw-cookie");
+    expect(encoded).not.toContain("raw-private-key");
   });
 
   it("defaults omitted audit-event detail to an empty object", () => {
