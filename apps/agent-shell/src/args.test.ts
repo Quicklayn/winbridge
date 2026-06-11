@@ -83,6 +83,24 @@ describe("agent shell arguments", () => {
     );
   });
 
+  it("parses valid display names", () => {
+    expect(parseArgs(["viewer"], {}, 42).displayName).toBe("viewer 42");
+    expect(parseArgs(["viewer", "--name", "Viewer Support"], {}, 42).displayName).toBe(
+      "Viewer Support"
+    );
+    expect(parseArgs(["viewer", "--name", "  Viewer Support  "], {}, 42).displayName).toBe(
+      "  Viewer Support  "
+    );
+  });
+
+  it("rejects malformed display names", () => {
+    for (const displayName of ["", "   ", "x".repeat(121)]) {
+      expect(() => parseArgs(["viewer", "--name", displayName], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+    }
+  });
+
   it("rejects malformed lifecycle reason values", () => {
     for (const option of ["revoke-reason", "pause-reason", "resume-reason", "terminate-reason"]) {
       expect(() => parseArgs(["host", `--${option}`, "   "], {}, 42)).toThrow(

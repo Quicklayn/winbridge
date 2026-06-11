@@ -1,4 +1,5 @@
 import {
+  DeviceIdentitySchema,
   PairingCodeSchema,
   PeerIdSchema,
   PermissionSchema,
@@ -91,7 +92,7 @@ export function parseArgs(
     sessionId,
     pairingCode,
     peerId,
-    displayName: options.get("name") ?? `${role} ${processId}`,
+    displayName: parseDisplayName(options.get("name") ?? `${role} ${processId}`),
     token: options.get("token"),
     deviceId: parseProtocolIdentifier(options.get("device") ?? `dev_${role}_${processId}`),
     auditLogPath: parseOptionalAuditLogPath(
@@ -178,6 +179,18 @@ function parseProtocolIdentifier(raw: string): string {
 function parsePairingCode(raw: string): string {
   try {
     return PairingCodeSchema.parse(raw);
+  } catch {
+    throw new AgentShellUsageError();
+  }
+}
+
+function parseDisplayName(raw: string): string {
+  if (raw.trim().length === 0) {
+    throw new AgentShellUsageError();
+  }
+
+  try {
+    return DeviceIdentitySchema.shape.displayName.parse(raw);
   } catch {
     throw new AgentShellUsageError();
   }
