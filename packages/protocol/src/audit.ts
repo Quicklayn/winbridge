@@ -34,8 +34,25 @@ export type AuditRecordInput = Omit<AuditRecord, "eventId" | "timestamp"> & {
   timestamp?: string;
 };
 
-const sensitiveKeyPattern =
-  /(token|credential|password|secret|pairingcode|keystroke|screenshot|screendata|screencontent)/i;
+const sensitiveKeySubstrings = [
+  "token",
+  "credential",
+  "password",
+  "secret",
+  "pairingcode",
+  "keystroke",
+  "screenshot",
+  "screendata",
+  "screencontent",
+  "apikey",
+  "cookie",
+  "privatekey",
+  "authorizationheader",
+  "authheader",
+  "proxyauthorization"
+] as const;
+const sensitiveKeyExactMatches = new Set(["authorization"]);
+const nonSensitiveKeyExactMatches = new Set(["authorizationid"]);
 
 export function createAuditRecord(input: AuditRecordInput): AuditRecord {
   return AuditRecordSchema.parse({
@@ -51,7 +68,7 @@ export function redactAuditDetail(detail: Record<string, unknown>): Record<strin
 }
 
 function redactValue(value: unknown, key?: string): unknown {
-  if (key && sensitiveKeyPattern.test(key)) {
+  if (key && isSensitiveAuditDetailKey(key)) {
     return "[REDACTED]";
   }
 
@@ -69,4 +86,16 @@ function redactValue(value: unknown, key?: string): unknown {
   }
 
   return value;
+}
+
+function isSensitiveAuditDetailKey(key: string): boolean {
+  const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (nonSensitiveKeyExactMatches.has(normalizedKey)) {
+    return false;
+  }
+
+  return (
+    sensitiveKeyExactMatches.has(normalizedKey) ||
+    sensitiveKeySubstrings.some((sensitiveKey) => normalizedKey.includes(sensitiveKey))
+  );
 }

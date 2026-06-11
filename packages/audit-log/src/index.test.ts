@@ -157,6 +157,58 @@ describe("FileAuditSink", () => {
     }
   });
 
+  it("redacts expanded authentication keys before writing JSONL records", () => {
+    const root = mkdtempSync(join(tmpdir(), "winbridge-audit-"));
+    const path = join(root, "audit.jsonl");
+    const sink = new FileAuditSink(path);
+
+    try {
+      sink.write({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay.message.rejected",
+        outcome: "failed",
+        detail: {
+          apiKey: "api-key-secret",
+          authorization: "Bearer raw-token",
+          authHeaderValue: "decorated-auth-header",
+          rawAuthorizationHeader: "raw-authorization-header",
+          proxyAuthorization: "proxy-authorization-secret",
+          cookie: "sid=raw-cookie",
+          privateKey: "raw-private-key",
+          authorizationId: "authz-demo",
+          nested: {
+            authHeader: "Basic raw-secret"
+          }
+        }
+      });
+
+      const content = readFileSync(path, "utf8");
+      expect(content).not.toContain("api-key-secret");
+      expect(content).not.toContain("raw-token");
+      expect(content).not.toContain("decorated-auth-header");
+      expect(content).not.toContain("raw-authorization-header");
+      expect(content).not.toContain("proxy-authorization-secret");
+      expect(content).not.toContain("raw-cookie");
+      expect(content).not.toContain("raw-private-key");
+      expect(content).not.toContain("raw-secret");
+      expect(JSON.parse(content).detail).toMatchObject({
+        apiKey: "[REDACTED]",
+        authorization: "[REDACTED]",
+        authHeaderValue: "[REDACTED]",
+        rawAuthorizationHeader: "[REDACTED]",
+        proxyAuthorization: "[REDACTED]",
+        cookie: "[REDACTED]",
+        privateKey: "[REDACTED]",
+        authorizationId: "authz-demo",
+        nested: {
+          authHeader: "[REDACTED]"
+        }
+      });
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   it("surfaces write failures", () => {
     const root = mkdtempSync(join(tmpdir(), "winbridge-audit-"));
     const path = join(root, "directory-target");

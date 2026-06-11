@@ -194,7 +194,8 @@ Configured relay or agent audit file paths must be non-blank. Omitted audit path
 
 File audit records use the same schema validation and redaction as memory and console sinks. Write failures are surfaced to the caller instead of silently dropping records.
 
-Development audit files must not contain raw tokens, raw pairing codes, credentials, keystrokes, screenshots, screen contents, or full secrets.
+Development audit files must not contain raw tokens, raw pairing codes, credentials, API keys, authorization headers, auth headers, cookies, private keys, keystrokes, screenshots, screen contents, or full secrets.
+Audit detail redaction preserves non-secret lifecycle identifiers such as `authorizationId` while redacting obvious authentication/session secret keys.
 
 Agent shell audit files must not persist arbitrary received protocol payloads, raw display names, signal payloads, raw private reason text, screen contents, or input contents.
 

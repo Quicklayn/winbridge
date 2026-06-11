@@ -92,4 +92,62 @@ describe("audit records", () => {
       safe: "kept"
     });
   });
+
+  it("redacts expanded authentication detail keys recursively", () => {
+    const redacted = redactAuditDetail({
+      apiKey: "api-key-secret",
+      authorization: "Bearer raw-token",
+      authHeader: "Basic raw-secret",
+      authHeaderValue: "decorated-auth-header",
+      rawAuthorizationHeader: "raw-authorization-header",
+      proxyAuthorization: "proxy-authorization-secret",
+      cookie: "sid=raw-cookie",
+      setCookie: "sid=raw-set-cookie",
+      sessionCookie: "raw-session-cookie",
+      privateKey: "raw-private-key",
+      authorizationId: "authz-demo",
+      nested: {
+        xApiKey: "nested-api-key",
+        request: {
+          authorization_header: "nested-authorization"
+        }
+      },
+      list: [
+        {
+          cookieValue: "array-cookie"
+        },
+        {
+          authorizationId: "authz-array"
+        }
+      ]
+    });
+
+    expect(redacted).toEqual({
+      apiKey: "[REDACTED]",
+      authorization: "[REDACTED]",
+      authHeader: "[REDACTED]",
+      authHeaderValue: "[REDACTED]",
+      rawAuthorizationHeader: "[REDACTED]",
+      proxyAuthorization: "[REDACTED]",
+      cookie: "[REDACTED]",
+      setCookie: "[REDACTED]",
+      sessionCookie: "[REDACTED]",
+      privateKey: "[REDACTED]",
+      authorizationId: "authz-demo",
+      nested: {
+        xApiKey: "[REDACTED]",
+        request: {
+          authorization_header: "[REDACTED]"
+        }
+      },
+      list: [
+        {
+          cookieValue: "[REDACTED]"
+        },
+        {
+          authorizationId: "authz-array"
+        }
+      ]
+    });
+  });
 });
