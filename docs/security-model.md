@@ -33,7 +33,7 @@ The current bootstrap models local device identity and expiring pairing tickets.
 Pairing tickets:
 
 - Are short lived.
-- Store a hash of the pairing code, not the raw code.
+- Store a per-ticket salt and salted hash of the pairing code, not the raw code.
 - Have limited remaining uses.
 - Do not grant screen, input, clipboard, file, or diagnostic permissions by themselves.
 
@@ -102,7 +102,9 @@ The implementation must reject:
 
 ## Development Relay Pairing
 
-The relay stores hashed in-memory pairing tickets rather than raw pairing codes in peer state. Pairing ticket audit details may record safe metadata such as ticket presence, mismatch/expired/consumed booleans, and remaining use counts.
+The relay stores salted hashed in-memory pairing tickets rather than raw pairing codes in peer state. Pairing ticket audit details may record safe metadata such as ticket presence, mismatch/expired/consumed booleans, and remaining use counts.
+
+Pairing ticket salts are not secrets, but they prevent the same development pairing code from producing a stable hash across tickets.
 
 Relay pairing audit details must not include raw pairing codes, shared tokens, credentials, protocol payloads, keystrokes, screenshots, screen contents, or full secrets.
 

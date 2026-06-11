@@ -3,6 +3,7 @@ import {
   assertRemoteActionAuthorized,
   consumePairingTicket,
   createDeviceIdentity,
+  createPairingCodeSalt,
   createPairingTicket,
   createPairedDevice,
   hashPairingCode
@@ -25,16 +26,37 @@ describe("device identity", () => {
 });
 
 describe("pairing tickets", () => {
-  it("hashes pairing codes and does not retain the raw code", () => {
+  it("hashes pairing codes with a per-ticket salt and does not retain the raw code", () => {
+    const pairingCodeSalt = "salt:00112233445566778899aabbccddeeff";
     const ticket = createPairingTicket({
       sessionId: "session-demo",
       hostDeviceId: "dev_host_1",
       pairingCode: "123-456",
+      pairingCodeSalt,
       now: new Date("2026-06-11T00:00:00.000Z")
     });
 
-    expect(ticket.pairingCodeHash).toBe(hashPairingCode("123-456"));
+    expect(ticket.pairingCodeSalt).toBe(pairingCodeSalt);
+    expect(ticket.pairingCodeHash).toBe(hashPairingCode("123-456", pairingCodeSalt));
     expect(JSON.stringify(ticket)).not.toContain("123-456");
+  });
+
+  it("creates distinct salts and hashes for the same pairing code", () => {
+    const first = createPairingTicket({
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456"
+    });
+    const second = createPairingTicket({
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456"
+    });
+
+    expect(createPairingCodeSalt()).toMatch(/^salt:[a-f0-9]{32}$/);
+    expect(first.pairingCodeSalt).not.toBe(second.pairingCodeSalt);
+    expect(first.pairingCodeHash).not.toBe(second.pairingCodeHash);
+    expect(JSON.stringify([first, second])).not.toContain("123-456");
   });
 
   it("rejects expired tickets", () => {
@@ -67,9 +89,24 @@ describe("pairing tickets", () => {
     );
 
     expect(consumed.remainingUses).toBe(0);
+    expect(consumed.pairingCodeSalt).toBe(ticket.pairingCodeSalt);
+    expect(consumed.pairingCodeHash).toBe(ticket.pairingCodeHash);
     expect(() =>
       consumePairingTicket(consumed, "123-456", new Date("2026-06-11T00:00:00.600Z"))
     ).toThrow("no remaining uses");
+  });
+
+  it("rejects mismatched pairing codes with salted ticket hashes", () => {
+    const ticket = createPairingTicket({
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456",
+      now: new Date("2026-06-11T00:00:00.000Z")
+    });
+
+    expect(() =>
+      consumePairingTicket(ticket, "999-000", new Date("2026-06-11T00:00:00.500Z"))
+    ).toThrow("does not match");
   });
 
   it("creates a pair relationship without granting remote action permission", () => {

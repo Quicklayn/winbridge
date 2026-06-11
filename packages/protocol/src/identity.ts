@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { PairingCodeSchema, PermissionSchema, type Permission, SessionGrantSchema } from "./session.js";
 
@@ -18,6 +18,7 @@ export const PairingTicketSchema = z.object({
   pairingId: z.string().min(8),
   sessionId: z.string().min(3),
   hostDeviceId: z.string().min(8).max(128),
+  pairingCodeSalt: z.string().regex(/^salt:[a-f0-9]{32}$/),
   pairingCodeHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   createdAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
@@ -50,9 +51,15 @@ export function createDeviceIdentity(input: {
   });
 }
 
-export function hashPairingCode(pairingCode: string): string {
+export function createPairingCodeSalt(): string {
+  return `salt:${randomBytes(16).toString("hex")}`;
+}
+
+export function hashPairingCode(pairingCode: string, salt: string): string {
   PairingCodeSchema.parse(pairingCode);
-  return `sha256:${createHash("sha256").update(pairingCode, "utf8").digest("hex")}`;
+  const parsedSalt = z.string().regex(/^salt:[a-f0-9]{32}$/).parse(salt);
+
+  return `sha256:${createHash("sha256").update(`${parsedSalt}:${pairingCode}`, "utf8").digest("hex")}`;
 }
 
 export function createPairingTicket(input: {
@@ -63,16 +70,19 @@ export function createPairingTicket(input: {
   maxUses?: number;
   now?: Date;
   pairingId?: string;
+  pairingCodeSalt?: string;
 }): PairingTicket {
   const now = input.now ?? new Date();
   const ttlMs = input.ttlMs ?? 5 * 60_000;
   const maxUses = input.maxUses ?? 1;
+  const pairingCodeSalt = input.pairingCodeSalt ?? createPairingCodeSalt();
 
   return PairingTicketSchema.parse({
     pairingId: input.pairingId ?? `pair_${randomUUID()}`,
     sessionId: input.sessionId,
     hostDeviceId: input.hostDeviceId,
-    pairingCodeHash: hashPairingCode(input.pairingCode),
+    pairingCodeSalt,
+    pairingCodeHash: hashPairingCode(input.pairingCode, pairingCodeSalt),
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
     remainingUses: maxUses
@@ -98,7 +108,7 @@ export function consumePairingTicket(
     throw new Error("Pairing ticket has no remaining uses");
   }
 
-  if (parsed.pairingCodeHash !== hashPairingCode(pairingCode)) {
+  if (parsed.pairingCodeHash !== hashPairingCode(pairingCode, parsed.pairingCodeSalt)) {
     throw new Error("Pairing code does not match ticket");
   }
 

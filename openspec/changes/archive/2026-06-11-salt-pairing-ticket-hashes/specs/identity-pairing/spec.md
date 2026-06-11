@@ -1,18 +1,4 @@
-# identity-pairing Specification
-
-## Purpose
-TBD - created by archiving change add-identity-pairing-audit-foundation. Update Purpose after archive.
-## Requirements
-### Requirement: Local device identity
-The system SHALL represent each connecting peer with schema-validated local device identity metadata that is distinct from production account authentication.
-
-#### Scenario: Peer includes device identity
-- **WHEN** a peer joins a session with device identity metadata
-- **THEN** the receiver validates device id, display name, platform, and trust level before using the metadata
-
-#### Scenario: Device identity is malformed
-- **WHEN** a peer sends malformed device identity metadata
-- **THEN** the receiver rejects the malformed metadata without treating the peer as authenticated
+## MODIFIED Requirements
 
 ### Requirement: Expiring pairing ticket
 The system SHALL model pairing material as an expiring, replay-resistant ticket that stores a per-ticket salted hash of the pairing code instead of the raw code.
@@ -32,28 +18,6 @@ The system SHALL model pairing material as an expiring, replay-resistant ticket 
 #### Scenario: Same code creates different ticket hashes
 - **WHEN** two pairing tickets are created with the same raw pairing code
 - **THEN** each ticket has a distinct pairing-code salt and salted pairing-code hash
-
-### Requirement: Pairing ticket consumption
-The system SHALL decrement remaining pairing ticket uses and reject tickets after all allowed uses are consumed.
-
-#### Scenario: Ticket has remaining uses
-- **WHEN** a valid ticket is consumed
-- **THEN** the remaining use count decreases and the ticket remains valid only if uses remain and expiration has not passed
-
-#### Scenario: Ticket has no remaining uses
-- **WHEN** a ticket with zero remaining uses is consumed
-- **THEN** the system rejects the ticket before authorizing session access
-
-### Requirement: Pairing does not grant remote access
-The system SHALL treat successful pairing as a prerequisite identity relationship only, not as approval for screen viewing, input, clipboard, file transfer, or diagnostics.
-
-#### Scenario: Pairing succeeds
-- **WHEN** a viewer successfully consumes a valid pairing ticket
-- **THEN** the system records the pair relationship without granting remote session permissions
-
-#### Scenario: Viewer requests remote action after pairing
-- **WHEN** a paired viewer requests screen, input, clipboard, file, or diagnostic access without a host-approved active session grant
-- **THEN** the system denies the action
 
 ### Requirement: Development relay pairing ticket lifecycle
 The development relay SHALL use host-created expiring pairing tickets with per-ticket salted pairing-code hashes for viewer room joins and SHALL NOT store raw pairing codes in relay peer state.
@@ -81,4 +45,3 @@ The development relay SHALL use host-created expiring pairing tickets with per-t
 #### Scenario: Pairing does not grant remote action access
 - **WHEN** a viewer successfully consumes a relay pairing ticket
 - **THEN** the relay treats the viewer as joined only and does not grant screen, input, clipboard, file, diagnostic, or other sensitive action permissions
-
