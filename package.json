@@ -18,7 +18,7 @@
     "dev:agent": "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/agent-shell run dev --",
     "dev:relay": "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/relay run dev",
     "openspec:validate": "npx --yes @fission-ai/openspec@latest validate --all --strict --no-interactive",
-    "test": "vitest run"
+    "test": "vitest run --pool forks --maxWorkers 1 --minWorkers 1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
