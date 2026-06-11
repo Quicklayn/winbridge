@@ -96,6 +96,7 @@ The non-native agent shell can simulate consent messages for development:
 - Local runtime `sent` and `received` events redact protocol `reason` text while preserving consent workflow metadata.
 - Local runtime `raw` events for non-protocol inbound text are metadata-only and expose redacted text plus safe byte-length diagnostics.
 - Local runtime `closed` events for WebSocket disconnects are metadata-only and expose redacted reason text plus safe reason-byte diagnostics.
+- Local runtime `error` events and runtime/socket error logs expose generic error text plus safe byte-length diagnostics, not raw exception messages.
 - Received message logs use summaries and must not contain raw protocol payloads or raw non-protocol message text.
 - Workflow timer values are exact integer milliseconds bounded to the safe JavaScript timer delay range before runtime startup.
 

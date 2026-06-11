@@ -56,8 +56,14 @@ export type AgentShellEvent =
   | { direction: "sent"; message: AgentShellSentProtocolEnvelope }
   | { direction: "received"; message: AgentShellReceivedProtocolEnvelope }
   | { direction: "raw"; text: typeof REDACTED_EVENT_VALUE; byteLength: number }
-  | { direction: "error"; error: Error }
+  | { direction: "error"; error: Error; messageBytes: number }
   | { direction: "closed"; code: number; reason: typeof REDACTED_EVENT_VALUE; reasonBytes: number };
+
+export type AgentShellErrorDiagnostic = {
+  messageBytes: number;
+};
+
+export type AgentShellErrorLogKind = "runtime" | "socket";
 
 export type AgentShellSentProtocolEnvelope = AgentShellReasonRedacted<
   | Exclude<ProtocolEnvelope, { type: "join-session" | "signal" }>
@@ -112,6 +118,7 @@ const RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE =
   "Runtime workflow reasons must be non-blank and 240 characters or less";
 const RUNTIME_WORKFLOW_TIMER_ERROR_MESSAGE =
   "Runtime workflow timer delays must be integers from 0 through 2147483647";
+const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
 const REDACTED_EVENT_VALUE = "[REDACTED]";
 const VALID_HOST_DECISIONS = new Set(["none", "approve", "deny"]);
 
@@ -167,7 +174,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       });
 
       socket.on("error", (error) => {
-        logger.error(`[winbridge-agent] socket error ${error.message}`);
+        logger.error(formatAgentShellErrorLog("socket", error));
       });
 
       await new Promise<void>((resolve, reject) => {
@@ -970,10 +977,30 @@ function sendDevelopmentAuditEvent(
   });
 }
 
+export function createAgentShellErrorDiagnostic(error: unknown): AgentShellErrorDiagnostic {
+  const message = error instanceof Error ? error.message : AGENT_SHELL_RUNTIME_ERROR_MESSAGE;
+  return { messageBytes: Buffer.byteLength(message) };
+}
+
+export function formatAgentShellErrorLog(kind: AgentShellErrorLogKind, error: unknown): string {
+  const diagnostic = createAgentShellErrorDiagnostic(error);
+  return `[winbridge-agent] ${kind} error messageBytes=${diagnostic.messageBytes}`;
+}
+
+function createSanitizedRuntimeError(): Error {
+  const error = new Error(AGENT_SHELL_RUNTIME_ERROR_MESSAGE);
+  error.stack = undefined;
+  return error;
+}
+
 function reportRuntimeError(options: AgentShellRuntimeOptions, error: unknown): void {
-  const runtimeError = error instanceof Error ? error : new Error("Agent shell runtime error");
-  options.onEvent?.({ direction: "error", error: runtimeError });
-  options.logger?.error(`[winbridge-agent] runtime error ${runtimeError.message}`);
+  const diagnostic = createAgentShellErrorDiagnostic(error);
+  options.onEvent?.({
+    direction: "error",
+    error: createSanitizedRuntimeError(),
+    messageBytes: diagnostic.messageBytes
+  });
+  options.logger?.error(formatAgentShellErrorLog("runtime", error));
 }
 
 function hasAuthorizationExpired(expiresAt: string): boolean {

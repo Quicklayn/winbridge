@@ -10,6 +10,7 @@ import { WebSocketServer } from "ws";
 import { createRelayRuntime, type RelayRuntime } from "../../relay/src/server.js";
 import {
   createAgentShellRuntime,
+  formatAgentShellErrorLog,
   type AgentShellEvent,
   type AgentShellReceivedProtocolEnvelope,
   type AgentShellSentProtocolEnvelope,
@@ -1291,14 +1292,17 @@ describe("agent shell consent workflow", () => {
   });
 
   it("surfaces audit sink write failures as runtime errors", async () => {
+    const hostLogs: string[] = [];
+    const rawErrorMessage = "audit sink failed with raw-token";
     const failingSink: AuditSink = {
       write: () => {
-        throw new Error("audit sink failed");
+        throw new Error(rawErrorMessage);
       }
     };
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
       hostAuditSink: failingSink,
-      hostDecision: "deny"
+      hostDecision: "deny",
+      hostLogger: captureLogger(hostLogs)
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
 
@@ -1308,10 +1312,16 @@ describe("agent shell consent workflow", () => {
         message.type === "session-authorization-decision" &&
         message.decision === "denied"
     );
-    const error = await waitForRuntimeError(hostEvents);
+    const errorEvent = await waitForRuntimeError(hostEvents);
     await delay(50);
 
-    expect(error.message).toBe("audit sink failed");
+    expect(errorEvent.error.message).toBe("Agent shell runtime error");
+    expect(errorEvent.error.stack).toBeUndefined();
+    expect(errorEvent.messageBytes).toBe(Buffer.byteLength(rawErrorMessage));
+    expect(JSON.stringify(errorEvent)).not.toContain(rawErrorMessage);
+    expect(hostLogs.join("\n")).toContain("runtime error messageBytes=");
+    expect(hostLogs.join("\n")).not.toContain(rawErrorMessage);
+    expect(hostLogs.join("\n")).not.toContain("raw-token");
     expect(
       viewerEvents.some(
         (event) =>
@@ -1324,10 +1334,12 @@ describe("agent shell consent workflow", () => {
 
   it("surfaces delayed audit sink write failures as runtime errors", async () => {
     const backingSink = new MemoryAuditSink();
+    const hostLogs: string[] = [];
+    const rawErrorMessage = "delayed audit sink failed with raw-token";
     const failingSink: AuditSink = {
       write: (input) => {
         if (input.action === "agent-shell.permission.revoked") {
-          throw new Error("delayed audit sink failed");
+          throw new Error(rawErrorMessage);
         }
 
         return backingSink.write(input);
@@ -1336,6 +1348,7 @@ describe("agent shell consent workflow", () => {
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
       hostAuditSink: failingSink,
       hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
       hostRevokeAfterMs: 10,
       hostRevokePermission: "screen:view",
       visibleToHost: true
@@ -1348,10 +1361,16 @@ describe("agent shell consent workflow", () => {
         message.type === "session-authorization-state" &&
         message.status === "active"
     );
-    const error = await waitForRuntimeError(hostEvents);
+    const errorEvent = await waitForRuntimeError(hostEvents);
     await delay(50);
 
-    expect(error.message).toBe("delayed audit sink failed");
+    expect(errorEvent.error.message).toBe("Agent shell runtime error");
+    expect(errorEvent.error.stack).toBeUndefined();
+    expect(errorEvent.messageBytes).toBe(Buffer.byteLength(rawErrorMessage));
+    expect(JSON.stringify(errorEvent)).not.toContain(rawErrorMessage);
+    expect(hostLogs.join("\n")).toContain("runtime error messageBytes=");
+    expect(hostLogs.join("\n")).not.toContain(rawErrorMessage);
+    expect(hostLogs.join("\n")).not.toContain("raw-token");
     expect(backingSink.records().map((record) => record.action)).toEqual([
       "agent-shell.authorization.approved",
       "agent-shell.authorization.active"
@@ -1364,6 +1383,16 @@ describe("agent shell consent workflow", () => {
           event.message.action === "agent-shell.permission.revoked"
       )
     ).toBe(false);
+  });
+
+  it("formats socket error logs without raw error text", () => {
+    const rawErrorMessage = "socket failed with raw-token at C:\\Users\\Nur\\secret";
+    const logLine = formatAgentShellErrorLog("socket", new Error(rawErrorMessage));
+
+    expect(logLine).toBe(`[winbridge-agent] socket error messageBytes=${Buffer.byteLength(rawErrorMessage)}`);
+    expect(logLine).not.toContain(rawErrorMessage);
+    expect(logLine).not.toContain("raw-token");
+    expect(logLine).not.toContain("C:\\Users\\Nur");
   });
 
   it("logs non-protocol message summaries without raw text", async () => {
@@ -1608,7 +1637,9 @@ function waitForClosedEvent(
   );
 }
 
-function waitForRuntimeError(events: AgentShellEvent[]): Promise<Error> {
+function waitForRuntimeError(
+  events: AgentShellEvent[]
+): Promise<Extract<AgentShellEvent, { direction: "error" }>> {
   return withTimeout(
     new Promise((resolve) => {
       const interval = setInterval(() => {
@@ -1616,7 +1647,7 @@ function waitForRuntimeError(events: AgentShellEvent[]): Promise<Error> {
 
         if (match?.direction === "error") {
           clearInterval(interval);
-          resolve(match.error);
+          resolve(match);
         }
       }, 5);
     })
