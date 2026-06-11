@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { RoomRegistry, type RelayPeer } from "./rooms.js";
+import {
+  MAX_RELAY_PAIRING_TICKET_TTL_MS,
+  RoomRegistry,
+  normalizeRelayPairingConfig,
+  type RelayPairingConfig,
+  type RelayPeer
+} from "./rooms.js";
 
 function peer(overrides: Partial<RelayPeer>): RelayPeer {
   return {
@@ -116,6 +122,35 @@ describe("RoomRegistry", () => {
       rooms.join(joinPeer({ peerId: "viewer-2", role: "viewer", deviceId: "dev_viewer_2" }))
     ).toThrow("Pairing ticket has no remaining uses");
     expect(rooms.size("session-demo")).toBe(1);
+  });
+
+  it("validates injected pairing settings before ticket creation", () => {
+    expect(normalizeRelayPairingConfig()).toMatchObject({
+      ticketTtlMs: 5 * 60_000,
+      maxUses: 1
+    });
+    expect(
+      normalizeRelayPairingConfig({
+        ticketTtlMs: 0,
+        maxUses: 10
+      })
+    ).toMatchObject({
+      ticketTtlMs: 0,
+      maxUses: 10
+    });
+
+    const unsafeConfigs: Array<Partial<RelayPairingConfig>> = [
+      { ticketTtlMs: -1 },
+      { ticketTtlMs: 1.5 },
+      { ticketTtlMs: MAX_RELAY_PAIRING_TICKET_TTL_MS + 1 },
+      { maxUses: 0 },
+      { maxUses: 1.5 },
+      { maxUses: 11 }
+    ];
+
+    for (const config of unsafeConfigs) {
+      expect(() => new RoomRegistry(config)).toThrow("Pairing ticket");
+    }
   });
 
   it("removes empty rooms", () => {

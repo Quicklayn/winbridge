@@ -22,7 +22,17 @@ import {
   JoinSessionMessageSchema,
   type ProtocolEnvelope
 } from "@winbridge/protocol";
-import { RoomRegistry, type RelayJoinResult, type RelayPairingConfig, type RelayPeer } from "./rooms.js";
+import {
+  DEFAULT_RELAY_PAIRING_TICKET_MAX_USES,
+  DEFAULT_RELAY_PAIRING_TICKET_TTL_MS,
+  MAX_RELAY_PAIRING_TICKET_MAX_USES,
+  MAX_RELAY_PAIRING_TICKET_TTL_MS,
+  normalizeRelayPairingConfig,
+  RoomRegistry,
+  type RelayJoinResult,
+  type RelayPairingConfig,
+  type RelayPeer
+} from "./rooms.js";
 
 const MAX_RELAY_MESSAGE_BYTES = 64 * 1024;
 const RELAY_MESSAGE_TOO_LARGE_REASON = `Relay message exceeds ${MAX_RELAY_MESSAGE_BYTES} bytes`;
@@ -65,7 +75,10 @@ export type RelayRuntime = {
 export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRuntime {
   const port = options.port ?? 8787;
   const sharedToken = normalizeRelaySharedToken(options.sharedToken);
-  const pairingConfig = normalizeRelayPairingConfig(options.pairing);
+  const pairingConfig = normalizeRelayPairingConfig({
+    ...createRelayPairingConfig(),
+    ...options.pairing
+  });
   const rooms = options.rooms ?? new RoomRegistry(pairingConfig);
   const auditSink = options.auditSink ?? createRelayAuditSink();
   const heartbeat =
@@ -490,16 +503,18 @@ export function createRelayPairingConfig(
   env: NodeJS.ProcessEnv = process.env
 ): RelayPairingConfig {
   return {
-    ticketTtlMs: parseNonNegativeIntegerEnv(
+    ticketTtlMs: parseBoundedIntegerEnv(
       env.WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS,
-      5 * 60_000,
+      DEFAULT_RELAY_PAIRING_TICKET_TTL_MS,
+      0,
+      MAX_RELAY_PAIRING_TICKET_TTL_MS,
       "WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS"
     ),
     maxUses: parseBoundedIntegerEnv(
       env.WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES,
+      DEFAULT_RELAY_PAIRING_TICKET_MAX_USES,
       1,
-      1,
-      10,
+      MAX_RELAY_PAIRING_TICKET_MAX_USES,
       "WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES"
     )
   };
@@ -543,21 +558,12 @@ function normalizeRelaySharedToken(sharedToken: string | undefined): string | un
   return sharedToken;
 }
 
-function normalizeRelayPairingConfig(
-  setting: Partial<RelayPairingConfig> | undefined
-): RelayPairingConfig {
-  return {
-    ...createRelayPairingConfig(),
-    ...setting
-  };
-}
-
 function parseNonNegativeIntegerEnv(
   raw: string | undefined,
   fallback: number,
   name: string
 ): number {
-  if (raw === undefined || raw === "") {
+  if (raw === undefined) {
     return fallback;
   }
 

@@ -38,6 +38,7 @@ Pairing tickets:
 - Do not grant screen, input, clipboard, file, or diagnostic permissions by themselves.
 
 The development relay creates pairing tickets when the host joins a room. Viewer joins must consume that host-created ticket before relay registration. Viewer-first, mismatched, expired, or consumed tickets are rejected before message forwarding.
+Pairing ticket TTL and maximum-use configuration is bounded and parsed as exact integers; malformed, empty, partial, negative, or out-of-range configured values fail before the relay accepts peers.
 
 When `WINBRIDGE_RELAY_SHARED_TOKEN` is configured, it must be non-blank and peers without the exact token are rejected before room registration. Omitted token configuration keeps the relay in documented development mode; empty or whitespace-only configured tokens fail before accepting peers.
 

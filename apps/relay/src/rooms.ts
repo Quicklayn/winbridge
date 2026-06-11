@@ -38,14 +38,20 @@ type RelayRoom = {
   pairingTicket?: PairingTicket;
 };
 
+export const DEFAULT_RELAY_PAIRING_TICKET_TTL_MS = 5 * 60_000;
+export const DEFAULT_RELAY_PAIRING_TICKET_MAX_USES = 1;
+export const MAX_RELAY_PAIRING_TICKET_TTL_MS = 24 * 60 * 60_000;
+export const MAX_RELAY_PAIRING_TICKET_MAX_USES = 10;
+
 export class RoomRegistry {
   private readonly rooms = new Map<string, RelayRoom>();
   private readonly pairingConfig: Required<RelayPairingConfig>;
 
-  constructor(pairingConfig: RelayPairingConfig = { ticketTtlMs: 5 * 60_000, maxUses: 1 }) {
+  constructor(pairingConfig: Partial<RelayPairingConfig> = {}) {
+    const normalizedPairingConfig = normalizeRelayPairingConfig(pairingConfig);
     this.pairingConfig = {
-      ...pairingConfig,
-      now: pairingConfig.now ?? (() => new Date())
+      ...normalizedPairingConfig,
+      now: normalizedPairingConfig.now ?? (() => new Date())
     };
   }
 
@@ -148,5 +154,42 @@ export class RoomRegistry {
 
   size(sessionId: string): number {
     return this.rooms.get(sessionId)?.peers.size ?? 0;
+  }
+}
+
+export function normalizeRelayPairingConfig(
+  config: Partial<RelayPairingConfig> = {}
+): RelayPairingConfig {
+  const ticketTtlMs = config.ticketTtlMs ?? DEFAULT_RELAY_PAIRING_TICKET_TTL_MS;
+  const maxUses = config.maxUses ?? DEFAULT_RELAY_PAIRING_TICKET_MAX_USES;
+
+  assertBoundedInteger(
+    ticketTtlMs,
+    "Pairing ticket TTL",
+    0,
+    MAX_RELAY_PAIRING_TICKET_TTL_MS
+  );
+  assertBoundedInteger(
+    maxUses,
+    "Pairing ticket max uses",
+    1,
+    MAX_RELAY_PAIRING_TICKET_MAX_USES
+  );
+
+  return {
+    ticketTtlMs,
+    maxUses,
+    now: config.now
+  };
+}
+
+function assertBoundedInteger(
+  value: number,
+  label: string,
+  min: number,
+  max: number
+): void {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${label} must be an integer from ${min} through ${max}`);
   }
 }

@@ -501,6 +501,33 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(denied)).not.toContain("123-456");
   });
 
+  it("uses environment pairing settings when runtime options omit pairing", async () => {
+    const previousTtlMs = process.env.WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS;
+    const previousMaxUses = process.env.WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES;
+
+    process.env.WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS = "0";
+    process.env.WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES = "1";
+
+    try {
+      const runtime = await startRuntime();
+      const host = await openSocket(runtime.url());
+      const viewer = await openSocket(runtime.url());
+
+      host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+      await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+
+      viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+
+      expect(await waitForJsonMessage(viewer, (message) => message.type === "relay-error")).toMatchObject({
+        type: "relay-error",
+        reason: "Pairing ticket is expired"
+      });
+    } finally {
+      restoreEnv("WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS", previousTtlMs);
+      restoreEnv("WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES", previousMaxUses);
+    }
+  });
+
   it("rejects a new viewer after the host pairing ticket is consumed", async () => {
     const runtime = await startRuntime({
       pairing: {
@@ -613,6 +640,10 @@ describe("relay runtime integration", () => {
   });
 
   it("parses development pairing ticket environment configuration", () => {
+    expect(createRelayPairingConfig({})).toEqual({
+      ticketTtlMs: 5 * 60_000,
+      maxUses: 1
+    });
     expect(
       createRelayPairingConfig({
         WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS: "1000",
@@ -622,6 +653,53 @@ describe("relay runtime integration", () => {
       ticketTtlMs: 1000,
       maxUses: 2
     });
+    expect(
+      createRelayPairingConfig({
+        WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS: "0",
+        WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES: "10"
+      })
+    ).toEqual({
+      ticketTtlMs: 0,
+      maxUses: 10
+    });
+  });
+
+  it("rejects malformed development pairing ticket environment configuration", () => {
+    for (const ttlMs of ["", " ", "1000ms", "1.5", "-1", "001", "86400001"]) {
+      expect(() =>
+        createRelayPairingConfig({
+          WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS: ttlMs
+        })
+      ).toThrow("WINBRIDGE_RELAY_PAIRING_TICKET_TTL_MS");
+    }
+
+    for (const maxUses of ["", " ", "2x", "1.5", "-1", "0", "01", "11"]) {
+      expect(() =>
+        createRelayPairingConfig({
+          WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES: maxUses
+        })
+      ).toThrow("WINBRIDGE_RELAY_PAIRING_TICKET_MAX_USES");
+    }
+  });
+
+  it("rejects unsafe injected pairing runtime settings before startup", () => {
+    expect(() =>
+      createRelayRuntime({
+        port: 0,
+        pairing: {
+          ticketTtlMs: -1
+        }
+      })
+    ).toThrow("Pairing ticket TTL");
+
+    expect(() =>
+      createRelayRuntime({
+        port: 0,
+        pairing: {
+          maxUses: 0
+        }
+      })
+    ).toThrow("Pairing ticket max uses");
   });
 
   it("parses development relay port environment configuration", () => {
@@ -799,6 +877,15 @@ function withTimeout<T>(promise: Promise<T>): Promise<T> {
       .catch((error) => {
         clearTimeout(timeout);
         reject(error);
-      });
+    });
   });
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
 }

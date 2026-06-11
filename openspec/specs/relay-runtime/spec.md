@@ -95,7 +95,7 @@ The relay CLI SHALL start the managed relay runtime with environment-derived hea
 - **THEN** the runtime enables development heartbeat defaults
 
 ### Requirement: Development pairing ticket runtime configuration
-The relay runtime SHALL allow development pairing ticket TTL and maximum-use settings to be configured for tests and local execution.
+The relay runtime SHALL allow development pairing ticket TTL and maximum-use settings to be configured for tests and local execution, and SHALL reject malformed or unsafe pairing ticket configuration before opening a listener or creating pairing tickets.
 
 #### Scenario: Runtime uses injected pairing settings
 - **WHEN** tests create the relay runtime with explicit pairing ticket TTL and maximum-use settings
@@ -104,6 +104,18 @@ The relay runtime SHALL allow development pairing ticket TTL and maximum-use set
 #### Scenario: CLI uses environment pairing settings
 - **WHEN** the relay CLI starts with pairing ticket environment variables
 - **THEN** the runtime uses those values for development pairing tickets
+
+#### Scenario: CLI omits pairing ticket environment
+- **WHEN** the relay CLI starts without pairing ticket environment variables
+- **THEN** the runtime uses development pairing ticket defaults
+
+#### Scenario: Malformed pairing ticket environment is rejected
+- **WHEN** the relay is configured with empty, partial, fractional, negative, or out-of-range pairing ticket TTL or maximum-use environment values
+- **THEN** the relay rejects configuration before opening a listener or accepting peer connections
+
+#### Scenario: Unsafe injected pairing settings are rejected
+- **WHEN** tests create a relay runtime or room registry with non-integer, negative, zero-use, or out-of-range pairing ticket settings
+- **THEN** the runtime rejects configuration before creating host pairing tickets
 
 ### Requirement: Pairing lifecycle audit safety
 The relay runtime SHALL emit secret-safe audit events for pairing ticket creation, consumption, and denied pairing joins.
