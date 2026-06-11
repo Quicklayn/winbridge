@@ -955,6 +955,71 @@ describe("agent shell consent workflow", () => {
     expect(logOutput).not.toContain("payload");
   });
 
+  it("receives host disconnect notices through the agent shell runtime", async () => {
+    const { relay, host, viewerEvents } = await startRelayAndHost();
+    const viewerLogs: string[] = [];
+    await startViewer(relay.url(), [], viewerEvents, captureLogger(viewerLogs));
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
+    );
+    await host.stop();
+
+    const disconnect = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "peer-disconnected"
+    );
+
+    expect(disconnect).toMatchObject({
+      type: "peer-disconnected",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+
+    const logOutput = viewerLogs.join("\n");
+    expect(logOutput).toContain("received peer-disconnected");
+    expect(logOutput).toContain("peerId=host-1");
+    expect(logOutput).toContain("role=host");
+    expect(logOutput).toContain("reasonCode=peer-closed");
+    expect(logOutput).not.toContain("123-456");
+    expect(logOutput).not.toContain("payload");
+  });
+
+  it("suppresses delayed host workflow messages after the viewer disconnects", async () => {
+    const hostLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 200,
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      hostPauseAfterMs: 200,
+      hostRevokeAfterMs: 200,
+      hostRevokePermission: "screen:view",
+      hostTerminateAfterMs: 200,
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    await viewer.stop();
+    await waitForMessage(hostEvents, (message) => message.type === "peer-disconnected");
+    const eventCountAtDisconnect = hostEvents.length;
+    await delay(260);
+
+    const sentAfterDisconnect = hostEvents
+      .slice(eventCountAtDisconnect)
+      .filter((event) => event.direction === "sent");
+
+    expect(sentAfterDisconnect).toHaveLength(0);
+    expect(hostLogs.join("\n")).toContain("skipped because peer disconnected");
+  });
+
   it("does not persist arbitrary received protocol payloads through the workflow audit sink", async () => {
     const viewerAuditSink = new MemoryAuditSink();
     const { relay, host, viewerEvents } = await startRelayAndHost();

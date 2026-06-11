@@ -66,11 +66,18 @@ type HostWorkflowState = {
   permissions: Permission[];
 };
 
+type AgentShellSessionState = {
+  remotePeerDisconnected: boolean;
+};
+
 export function createAgentShellRuntime(options: AgentShellRuntimeOptions): AgentShellRuntime {
   const logger = options.logger ?? console;
   const relayUrl = new URL(options.relayUrl);
   let socket: WebSocket | undefined;
   const timers = new Set<ReturnType<typeof setTimeout>>();
+  const sessionState: AgentShellSessionState = {
+    remotePeerDisconnected: false
+  };
 
   if (options.token) {
     relayUrl.searchParams.set("token", options.token);
@@ -93,7 +100,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       socket = new WebSocket(relayUrl);
 
       socket.on("message", (data) => {
-        handleMessage(data.toString(), socket, options, scheduleTimer);
+        handleMessage(data.toString(), socket, options, sessionState, scheduleTimer);
       });
 
       socket.on("close", (code, reason) => {
@@ -172,6 +179,7 @@ function handleMessage(
   text: string,
   socket: WebSocket | undefined,
   options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   let envelope: ProtocolEnvelope;
@@ -188,12 +196,16 @@ function handleMessage(
   options.logger?.log(`[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 
   try {
+    if (envelope.type === "peer-disconnected") {
+      sessionState.remotePeerDisconnected = true;
+    }
+
     if (envelope.type === "relay-ready" && options.role === "viewer") {
       sendViewerAuthorizationRequest(socket, options);
     }
 
     if (envelope.type === "session-authorization-request" && options.role === "host") {
-      handleHostAuthorizationRequest(socket, options, envelope, scheduleTimer);
+      handleHostAuthorizationRequest(socket, options, envelope, sessionState, scheduleTimer);
     }
   } catch (error) {
     reportRuntimeError(options, error);
@@ -213,6 +225,12 @@ function summarizeProtocolMessage(envelope: ProtocolEnvelope): string {
 
   if ("decision" in envelope) {
     summary.push(`decision=${envelope.decision}`);
+  }
+
+  if (envelope.type === "peer-disconnected") {
+    summary.push(`peerId=${envelope.peerId}`);
+    summary.push(`role=${envelope.role}`);
+    summary.push(`reasonCode=${envelope.reasonCode}`);
   }
 
   return summary.join(" ");
@@ -241,6 +259,7 @@ function handleHostAuthorizationRequest(
   socket: WebSocket | undefined,
   options: AgentShellRuntimeOptions,
   request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>,
+  sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   const decision = options.hostDecision ?? "none";
@@ -323,10 +342,10 @@ function handleHostAuthorizationRequest(
     }
   });
 
-  scheduleHostRevoke(socket, options, request, authorizationId, expiresAt, workflowState, scheduleTimer);
-  scheduleHostTerminate(socket, options, request, authorizationId, expiresAt, workflowState, scheduleTimer);
-  scheduleHostPause(socket, options, authorizationId, expiresAt, workflowState, scheduleTimer);
-  scheduleHostExpiration(socket, options, request, authorizationId, expiresAt, workflowState, scheduleTimer);
+  scheduleHostRevoke(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
+  scheduleHostTerminate(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
+  scheduleHostPause(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
+  scheduleHostExpiration(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
 }
 
 function scheduleHostRevoke(
@@ -336,6 +355,7 @@ function scheduleHostRevoke(
   authorizationId: string,
   expiresAt: string,
   workflowState: HostWorkflowState,
+  sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   if (options.hostRevokeAfterMs === undefined) {
@@ -361,8 +381,7 @@ function scheduleHostRevoke(
       return;
     }
 
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      options.logger?.log("[winbridge-agent] revoke skipped because socket is closed");
+    if (!canSendDelayedHostWorkflow(socket, options, sessionState, "revoke")) {
       return;
     }
 
@@ -414,6 +433,7 @@ function scheduleHostPause(
   authorizationId: string,
   expiresAt: string,
   workflowState: HostWorkflowState,
+  sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   if (options.hostPauseAfterMs === undefined) {
@@ -436,8 +456,7 @@ function scheduleHostPause(
       return;
     }
 
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      options.logger?.log("[winbridge-agent] pause skipped because socket is closed");
+    if (!canSendDelayedHostWorkflow(socket, options, sessionState, "pause")) {
       return;
     }
 
@@ -479,7 +498,7 @@ function scheduleHostPause(
       }
     });
 
-    scheduleHostResume(socket, options, authorizationId, expiresAt, workflowState, scheduleTimer);
+    scheduleHostResume(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   }, options.hostPauseAfterMs);
 }
 
@@ -489,6 +508,7 @@ function scheduleHostResume(
   authorizationId: string,
   expiresAt: string,
   workflowState: HostWorkflowState,
+  sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   if (options.hostResumeAfterMs === undefined) {
@@ -508,8 +528,7 @@ function scheduleHostResume(
       return;
     }
 
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      options.logger?.log("[winbridge-agent] resume skipped because socket is closed");
+    if (!canSendDelayedHostWorkflow(socket, options, sessionState, "resume")) {
       return;
     }
 
@@ -560,6 +579,7 @@ function scheduleHostTerminate(
   authorizationId: string,
   expiresAt: string,
   workflowState: HostWorkflowState,
+  sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   if (options.hostTerminateAfterMs === undefined) {
@@ -573,8 +593,7 @@ function scheduleHostTerminate(
       return;
     }
 
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      options.logger?.log("[winbridge-agent] terminate skipped because socket is closed");
+    if (!canSendDelayedHostWorkflow(socket, options, sessionState, "terminate")) {
       return;
     }
 
@@ -619,6 +638,7 @@ function scheduleHostExpiration(
   authorizationId: string,
   expiresAt: string,
   workflowState: HostWorkflowState,
+  sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   const ttlMs = options.authorizationTtlMs ?? 10 * 60_000;
@@ -629,8 +649,7 @@ function scheduleHostExpiration(
       return;
     }
 
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      options.logger?.log("[winbridge-agent] expiration skipped because socket is closed");
+    if (!canSendDelayedHostWorkflow(socket, options, sessionState, "expiration")) {
       return;
     }
 
@@ -659,6 +678,25 @@ function scheduleHostExpiration(
       }
     });
   }, ttlMs);
+}
+
+function canSendDelayedHostWorkflow(
+  socket: WebSocket | undefined,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  action: string
+): boolean {
+  if (sessionState.remotePeerDisconnected) {
+    options.logger?.log(`[winbridge-agent] ${action} skipped because peer disconnected`);
+    return false;
+  }
+
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    options.logger?.log(`[winbridge-agent] ${action} skipped because socket is closed`);
+    return false;
+  }
+
+  return true;
 }
 
 function sendDevelopmentAuditEvent(

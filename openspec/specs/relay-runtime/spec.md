@@ -97,3 +97,14 @@ The relay runtime SHALL expose peer disconnect notification behavior through int
 #### Scenario: Disconnect audit omits sensitive material
 - **WHEN** a registered peer disconnects after joining with pairing credentials
 - **THEN** the relay disconnect audit record MUST NOT include raw pairing codes, shared tokens, raw close reasons, protocol payloads, keystrokes, screenshots, or screen contents
+
+### Requirement: Testable forged disconnect rejection
+The relay runtime SHALL be verifiable through integration tests for rejecting peer-originated disconnect notices.
+
+#### Scenario: Forged disconnect notice is rejected
+- **WHEN** integration tests register a host and viewer, then one peer sends `peer-disconnected` as a normal message
+- **THEN** the relay returns a relay error to the sender and does not deliver the forged notice to the other peer
+
+#### Scenario: Forged disconnect rejection audit is secret-safe
+- **WHEN** a peer-originated disconnect notice is rejected
+- **THEN** the relay audit record identifies the rejected message type and reason without raw tokens, raw pairing codes, protocol payloads, keystrokes, screenshots, screen contents, or full secrets

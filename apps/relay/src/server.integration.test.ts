@@ -176,6 +176,44 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(disconnect)).not.toContain("123-456");
   });
 
+  it("rejects peer-originated disconnect notices before forwarding", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    viewer.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "peer-disconnected",
+        peerId: "host-1",
+        role: "host",
+        reasonCode: "peer-closed"
+      })
+    );
+
+    expect(await waitForJsonMessage(viewer, (message) => message.type === "relay-error")).toMatchObject({
+      type: "relay-error",
+      reason: "Peer disconnect notices are relay-originated"
+    });
+    await expectNoProtocolMessage(host, (message) => message.type === "peer-disconnected");
+
+    const rejected = auditSink.records().find(
+      (record) =>
+        record.action === "relay.message.rejected" &&
+        record.reason === "Peer disconnect notices are relay-originated"
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      detail: {
+        registered: true
+      }
+    });
+    expect(JSON.stringify(rejected)).not.toContain("123-456");
+    expect(JSON.stringify(rejected)).not.toContain("peer-closed");
+  });
+
   it("rejects a viewer before the host creates a pairing ticket", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
@@ -435,6 +473,39 @@ function waitForJsonMessage<T extends Record<string, unknown>>(
       socket.on("message", onMessage);
     })
   );
+}
+
+function expectNoProtocolMessage(
+  socket: WebSocket,
+  predicate: (message: ProtocolEnvelope) => boolean,
+  durationMs = 100
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.off("message", onMessage);
+    };
+    const onMessage = (data: RawData) => {
+      let parsed: Record<string, unknown>;
+
+      try {
+        parsed = JSON.parse(data.toString()) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+
+      if (typeof parsed.type === "string" && predicate(parsed as ProtocolEnvelope)) {
+        cleanup();
+        reject(new Error(`Unexpected protocol message ${parsed.type}`));
+      }
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, durationMs);
+
+    socket.on("message", onMessage);
+  });
 }
 
 function waitForAuditRecord(

@@ -81,6 +81,10 @@ The non-native agent shell can simulate consent messages for development:
 
 The shell never captures the screen, injects input, syncs clipboard, transfers files, installs services, or enables unattended access.
 
+When the shell receives `peer-disconnected`, it records remote peer disconnected state for the current development session. Host-side delayed workflow simulations for that peer fail closed after this state and do not send later revoke, pause, resume, termination, expiration, authorization-state, session-control, permission-revoked, or workflow audit-event messages.
+
+Peer disconnect state is not authorization. It must not approve a session, activate visibility, grant permissions, start capture, send input, reconnect a peer, suppress host visibility, or bypass consent workflows.
+
 ## Abuse Prevention Rules
 
 The implementation must reject:
@@ -129,6 +133,8 @@ This is not production liveness management. Production relay design must cover d
 ## Development Relay Disconnect Notices
 
 The development relay sends a `peer-disconnected` protocol message to the remaining room peer when a registered host or viewer disconnects.
+
+`peer-disconnected` is relay-originated. Peers must not be allowed to send forged disconnect notices through the relay; peer-originated copies are rejected before forwarding and audited as invalid relay messages.
 
 Disconnect notices:
 

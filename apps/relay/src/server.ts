@@ -158,6 +158,10 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
           throw new Error("Message session does not match registered peer");
         }
 
+        if (envelope.type === "peer-disconnected") {
+          throw new Error("Peer disconnect notices are relay-originated");
+        }
+
         for (const peer of rooms.peers(registeredPeer.sessionId, registeredPeer.peerId)) {
           peer.send(encodeProtocolEnvelope(envelope));
         }

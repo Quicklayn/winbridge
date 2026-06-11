@@ -70,6 +70,7 @@ Provides a development WebSocket relay:
 - Rate-limits repeated invalid token and malformed-message attempts with in-memory development defaults.
 - Sends WebSocket heartbeat pings, closes peers that miss heartbeat timeout, and audits heartbeat timeout failures.
 - Sends schema-valid `peer-disconnected` notices to the remaining peer when a registered host or viewer disconnects.
+- Rejects peer-originated `peer-disconnected` messages before forwarding because disconnect notices are broker-observed relay lifecycle events.
 
 This relay is not production authorization. A future identity/auth OpenSpec change must add proper accounts, token lifecycle, device trust, and audit persistence.
 Production abuse protection also needs a distributed limiter or edge protection; the current limiter is single-process development hardening.
@@ -98,6 +99,7 @@ The shell has a managed runtime shared by CLI and tests. Development consent wor
 - Host mode can simulate pause/resume only after explicit visible approval with `--pause-after-ms` and optional `--resume-after-ms`.
 - Host mode emits development `audit-event` protocol messages for decision, activation, revocation, termination, expiration, pause, and resume workflow events.
 - Host mode can persist those host-generated workflow audit events to JSONL with `--audit-log` or `WINBRIDGE_AGENT_AUDIT_LOG_PATH`.
+- Host mode records `peer-disconnected` as remote peer disconnected state and suppresses later delayed workflow simulation messages for that peer.
 - Received message logs contain summaries only, not raw protocol payloads.
 
 This workflow is a protocol simulator, not production host consent UI.
