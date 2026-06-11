@@ -67,6 +67,8 @@ The non-native agent shell can simulate consent messages for development:
 - Host approval is not automatic.
 - Host approval requires `--host-decision approve`.
 - Active session state is withheld unless `--visible-session true` is set.
+- Permission revocation simulation requires explicit visible approval plus `--revoke-after-ms` and `--revoke-permission`.
+- Received message logs use summaries and must not contain raw protocol payloads or raw non-protocol message text.
 
 The shell never captures the screen, injects input, syncs clipboard, transfers files, installs services, or enables unattended access.
 

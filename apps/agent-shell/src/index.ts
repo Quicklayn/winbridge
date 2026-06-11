@@ -1,4 +1,4 @@
-import { PairingCodeSchema, type SessionRole } from "@winbridge/protocol";
+import { PairingCodeSchema, PermissionSchema, type Permission, type SessionRole } from "@winbridge/protocol";
 import { createAgentShellRuntime, parsePermissions, type HostDecision } from "./runtime.js";
 
 type Args = {
@@ -13,6 +13,9 @@ type Args = {
   requestedPermissions: ReturnType<typeof parsePermissions>;
   hostDecision: HostDecision;
   visibleToHost: boolean;
+  hostRevokeAfterMs?: number;
+  hostRevokePermission?: Permission;
+  hostRevokeReason?: string;
 };
 
 const args = parseArgs(process.argv.slice(2));
@@ -80,7 +83,10 @@ function parseArgs(raw: string[]): Args {
     deviceId: options.get("device") ?? `dev_${role}_${process.pid}`,
     requestedPermissions: parsePermissions(options.get("request")),
     hostDecision: parseHostDecision(options.get("host-decision")),
-    visibleToHost: options.get("visible-session") === "true"
+    visibleToHost: options.get("visible-session") === "true",
+    hostRevokeAfterMs: parseOptionalNonNegativeInteger(options.get("revoke-after-ms")),
+    hostRevokePermission: parseOptionalPermission(options.get("revoke-permission")),
+    hostRevokeReason: options.get("revoke-reason")
   };
 }
 
@@ -96,9 +102,31 @@ function parseHostDecision(raw: string | undefined): HostDecision {
   printUsageAndExit();
 }
 
+function parseOptionalPermission(raw: string | undefined): Permission | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  return PermissionSchema.parse(raw);
+}
+
+function parseOptionalNonNegativeInteger(raw: string | undefined): number | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  const value = Number.parseInt(raw, 10);
+
+  if (!Number.isInteger(value) || value < 0 || String(value) !== raw) {
+    printUsageAndExit();
+  }
+
+  return value;
+}
+
 function printUsageAndExit(): never {
   console.error(
-    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false]"
+    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason]"
   );
   process.exit(1);
 }

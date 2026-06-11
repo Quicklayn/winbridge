@@ -85,6 +85,8 @@ The shell has a managed runtime shared by CLI and tests. Development consent wor
 - Host mode does nothing by default when a request is received.
 - Host mode can send approval or denial only with explicit `--host-decision`.
 - Host mode emits active state only when `--visible-session true` is also provided.
+- Host mode can simulate permission revocation only after explicit visible approval with `--revoke-after-ms` and `--revoke-permission`.
+- Received message logs contain summaries only, not raw protocol payloads.
 
 This workflow is a protocol simulator, not production host consent UI.
 

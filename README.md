@@ -88,6 +88,15 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 This still does not capture the screen or send input. It only sends session authorization protocol messages.
 
+Simulate host revocation during development:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --revoke-after-ms 5000 --revoke-permission screen:view
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+Revocation simulation only sends protocol messages; it does not perform remote actions.
+
 ## OpenSpec
 
 Use OpenSpec for behavior changes:

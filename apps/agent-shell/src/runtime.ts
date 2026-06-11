@@ -28,6 +28,9 @@ export type AgentShellRuntimeOptions = {
   visibleToHost?: boolean;
   decisionReason?: string;
   authorizationTtlMs?: number;
+  hostRevokeAfterMs?: number;
+  hostRevokePermission?: Permission;
+  hostRevokeReason?: string;
   logger?: {
     log(message: string): void;
     error(message: string): void;
@@ -51,23 +54,32 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
   const logger = options.logger ?? console;
   const relayUrl = new URL(options.relayUrl);
   let socket: WebSocket | undefined;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
 
   if (options.token) {
     relayUrl.searchParams.set("token", options.token);
   }
+
+  const scheduleTimer = (callback: () => void, delayMs: number) => {
+    const timer = setTimeout(() => {
+      timers.delete(timer);
+      callback();
+    }, delayMs);
+    timers.add(timer);
+  };
 
   return {
     async start() {
       socket = new WebSocket(relayUrl);
 
       socket.on("message", (data) => {
-        handleMessage(data.toString(), socket, options);
+        handleMessage(data.toString(), socket, options, scheduleTimer);
       });
 
       socket.on("close", (code, reason) => {
         const event = { direction: "closed", code, reason: reason.toString() } as const;
         options.onEvent?.(event);
-        logger.log(`[winbridge-agent] disconnected code=${code} reason=${reason.toString()}`);
+        logger.log(`[winbridge-agent] disconnected code=${code} reasonBytes=${reason.length}`);
       });
 
       socket.on("error", (error) => {
@@ -111,6 +123,11 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
     },
 
     async stop() {
+      for (const timer of timers) {
+        clearTimeout(timer);
+      }
+      timers.clear();
+
       if (!socket || socket.readyState === WebSocket.CLOSED) {
         return;
       }
@@ -134,24 +151,43 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
 function handleMessage(
   text: string,
   socket: WebSocket | undefined,
-  options: AgentShellRuntimeOptions
+  options: AgentShellRuntimeOptions,
+  scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   try {
     const envelope = decodeProtocolEnvelope(text);
     options.onEvent?.({ direction: "received", message: envelope });
-    options.logger?.log(`[winbridge-agent] received ${JSON.stringify(envelope)}`);
+    options.logger?.log(`[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 
     if (envelope.type === "relay-ready" && options.role === "viewer") {
       sendViewerAuthorizationRequest(socket, options);
     }
 
     if (envelope.type === "session-authorization-request" && options.role === "host") {
-      handleHostAuthorizationRequest(socket, options, envelope);
+      handleHostAuthorizationRequest(socket, options, envelope, scheduleTimer);
     }
   } catch {
     options.onEvent?.({ direction: "raw", text });
-    options.logger?.log(`[winbridge-agent] received non-protocol message ${text}`);
+    options.logger?.log(`[winbridge-agent] received non-protocol message bytes=${Buffer.byteLength(text)}`);
   }
+}
+
+function summarizeProtocolMessage(envelope: ProtocolEnvelope): string {
+  const summary = [`received ${envelope.type}`, `messageId=${envelope.messageId}`];
+
+  if ("authorizationId" in envelope) {
+    summary.push(`authorizationId=${envelope.authorizationId}`);
+  }
+
+  if ("status" in envelope) {
+    summary.push(`status=${envelope.status}`);
+  }
+
+  if ("decision" in envelope) {
+    summary.push(`decision=${envelope.decision}`);
+  }
+
+  return summary.join(" ");
 }
 
 function sendViewerAuthorizationRequest(
@@ -176,7 +212,8 @@ function sendViewerAuthorizationRequest(
 function handleHostAuthorizationRequest(
   socket: WebSocket | undefined,
   options: AgentShellRuntimeOptions,
-  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>
+  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>,
+  scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   const decision = options.hostDecision ?? "none";
 
@@ -229,6 +266,66 @@ function handleHostAuthorizationRequest(
     permissions: request.requestedPermissions,
     expiresAt
   });
+
+  scheduleHostRevoke(socket, options, request, authorizationId, expiresAt, scheduleTimer);
+}
+
+function scheduleHostRevoke(
+  socket: WebSocket | undefined,
+  options: AgentShellRuntimeOptions,
+  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>,
+  authorizationId: string,
+  expiresAt: string,
+  scheduleTimer: (callback: () => void, delayMs: number) => void
+): void {
+  if (options.hostRevokeAfterMs === undefined) {
+    return;
+  }
+
+  if (!options.hostRevokePermission) {
+    options.logger?.log("[winbridge-agent] revoke delay configured without revoke permission");
+    return;
+  }
+
+  if (!request.requestedPermissions.includes(options.hostRevokePermission)) {
+    options.logger?.log("[winbridge-agent] revoke permission was not granted in the request");
+    return;
+  }
+
+  const revokedPermission = options.hostRevokePermission;
+  const reason = options.hostRevokeReason ?? `Host revoked ${revokedPermission}`;
+
+  scheduleTimer(() => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      options.logger?.log("[winbridge-agent] revoke skipped because socket is closed");
+      return;
+    }
+
+    const remainingPermissions = request.requestedPermissions.filter(
+      (permission) => permission !== revokedPermission
+    );
+
+    sendProtocol(socket, options, {
+      ...createMessageBase(options.sessionId),
+      type: "permission-revoked",
+      authorizationId,
+      actorPeerId: options.peerId,
+      revokedPermission,
+      reason
+    });
+
+    sendProtocol(socket, options, {
+      ...createMessageBase(options.sessionId),
+      type: "session-authorization-state",
+      authorizationId,
+      actorPeerId: options.peerId,
+      status: remainingPermissions.length === 0 ? "revoked" : "active",
+      visibleToHost: true,
+      permissions: remainingPermissions,
+      expiresAt,
+      reason
+    });
+  }, options.hostRevokeAfterMs);
 }
 
 function sendProtocol(
