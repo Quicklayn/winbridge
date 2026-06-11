@@ -119,6 +119,7 @@ const RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE =
 const RUNTIME_WORKFLOW_TIMER_ERROR_MESSAGE =
   "Runtime workflow timer delays must be integers from 0 through 2147483647";
 const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
+const AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE = "Agent shell peer is disconnected";
 const REDACTED_EVENT_VALUE = "[REDACTED]";
 const VALID_HOST_DECISIONS = new Set(["none", "approve", "deny"]);
 
@@ -225,6 +226,10 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
     send(message: ProtocolEnvelope) {
       if (!socket) {
         throw new Error("Agent shell runtime is not started");
+      }
+
+      if (sessionState.remotePeerDisconnected) {
+        throw new Error(AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE);
       }
 
       sendProtocol(socket, options, message);

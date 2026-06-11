@@ -395,7 +395,7 @@ The host shell SHALL persist local development audit records for host-generated 
 - **THEN** the host shell surfaces the failure instead of silently dropping the audit record
 
 ### Requirement: Peer disconnect state handling
-The agent shell SHALL treat a received `peer-disconnected` message as remote peer disconnected state for the current development session.
+The agent shell SHALL treat a received `peer-disconnected` message as remote peer disconnected state for the current development session. After recording this state, the managed runtime MUST fail closed for delayed workflow sends and direct public runtime sends to that disconnected peer.
 
 #### Scenario: Viewer receives host disconnect notice
 - **WHEN** the host peer disconnects while a viewer shell remains connected through the relay
@@ -404,6 +404,12 @@ The agent shell SHALL treat a received `peer-disconnected` message as remote pee
 #### Scenario: Host suppresses delayed workflow after viewer disconnect
 - **WHEN** the host shell has delayed workflow simulation scheduled and receives `peer-disconnected` for the viewer
 - **THEN** the host shell MUST NOT send later revoke, pause, resume, termination, expiration, authorization state, session control, permission revoke, or workflow audit-event messages for that disconnected peer
+
+#### Scenario: Direct runtime send is blocked after peer disconnect
+- **WHEN** the agent shell records remote peer disconnected state
+- **AND** caller code invokes the public managed runtime `send()` method
+- **THEN** the send MUST fail before writing to the socket
+- **AND** the runtime MUST NOT emit a local `sent` event for that blocked message
 
 #### Scenario: Disconnect summary logging is secret-safe
 - **WHEN** the agent shell logs a received peer disconnect notice

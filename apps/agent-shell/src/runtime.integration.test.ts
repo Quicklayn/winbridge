@@ -1306,6 +1306,36 @@ describe("agent shell consent workflow", () => {
     expect(hostLogs.join("\n")).toContain("skipped because peer disconnected");
   });
 
+  it("blocks direct runtime sends after the peer disconnects", async () => {
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost();
+    const viewer = await startViewer(relay.url(), [], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
+    );
+    await viewer.stop();
+    await waitForMessage(hostEvents, (message) => message.type === "peer-disconnected");
+
+    const sentCountAtDisconnect = hostEvents.filter((event) => event.direction === "sent").length;
+
+    expect(() =>
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "offer",
+          sdp: "post-disconnect-offer"
+        }
+      })
+    ).toThrow("Agent shell peer is disconnected");
+
+    expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountAtDisconnect);
+    expect(JSON.stringify(hostEvents)).not.toContain("post-disconnect-offer");
+  });
+
   it("does not persist arbitrary received protocol payloads through the workflow audit sink", async () => {
     const viewerAuditSink = new MemoryAuditSink();
     const { relay, host, viewerEvents } = await startRelayAndHost();
