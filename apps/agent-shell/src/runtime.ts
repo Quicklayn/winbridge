@@ -10,6 +10,7 @@ import {
   PairingCodeSchema,
   PeerIdSchema,
   PermissionSchema,
+  parseProtocolEnvelope,
   SessionIdSchema,
   SessionRoleSchema,
   type AuditOutcome,
@@ -52,11 +53,17 @@ export type AgentShellRuntimeOptions = {
 };
 
 export type AgentShellEvent =
-  | { direction: "sent"; message: ProtocolEnvelope }
+  | { direction: "sent"; message: AgentShellSentProtocolEnvelope }
   | { direction: "received"; message: ProtocolEnvelope }
   | { direction: "raw"; text: string }
   | { direction: "error"; error: Error }
   | { direction: "closed"; code: number; reason: string };
+
+export type AgentShellSentProtocolEnvelope =
+  | Exclude<ProtocolEnvelope, { type: "join-session" }>
+  | (Omit<Extract<ProtocolEnvelope, { type: "join-session" }>, "pairingCode"> & {
+      pairingCode: typeof REDACTED_EVENT_VALUE;
+    });
 
 export type AgentShellRuntime = {
   start(): Promise<void>;
@@ -80,6 +87,7 @@ const RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE =
   "Runtime workflow reasons must be non-blank and 240 characters or less";
 const RUNTIME_WORKFLOW_TIMER_ERROR_MESSAGE =
   "Runtime workflow timer delays must be integers from 0 through 2147483647";
+const REDACTED_EVENT_VALUE = "[REDACTED]";
 const VALID_HOST_DECISIONS = new Set(["none", "approve", "deny"]);
 
 type HostWorkflowState = {
@@ -954,8 +962,20 @@ function sendProtocol(
     throw new Error("Agent shell socket is not open");
   }
 
-  socket.send(encodeProtocolEnvelope(message));
-  options.onEvent?.({ direction: "sent", message });
+  const normalizedMessage = parseProtocolEnvelope(message);
+  socket.send(encodeProtocolEnvelope(normalizedMessage));
+  options.onEvent?.({ direction: "sent", message: redactSentEventMessage(normalizedMessage) });
+}
+
+function redactSentEventMessage(message: ProtocolEnvelope): AgentShellSentProtocolEnvelope {
+  if (message.type === "join-session") {
+    return {
+      ...message,
+      pairingCode: REDACTED_EVENT_VALUE
+    };
+  }
+
+  return message;
 }
 
 function currentPlatform() {

@@ -99,6 +99,22 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("redacts pairing codes from sent join-session events", async () => {
+    const { hostEvents } = await startRelayAndHost();
+
+    const sentJoin = hostEvents.find(
+      (event) => event.direction === "sent" && event.message.type === "join-session"
+    );
+
+    expect(sentJoin).toBeDefined();
+    expect(sentJoin?.direction === "sent" && sentJoin.message.type === "join-session"
+      ? sentJoin.message.pairingCode
+      : "").toBe("[REDACTED]");
+    expect(JSON.stringify(hostEvents.filter((event) => event.direction === "sent"))).not.toContain(
+      "123-456"
+    );
+  });
+
   it("sends viewer authorization requests through the relay to the host", async () => {
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -1113,6 +1129,74 @@ describe("agent shell consent workflow", () => {
     await waitForMessage(viewerEvents, (message) => message.type === "signal");
 
     expect(viewerAuditSink.records()).toHaveLength(0);
+  });
+
+  it("emits sent events with redacted audit-event details", async () => {
+    const { host, hostEvents } = await startRelayAndHost();
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "host-1"
+    );
+
+    host.send({
+      ...createMessageBase("session-demo"),
+      type: "audit-event",
+      eventId: "audit_sent_redacted",
+      actorPeerId: "host-1",
+      action: "agent-shell.test.sent-redaction",
+      outcome: "accepted",
+      detail: {
+        token: "raw-token-value",
+        nested: {
+          credential: "raw-credential-value"
+        },
+        safeCount: 1
+      }
+    });
+
+    const sentAudit = hostEvents.find(
+      (event) =>
+        event.direction === "sent" &&
+        event.message.type === "audit-event" &&
+        event.message.action === "agent-shell.test.sent-redaction"
+    );
+
+    expect(sentAudit).toBeDefined();
+    expect(sentAudit?.direction === "sent" && sentAudit.message.type === "audit-event"
+      ? sentAudit.message.detail
+      : {}).toEqual({
+      token: "[REDACTED]",
+      nested: {
+        credential: "[REDACTED]"
+      },
+      safeCount: 1
+    });
+    expect(JSON.stringify(sentAudit)).not.toContain("raw-token-value");
+    expect(JSON.stringify(sentAudit)).not.toContain("raw-credential-value");
+  });
+
+  it("does not emit sent events for invalid outbound messages", async () => {
+    const { host, hostEvents } = await startRelayAndHost();
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "host-1"
+    );
+
+    const sentCountBefore = hostEvents.filter((event) => event.direction === "sent").length;
+
+    expect(() =>
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "audit-event",
+        eventId: "audit_invalid",
+        actorPeerId: "host-1",
+        action: "",
+        outcome: "accepted",
+        detail: {}
+      } as ProtocolEnvelope)
+    ).toThrow();
+
+    expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBefore);
   });
 
   it("surfaces audit sink write failures as runtime errors", async () => {

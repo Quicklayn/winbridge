@@ -90,6 +90,7 @@ The non-native agent shell can simulate consent messages for development:
 - Session termination simulation requires explicit visible approval plus `--terminate-after-ms`.
 - Development `audit-event` messages are emitted for host decisions, visible activation, revocation, termination, expiration, pause, and resume using secret-safe metadata only.
 - Host workflow audit records can be persisted locally with `--audit-log` or `WINBRIDGE_AGENT_AUDIT_LOG_PATH`.
+- Local runtime `sent` events expose a schema-validated event-safe protocol view; audit-event details and raw pairing codes are redacted from the local event surface.
 - Received message logs use summaries and must not contain raw protocol payloads or raw non-protocol message text.
 - Workflow timer values are exact integer milliseconds bounded to the safe JavaScript timer delay range before runtime startup.
 
