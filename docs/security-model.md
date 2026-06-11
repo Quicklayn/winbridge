@@ -39,6 +39,17 @@ Pairing tickets:
 
 Remote actions still require an explicit host-approved active session grant.
 
+## Session Authorization Lifecycle
+
+Remote assistance authorization is deny-by-default:
+
+1. `pending`: viewer requested access; no remote action is allowed.
+2. `approved`: host consented to scoped permissions; no remote action is allowed until the session is visible.
+3. `active`: host consent and visible host session state are both present; only granted unexpired permissions are allowed.
+4. `denied`, `revoked`, `terminated`, `expired`: all remote action checks fail closed.
+
+Pairing is only a prerequisite relationship. It never grants screen viewing, pointer input, keyboard input, clipboard access, file transfer, or diagnostics by itself.
+
 ## Abuse Prevention Rules
 
 The implementation must reject:

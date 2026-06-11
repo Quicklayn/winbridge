@@ -25,6 +25,7 @@ Owns shared schemas for:
 - Session join messages.
 - Consent decisions.
 - Permission grants.
+- Session authorization lifecycle.
 - Relay signaling.
 - Session control.
 - Audit events.
@@ -72,3 +73,13 @@ Future native work should be split into separate OpenSpec changes:
 - Installer and update model.
 
 Native code must preserve host-visible consent and revocation controls.
+
+## Authorization Contract
+
+Future native adapters must call the shared protocol authorization checks before processing sensitive actions. A remote action is allowed only when:
+
+- The session authorization state is `active`.
+- The host-visible session flag is true.
+- The authorization has not expired.
+- The requested permission is present.
+- The session has not been revoked or terminated.

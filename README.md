@@ -14,6 +14,7 @@ Allowed direction:
 - Visible active-session indicator on the host.
 - Immediate host disconnect and permission revocation.
 - Authenticated, authorized, audited sensitive actions.
+- Deny-by-default session authorization for future sensitive actions.
 
 Out of scope and prohibited:
 
