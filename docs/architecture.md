@@ -87,7 +87,8 @@ The shell has a managed runtime shared by CLI and tests. Development consent wor
 - Host mode emits active state only when `--visible-session true` is also provided.
 - Host mode can simulate permission revocation only after explicit visible approval with `--revoke-after-ms` and `--revoke-permission`.
 - Host mode can simulate session termination only after explicit visible approval with `--terminate-after-ms`.
-- Host mode emits development `audit-event` protocol messages for decision, activation, revocation, and termination workflow events.
+- Host mode can simulate authorization expiration after visible activation with `--authorization-ttl-ms`.
+- Host mode emits development `audit-event` protocol messages for decision, activation, revocation, termination, and expiration workflow events.
 - Received message logs contain summaries only, not raw protocol payloads.
 
 This workflow is a protocol simulator, not production host consent UI.

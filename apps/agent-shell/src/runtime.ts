@@ -54,7 +54,7 @@ export type AgentShellRuntime = {
 };
 
 type HostWorkflowState = {
-  terminated: boolean;
+  terminalStatus?: "revoked" | "terminated" | "expired";
 };
 
 export function createAgentShellRuntime(options: AgentShellRuntimeOptions): AgentShellRuntime {
@@ -223,9 +223,7 @@ function handleHostAuthorizationRequest(
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   const decision = options.hostDecision ?? "none";
-  const workflowState: HostWorkflowState = {
-    terminated: false
-  };
+  const workflowState: HostWorkflowState = {};
 
   if (decision === "none") {
     options.logger?.log("[winbridge-agent] authorization request received; no host decision configured");
@@ -303,6 +301,7 @@ function handleHostAuthorizationRequest(
 
   scheduleHostRevoke(socket, options, request, authorizationId, expiresAt, workflowState, scheduleTimer);
   scheduleHostTerminate(socket, options, request, authorizationId, expiresAt, workflowState, scheduleTimer);
+  scheduleHostExpiration(socket, options, request, authorizationId, expiresAt, workflowState, scheduleTimer);
 }
 
 function scheduleHostRevoke(
@@ -332,8 +331,8 @@ function scheduleHostRevoke(
   const reason = options.hostRevokeReason ?? `Host revoked ${revokedPermission}`;
 
   scheduleTimer(() => {
-    if (workflowState.terminated) {
-      options.logger?.log("[winbridge-agent] revoke skipped because authorization is terminated");
+    if (workflowState.terminalStatus) {
+      options.logger?.log(`[winbridge-agent] revoke skipped because authorization is ${workflowState.terminalStatus}`);
       return;
     }
 
@@ -345,6 +344,11 @@ function scheduleHostRevoke(
     const remainingPermissions = request.requestedPermissions.filter(
       (permission) => permission !== revokedPermission
     );
+    const finalGrantRevoked = remainingPermissions.length === 0;
+
+    if (finalGrantRevoked) {
+      workflowState.terminalStatus = "revoked";
+    }
 
     sendProtocol(socket, options, {
       ...createMessageBase(options.sessionId),
@@ -360,7 +364,7 @@ function scheduleHostRevoke(
       type: "session-authorization-state",
       authorizationId,
       actorPeerId: options.peerId,
-      status: remainingPermissions.length === 0 ? "revoked" : "active",
+      status: finalGrantRevoked ? "revoked" : "active",
       visibleToHost: true,
       permissions: remainingPermissions,
       expiresAt,
@@ -372,7 +376,7 @@ function scheduleHostRevoke(
       detail: {
         revokedPermission,
         remainingPermissionCount: remainingPermissions.length,
-        finalGrantRevoked: remainingPermissions.length === 0
+        finalGrantRevoked
       }
     });
   }, options.hostRevokeAfterMs);
@@ -394,7 +398,7 @@ function scheduleHostTerminate(
   const reason = options.hostTerminateReason ?? "Host terminated session";
 
   scheduleTimer(() => {
-    if (workflowState.terminated) {
+    if (workflowState.terminalStatus) {
       return;
     }
 
@@ -403,7 +407,7 @@ function scheduleHostTerminate(
       return;
     }
 
-    workflowState.terminated = true;
+    workflowState.terminalStatus = "terminated";
 
     sendProtocol(socket, options, {
       ...createMessageBase(options.sessionId),
@@ -435,6 +439,55 @@ function scheduleHostTerminate(
       }
     });
   }, options.hostTerminateAfterMs);
+}
+
+function scheduleHostExpiration(
+  socket: WebSocket | undefined,
+  options: AgentShellRuntimeOptions,
+  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>,
+  authorizationId: string,
+  expiresAt: string,
+  workflowState: HostWorkflowState,
+  scheduleTimer: (callback: () => void, delayMs: number) => void
+): void {
+  const ttlMs = options.authorizationTtlMs ?? 10 * 60_000;
+
+  scheduleTimer(() => {
+    if (workflowState.terminalStatus) {
+      options.logger?.log(`[winbridge-agent] expiration skipped because authorization is ${workflowState.terminalStatus}`);
+      return;
+    }
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      options.logger?.log("[winbridge-agent] expiration skipped because socket is closed");
+      return;
+    }
+
+    workflowState.terminalStatus = "expired";
+
+    sendProtocol(socket, options, {
+      ...createMessageBase(options.sessionId),
+      type: "session-authorization-state",
+      authorizationId,
+      actorPeerId: options.peerId,
+      status: "expired",
+      visibleToHost: true,
+      permissions: [],
+      expiresAt,
+      reason: "Authorization expired"
+    });
+
+    sendDevelopmentAuditEvent(socket, options, {
+      action: "agent-shell.authorization.expired",
+      outcome: "accepted",
+      detail: {
+        previouslyGrantedPermissionCount: request.requestedPermissions.length,
+        ttlMs,
+        visibleToHost: true,
+        expired: true
+      }
+    });
+  }, ttlMs);
 }
 
 function sendDevelopmentAuditEvent(

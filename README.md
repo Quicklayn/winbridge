@@ -88,6 +88,15 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 This still does not capture the screen or send input. It only sends session authorization protocol messages.
 
+Use a short development authorization TTL:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --authorization-ttl-ms 30000
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+Expiration simulation sends protocol state and audit messages only.
+
 Simulate host revocation during development:
 
 ```powershell

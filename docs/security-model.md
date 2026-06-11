@@ -67,9 +67,10 @@ The non-native agent shell can simulate consent messages for development:
 - Host approval is not automatic.
 - Host approval requires `--host-decision approve`.
 - Active session state is withheld unless `--visible-session true` is set.
+- Authorization expiration simulation uses `--authorization-ttl-ms` and only runs after visible activation.
 - Permission revocation simulation requires explicit visible approval plus `--revoke-after-ms` and `--revoke-permission`.
 - Session termination simulation requires explicit visible approval plus `--terminate-after-ms`.
-- Development `audit-event` messages are emitted for host decisions, visible activation, revocation, and termination using secret-safe metadata only.
+- Development `audit-event` messages are emitted for host decisions, visible activation, revocation, termination, and expiration using secret-safe metadata only.
 - Received message logs use summaries and must not contain raw protocol payloads or raw non-protocol message text.
 
 The shell never captures the screen, injects input, syncs clipboard, transfers files, installs services, or enables unattended access.

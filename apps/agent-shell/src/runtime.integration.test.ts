@@ -384,6 +384,121 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("sends expired state and audit after authorization ttl elapses", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 10,
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view", "input:pointer"], viewerEvents);
+
+    const expiredState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "expired"
+    );
+    const expiredAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.expired"
+    );
+
+    expect(expiredState).toMatchObject({
+      type: "session-authorization-state",
+      status: "expired",
+      visibleToHost: true,
+      permissions: []
+    });
+    expect(expiredAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        previouslyGrantedPermissionCount: 2,
+        ttlMs: 10,
+        visibleToHost: true,
+        expired: true
+      }
+    });
+  });
+
+  it("does not send expired state when visible active state is withheld", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 10,
+      hostDecision: "approve",
+      visibleToHost: false
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(viewerEvents, (message) => message.type === "session-authorization-decision");
+    await delay(50);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "expired"
+      )
+    ).toBe(false);
+  });
+
+  it("does not send expired state after final permission revocation", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 30,
+      hostDecision: "approve",
+      hostRevokeAfterMs: 10,
+      hostRevokePermission: "screen:view",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "revoked"
+    );
+    await delay(60);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "expired"
+      )
+    ).toBe(false);
+  });
+
+  it("does not send expired state after session termination", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 30,
+      hostDecision: "approve",
+      hostTerminateAfterMs: 10,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "terminated"
+    );
+    await delay(60);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "expired"
+      )
+    ).toBe(false);
+  });
+
   it("logs protocol message summaries without raw payloads", async () => {
     const { relay, host, viewerEvents } = await startRelayAndHost();
     const viewerLogs: string[] = [];
@@ -440,6 +555,7 @@ describe("agent shell consent workflow", () => {
 });
 
 async function startRelayAndHost(options: {
+  authorizationTtlMs?: number;
   decisionReason?: string;
   hostDecision?: "none" | "approve" | "deny";
   hostLogger?: TestLogger;
@@ -471,6 +587,7 @@ async function startRelayAndHost(options: {
     deviceId: "dev_host_1",
     hostDecision: options.hostDecision ?? "none",
     decisionReason: options.decisionReason,
+    authorizationTtlMs: options.authorizationTtlMs,
     hostRevokeAfterMs: options.hostRevokeAfterMs,
     hostRevokePermission: options.hostRevokePermission,
     hostRevokeReason: options.hostRevokeReason,

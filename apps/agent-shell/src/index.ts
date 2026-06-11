@@ -13,6 +13,7 @@ type Args = {
   requestedPermissions: ReturnType<typeof parsePermissions>;
   hostDecision: HostDecision;
   visibleToHost: boolean;
+  authorizationTtlMs?: number;
   hostRevokeAfterMs?: number;
   hostRevokePermission?: Permission;
   hostRevokeReason?: string;
@@ -86,6 +87,7 @@ function parseArgs(raw: string[]): Args {
     requestedPermissions: parsePermissions(options.get("request")),
     hostDecision: parseHostDecision(options.get("host-decision")),
     visibleToHost: options.get("visible-session") === "true",
+    authorizationTtlMs: parseOptionalNonNegativeInteger(options.get("authorization-ttl-ms")),
     hostRevokeAfterMs: parseOptionalNonNegativeInteger(options.get("revoke-after-ms")),
     hostRevokePermission: parseOptionalPermission(options.get("revoke-permission")),
     hostRevokeReason: options.get("revoke-reason"),
@@ -130,7 +132,7 @@ function parseOptionalNonNegativeInteger(raw: string | undefined): number | unde
 
 function printUsageAndExit(): never {
   console.error(
-    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason]"
+    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason]"
   );
   process.exit(1);
 }
