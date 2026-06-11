@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import {
   createMessageBase,
+  createDeviceIdentity,
   decodeProtocolEnvelope,
   encodeProtocolEnvelope,
   PairingCodeSchema,
@@ -15,10 +16,16 @@ type Args = {
   peerId: string;
   displayName: string;
   token?: string;
+  deviceId: string;
 };
 
 const args = parseArgs(process.argv.slice(2));
 const relayUrl = new URL(args.relayUrl);
+const deviceIdentity = createDeviceIdentity({
+  displayName: args.displayName,
+  platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux",
+  deviceId: args.deviceId
+});
 
 if (args.token) {
   relayUrl.searchParams.set("token", args.token);
@@ -37,7 +44,8 @@ socket.on("open", () => {
       type: "join-session",
       peerId: args.peerId,
       role: args.role,
-      pairingCode: args.pairingCode
+      pairingCode: args.pairingCode,
+      deviceIdentity
     })
   );
 
@@ -103,13 +111,14 @@ function parseArgs(raw: string[]): Args {
     pairingCode,
     peerId: options.get("peer") ?? `${role}-${process.pid}`,
     displayName: options.get("name") ?? `${role} ${process.pid}`,
-    token: options.get("token")
+    token: options.get("token"),
+    deviceId: options.get("device") ?? `dev_${role}_${process.pid}`
   };
 }
 
 function printUsageAndExit(): never {
   console.error(
-    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--name display-name] [--token token]"
+    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token]"
   );
   process.exit(1);
 }

@@ -32,6 +32,7 @@ apps/
   agent-shell/     Non-native host/viewer protocol exerciser.
   relay/           WebSocket development relay.
 packages/
+  audit-log/       Shared development audit sinks.
   protocol/        Shared consent, session, and message schemas.
 docs/              Architecture, security, GitHub setup, roadmap, orchestration.
 openspec/          Spec-driven planning source of truth.

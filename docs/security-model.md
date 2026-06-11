@@ -26,6 +26,19 @@ Sensitive actions include:
 - Installer, service, startup, or privilege changes.
 - Access to logs, tokens, diagnostics, or identity data.
 
+## Identity and Pairing Foundation
+
+The current bootstrap models local device identity and expiring pairing tickets. This is not production account authentication.
+
+Pairing tickets:
+
+- Are short lived.
+- Store a hash of the pairing code, not the raw code.
+- Have limited remaining uses.
+- Do not grant screen, input, clipboard, file, or diagnostic permissions by themselves.
+
+Remote actions still require an explicit host-approved active session grant.
+
 ## Abuse Prevention Rules
 
 The implementation must reject:
@@ -61,6 +74,7 @@ Every PR touching remote capability code must verify:
 - Session timeout stops the action.
 - Local disconnect terminates the action.
 - Audit events are emitted.
+- Audit details do not include raw tokens, raw pairing codes, credentials, keystrokes, screenshots, or screen contents.
 
 ### Release Gate
 

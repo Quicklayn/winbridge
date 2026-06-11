@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import WebSocket, { WebSocketServer } from "ws";
+import { createRelayAuditSink, writeRelayAudit } from "./audit.js";
 import {
   createMessageBase,
   decodeProtocolEnvelope,
@@ -12,11 +13,17 @@ import { RoomRegistry, type RelayPeer } from "./rooms.js";
 const port = Number.parseInt(process.env.WINBRIDGE_RELAY_PORT ?? "8787", 10);
 const sharedToken = process.env.WINBRIDGE_RELAY_SHARED_TOKEN;
 const rooms = new RoomRegistry();
+const auditSink = createRelayAuditSink();
 
 if (!sharedToken) {
   console.warn(
     "[winbridge-relay] Development mode: WINBRIDGE_RELAY_SHARED_TOKEN is not set. Do not use this as production authorization."
   );
+  writeRelayAudit(auditSink, {
+    action: "relay.start.development-mode",
+    outcome: "accepted",
+    detail: { sharedTokenConfigured: false }
+  });
 }
 
 const server = createServer();
@@ -27,6 +34,11 @@ wss.on("connection", (socket, request) => {
   const token = requestUrl.searchParams.get("token");
 
   if (sharedToken && token !== sharedToken) {
+    writeRelayAudit(auditSink, {
+      action: "relay.token.denied",
+      outcome: "denied",
+      detail: { tokenProvided: Boolean(token) }
+    });
     socket.close(1008, "Invalid relay token");
     return;
   }
@@ -38,11 +50,22 @@ wss.on("connection", (socket, request) => {
       const envelope = decodeProtocolEnvelope(data.toString());
 
       if (!registeredPeer) {
-        registeredPeer = registerFirstMessage(envelope, (payload) => {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(payload);
-          }
-        });
+        try {
+          registeredPeer = registerFirstMessage(envelope, (payload) => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(payload);
+            }
+          });
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : "Join rejected";
+          writeRelayAudit(auditSink, {
+            action: "relay.peer.join.denied",
+            outcome: "denied",
+            reason,
+            detail: { messageType: envelope.type }
+          });
+          throw error;
+        }
 
         const ready = encodeProtocolEnvelope({
           ...createMessageBase(registeredPeer.sessionId),
@@ -51,6 +74,13 @@ wss.on("connection", (socket, request) => {
           roomSize: rooms.size(registeredPeer.sessionId)
         });
         socket.send(ready);
+        writeRelayAudit(auditSink, {
+          action: "relay.peer.join.accepted",
+          outcome: "accepted",
+          sessionId: registeredPeer.sessionId,
+          peerId: registeredPeer.peerId,
+          detail: { role: registeredPeer.role, roomSize: rooms.size(registeredPeer.sessionId) }
+        });
         return;
       }
 
@@ -61,8 +91,23 @@ wss.on("connection", (socket, request) => {
       for (const peer of rooms.peers(registeredPeer.sessionId, registeredPeer.peerId)) {
         peer.send(encodeProtocolEnvelope(envelope));
       }
+      writeRelayAudit(auditSink, {
+        action: "relay.message.forwarded",
+        outcome: "accepted",
+        sessionId: registeredPeer.sessionId,
+        peerId: registeredPeer.peerId,
+        detail: { messageType: envelope.type }
+      });
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Invalid relay message";
+      writeRelayAudit(auditSink, {
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: registeredPeer?.sessionId,
+        peerId: registeredPeer?.peerId,
+        reason,
+        detail: { registered: Boolean(registeredPeer) }
+      });
       socket.send(
         JSON.stringify({
           type: "relay-error",
@@ -75,6 +120,13 @@ wss.on("connection", (socket, request) => {
   socket.on("close", () => {
     if (registeredPeer) {
       rooms.leave(registeredPeer.sessionId, registeredPeer.peerId);
+      writeRelayAudit(auditSink, {
+        action: "relay.peer.disconnect",
+        outcome: "accepted",
+        sessionId: registeredPeer.sessionId,
+        peerId: registeredPeer.peerId,
+        detail: { role: registeredPeer.role }
+      });
     }
   });
 });

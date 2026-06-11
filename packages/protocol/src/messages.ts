@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { AuditOutcomeSchema } from "./audit.js";
+import { DeviceIdentitySchema } from "./identity.js";
 import { PairingCodeSchema, PermissionSchema, SessionRoleSchema } from "./session.js";
 
 export const PROTOCOL_VERSION = 1;
@@ -23,7 +25,8 @@ export const JoinSessionMessageSchema = BaseMessageSchema.extend({
   type: z.literal("join-session"),
   peerId: z.string().min(3),
   role: SessionRoleSchema,
-  pairingCode: PairingCodeSchema
+  pairingCode: PairingCodeSchema,
+  deviceIdentity: DeviceIdentitySchema.optional()
 });
 
 export const HostConsentRequiredMessageSchema = BaseMessageSchema.extend({
@@ -68,7 +71,7 @@ export const AuditEventMessageSchema = BaseMessageSchema.extend({
   eventId: z.string().min(3),
   actorPeerId: z.string().min(3),
   action: z.string().min(1).max(120),
-  outcome: z.enum(["accepted", "denied", "failed"]),
+  outcome: AuditOutcomeSchema,
   detail: z.record(z.unknown()).default({})
 });
 

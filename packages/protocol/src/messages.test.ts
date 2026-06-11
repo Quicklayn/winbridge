@@ -40,6 +40,25 @@ describe("protocol envelopes", () => {
 
     expect(JSON.parse(encoded)).toMatchObject({ type: "relay-ready" });
   });
+
+  it("accepts join messages with local device identity", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "join-session",
+      peerId: "viewer-1",
+      role: "viewer",
+      pairingCode: "123-456",
+      deviceIdentity: {
+        deviceId: "dev_viewer_1",
+        displayName: "Viewer laptop",
+        platform: "windows",
+        trustLevel: "local-dev",
+        createdAt: new Date().toISOString()
+      }
+    });
+
+    expect(parsed.type).toBe("join-session");
+  });
 });
 
 describe("session grants", () => {

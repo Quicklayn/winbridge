@@ -19,6 +19,8 @@ The bootstrap validates the session protocol and relay behavior before native Wi
 
 Owns shared schemas for:
 
+- Device identity.
+- Pairing tickets.
 - Peer roles.
 - Session join messages.
 - Consent decisions.
@@ -29,6 +31,16 @@ Owns shared schemas for:
 
 The protocol package is the compatibility contract between host, viewer, relay, and future native adapters.
 
+### packages/audit-log
+
+Owns reusable development audit sinks:
+
+- In-memory sink for tests.
+- Console JSON-lines sink for local debugging.
+- Schema validation and redaction through protocol audit contracts.
+
+Audit output must not contain raw tokens, raw pairing codes, credentials, keystrokes, screenshots, or screen contents.
+
 ### apps/relay
 
 Provides a development WebSocket relay:
@@ -38,6 +50,7 @@ Provides a development WebSocket relay:
 - Optionally enforces a shared development token.
 - Limits a room to one host and one viewer.
 - Validates protocol envelopes before forwarding.
+- Emits structured development audit records for joins, denials, forwarding, and disconnects.
 
 This relay is not production authorization. A future identity/auth OpenSpec change must add proper accounts, token lifecycle, device trust, and audit persistence.
 
