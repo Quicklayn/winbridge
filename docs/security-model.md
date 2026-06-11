@@ -59,6 +59,17 @@ Protocol messages for session authorization lifecycle are explicit:
 
 Receiving one of these messages is not enough to perform a sensitive action. Components must still evaluate the shared authorization state and requested permission.
 
+## Development Shell Consent Simulation
+
+The non-native agent shell can simulate consent messages for development:
+
+- Viewer requests are explicit through requested permissions.
+- Host approval is not automatic.
+- Host approval requires `--host-decision approve`.
+- Active session state is withheld unless `--visible-session true` is set.
+
+The shell never captures the screen, injects input, syncs clipboard, transfers files, installs services, or enables unattended access.
+
 ## Abuse Prevention Rules
 
 The implementation must reject:

@@ -62,6 +62,15 @@ npm run dev:agent -- host --session demo --pairing 123-456
 npm run dev:agent -- viewer --session demo --pairing 123-456
 ```
 
+Exercise the development consent workflow:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+This still does not capture the screen or send input. It only sends session authorization protocol messages.
+
 ## OpenSpec
 
 Use OpenSpec for behavior changes:

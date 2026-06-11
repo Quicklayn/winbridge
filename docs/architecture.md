@@ -73,6 +73,15 @@ The CLI entrypoint and integration tests use the same runtime implementation. Te
 
 Provides a CLI exerciser for protocol and relay behavior. It intentionally does not capture screens, inject input, sync clipboard, transfer files, or install a service.
 
+The shell has a managed runtime shared by CLI and tests. Development consent workflow behavior:
+
+- Viewer mode can send `session-authorization-request` when explicit `--request` permissions are provided.
+- Host mode does nothing by default when a request is received.
+- Host mode can send approval or denial only with explicit `--host-decision`.
+- Host mode emits active state only when `--visible-session true` is also provided.
+
+This workflow is a protocol simulator, not production host consent UI.
+
 ## Future Windows Architecture
 
 Future native work should be split into separate OpenSpec changes:

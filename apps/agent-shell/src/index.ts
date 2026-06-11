@@ -1,12 +1,5 @@
-import WebSocket from "ws";
-import {
-  createMessageBase,
-  createDeviceIdentity,
-  decodeProtocolEnvelope,
-  encodeProtocolEnvelope,
-  PairingCodeSchema,
-  type SessionRole
-} from "@winbridge/protocol";
+import { PairingCodeSchema, type SessionRole } from "@winbridge/protocol";
+import { createAgentShellRuntime, parsePermissions, type HostDecision } from "./runtime.js";
 
 type Args = {
   role: SessionRole;
@@ -17,67 +10,39 @@ type Args = {
   displayName: string;
   token?: string;
   deviceId: string;
+  requestedPermissions: ReturnType<typeof parsePermissions>;
+  hostDecision: HostDecision;
+  visibleToHost: boolean;
 };
 
 const args = parseArgs(process.argv.slice(2));
-const relayUrl = new URL(args.relayUrl);
-const deviceIdentity = createDeviceIdentity({
-  displayName: args.displayName,
-  platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux",
-  deviceId: args.deviceId
+const runtime = createAgentShellRuntime(args);
+
+const shutdown = async () => {
+  await runtime.stop();
+};
+
+process.on("SIGINT", () => {
+  shutdown()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
 });
 
-if (args.token) {
-  relayUrl.searchParams.set("token", args.token);
-}
-
-const socket = new WebSocket(relayUrl);
-
-socket.on("open", () => {
-  console.log(`[winbridge-agent] ${args.role} connected to ${relayUrl.origin}`);
-  console.log("[winbridge-agent] Native screen capture and remote input are not implemented.");
-  console.log("[winbridge-agent] This shell only exercises the consent/session protocol.");
-
-  socket.send(
-    encodeProtocolEnvelope({
-      ...createMessageBase(args.sessionId),
-      type: "join-session",
-      peerId: args.peerId,
-      role: args.role,
-      pairingCode: args.pairingCode,
-      deviceIdentity
-    })
-  );
-
-  socket.send(
-    encodeProtocolEnvelope({
-      ...createMessageBase(args.sessionId),
-      type: "hello",
-      peerId: args.peerId,
-      role: args.role,
-      displayName: args.displayName,
-      capabilities: ["session:visible", "consent:required", "audit:stdout"]
-    })
-  );
+process.on("SIGTERM", () => {
+  shutdown()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
 });
 
-socket.on("message", (data) => {
-  const text = data.toString();
-
-  try {
-    const envelope = decodeProtocolEnvelope(text);
-    console.log("[winbridge-agent] received", JSON.stringify(envelope, null, 2));
-  } catch {
-    console.log("[winbridge-agent] received non-protocol message", text);
-  }
-});
-
-socket.on("close", (code, reason) => {
-  console.log(`[winbridge-agent] disconnected code=${code} reason=${reason.toString()}`);
-});
-
-socket.on("error", (error) => {
-  console.error("[winbridge-agent] socket error", error.message);
+runtime.start().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });
 
 function parseArgs(raw: string[]): Args {
@@ -112,13 +77,28 @@ function parseArgs(raw: string[]): Args {
     peerId: options.get("peer") ?? `${role}-${process.pid}`,
     displayName: options.get("name") ?? `${role} ${process.pid}`,
     token: options.get("token"),
-    deviceId: options.get("device") ?? `dev_${role}_${process.pid}`
+    deviceId: options.get("device") ?? `dev_${role}_${process.pid}`,
+    requestedPermissions: parsePermissions(options.get("request")),
+    hostDecision: parseHostDecision(options.get("host-decision")),
+    visibleToHost: options.get("visible-session") === "true"
   };
+}
+
+function parseHostDecision(raw: string | undefined): HostDecision {
+  if (!raw) {
+    return "none";
+  }
+
+  if (raw === "approve" || raw === "deny" || raw === "none") {
+    return raw;
+  }
+
+  printUsageAndExit();
 }
 
 function printUsageAndExit(): never {
   console.error(
-    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token]"
+    "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false]"
   );
   process.exit(1);
 }
