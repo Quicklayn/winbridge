@@ -27,6 +27,7 @@ Owns shared schemas for:
 - Permission grants.
 - Session authorization lifecycle.
 - Relay signaling.
+- Peer disconnect notices.
 - Session control.
 - Audit events.
 
@@ -39,6 +40,7 @@ Preferred future clients should use the session authorization protocol messages 
 - `session-authorization-state`
 - `session-control`
 - `permission-revoked`
+- `peer-disconnected`
 
 These messages are wire contracts only. Sensitive actions still require the shared session authorization state-machine checks.
 
@@ -67,12 +69,14 @@ Provides a development WebSocket relay:
 - Emits structured development audit records for joins, denials, forwarding, and disconnects.
 - Rate-limits repeated invalid token and malformed-message attempts with in-memory development defaults.
 - Sends WebSocket heartbeat pings, closes peers that miss heartbeat timeout, and audits heartbeat timeout failures.
+- Sends schema-valid `peer-disconnected` notices to the remaining peer when a registered host or viewer disconnects.
 
 This relay is not production authorization. A future identity/auth OpenSpec change must add proper accounts, token lifecycle, device trust, and audit persistence.
 Production abuse protection also needs a distributed limiter or edge protection; the current limiter is single-process development hardening.
 Production liveness also needs distributed state, reconnect policy, and stale-session cleanup beyond this single-process development heartbeat.
+Peer disconnect notices are lifecycle notifications only. They do not grant permissions, start capture, send input, reconnect peers, or bypass authorization.
 
-The CLI entrypoint and integration tests use the same runtime implementation. Tests start the relay on an ephemeral local port and verify real WebSocket join, forwarding, rejection, and rate-limit behavior.
+The CLI entrypoint and integration tests use the same runtime implementation. Tests start the relay on an ephemeral local port and verify real WebSocket join, forwarding, rejection, disconnect notification, and rate-limit behavior.
 
 Set `WINBRIDGE_RELAY_AUDIT_LOG_PATH` to write relay audit events to a local JSONL file during development.
 Heartbeat defaults are controlled by `WINBRIDGE_RELAY_HEARTBEAT_ENABLED`, `WINBRIDGE_RELAY_HEARTBEAT_INTERVAL_MS`, and `WINBRIDGE_RELAY_HEARTBEAT_TIMEOUT_MS`.

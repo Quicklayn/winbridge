@@ -1,5 +1,6 @@
 import { MemoryAuditSink } from "@winbridge/audit-log";
 import {
+  type AuditRecord,
   createMessageBase,
   encodeProtocolEnvelope,
   type ProtocolEnvelope
@@ -73,6 +74,106 @@ describe("relay runtime integration", () => {
       (record) => record.action === "relay.peer.join.accepted"
     );
     expect(JSON.stringify(auditRecords)).not.toContain("123-456");
+  });
+
+  it("notifies the viewer when the host disconnects", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    host.close();
+
+    expect(
+      await waitForProtocolMessage(viewer, (message) => message.type === "peer-disconnected")
+    ).toMatchObject({
+      type: "peer-disconnected",
+      sessionId: "session-demo",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+
+    const disconnect = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.peer.disconnect" && record.actor.id.endsWith(":host-1")
+    );
+    expect(disconnect).toMatchObject({
+      action: "relay.peer.disconnect",
+      outcome: "accepted",
+      sessionId: "session-demo",
+      detail: {
+        role: "host",
+        reasonCode: "peer-closed",
+        notificationTargetCount: 1,
+        notificationSentCount: 1,
+        notificationFailedCount: 0
+      }
+    });
+    expect(JSON.stringify(disconnect)).not.toContain("123-456");
+  });
+
+  it("notifies the host when the viewer disconnects", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    viewer.close();
+
+    expect(
+      await waitForProtocolMessage(host, (message) => message.type === "peer-disconnected")
+    ).toMatchObject({
+      type: "peer-disconnected",
+      sessionId: "session-demo",
+      peerId: "viewer-1",
+      role: "viewer",
+      reasonCode: "peer-closed"
+    });
+
+    const disconnect = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.peer.disconnect" && record.actor.id.endsWith(":viewer-1")
+    );
+    expect(disconnect).toMatchObject({
+      action: "relay.peer.disconnect",
+      outcome: "accepted",
+      sessionId: "session-demo",
+      detail: {
+        role: "viewer",
+        reasonCode: "peer-closed",
+        notificationTargetCount: 1,
+        notificationSentCount: 1,
+        notificationFailedCount: 0
+      }
+    });
+    expect(JSON.stringify(disconnect)).not.toContain("123-456");
+  });
+
+  it("audits a disconnect without notifying when no peer remains", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    host.close();
+
+    const disconnect = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.peer.disconnect" && record.actor.id.endsWith(":host-1")
+    );
+    expect(disconnect).toMatchObject({
+      action: "relay.peer.disconnect",
+      outcome: "accepted",
+      sessionId: "session-demo",
+      detail: {
+        role: "host",
+        reasonCode: "peer-closed",
+        notificationTargetCount: 0,
+        notificationSentCount: 0,
+        notificationFailedCount: 0
+      }
+    });
+    expect(JSON.stringify(disconnect)).not.toContain("123-456");
   });
 
   it("rejects a viewer before the host creates a pairing ticket", async () => {
@@ -284,6 +385,21 @@ function joinMessage(
   });
 }
 
+async function joinPairedSession(runtime: RelayRuntime): Promise<{
+  host: WebSocket;
+  viewer: WebSocket;
+}> {
+  const host = await openSocket(runtime.url());
+  const viewer = await openSocket(runtime.url());
+
+  host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+  await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+  viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+  await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready");
+
+  return { host, viewer };
+}
+
 function openSocket(url: string, options: ClientOptions = {}): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url, options);
@@ -317,6 +433,28 @@ function waitForJsonMessage<T extends Record<string, unknown>>(
       };
 
       socket.on("message", onMessage);
+    })
+  );
+}
+
+function waitForAuditRecord(
+  auditSink: MemoryAuditSink,
+  predicate: (record: AuditRecord) => boolean
+): Promise<AuditRecord> {
+  return withTimeout(
+    new Promise((resolve) => {
+      const poll = () => {
+        const record = auditSink.records().find(predicate);
+
+        if (record) {
+          resolve(record);
+          return;
+        }
+
+        setTimeout(poll, 10);
+      };
+
+      poll();
     })
   );
 }

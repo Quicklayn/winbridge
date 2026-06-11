@@ -12,7 +12,7 @@ export type RelayPeer = {
   role: SessionRole;
   sessionId: string;
   deviceId: string;
-  send: (data: string) => void;
+  send: (data: string) => boolean;
 };
 
 export type RelayPeerJoin = RelayPeer & {

@@ -41,6 +41,35 @@ describe("protocol envelopes", () => {
     expect(JSON.parse(encoded)).toMatchObject({ type: "relay-ready" });
   });
 
+  it("accepts peer disconnect notices with bounded reason codes", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "peer-disconnected",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+
+    expect(parsed).toMatchObject({
+      type: "peer-disconnected",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+  });
+
+  it("rejects peer disconnect notices with unsafe free-form reason codes", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "peer-disconnected",
+        peerId: "viewer-1",
+        role: "viewer",
+        reasonCode: "raw close reason with local detail"
+      })
+    ).toThrow();
+  });
+
   it("accepts join messages with local device identity", () => {
     const parsed = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),

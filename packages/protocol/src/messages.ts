@@ -121,6 +121,15 @@ export const RelayReadyMessageSchema = BaseMessageSchema.extend({
   roomSize: z.number().int().min(1).max(2)
 });
 
+export const PeerDisconnectedReasonCodeSchema = z.enum(["peer-closed"]);
+
+export const PeerDisconnectedMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("peer-disconnected"),
+  peerId: z.string().min(3),
+  role: SessionRoleSchema,
+  reasonCode: PeerDisconnectedReasonCodeSchema
+});
+
 export const SignalMessageSchema = BaseMessageSchema.extend({
   type: z.literal("signal"),
   fromPeerId: z.string().min(3),
@@ -155,6 +164,7 @@ export const ProtocolEnvelopeSchema = z.union([
   SessionAuthorizationStateMessageSchema,
   PermissionRevokedMessageSchema,
   RelayReadyMessageSchema,
+  PeerDisconnectedMessageSchema,
   SignalMessageSchema,
   SessionControlMessageSchema,
   AuditEventMessageSchema

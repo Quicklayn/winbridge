@@ -7,7 +7,7 @@ function peer(overrides: Partial<RelayPeer>): RelayPeer {
     role: "host",
     sessionId: "session-demo",
     deviceId: "dev_host_1",
-    send: () => undefined,
+    send: () => true,
     ...overrides
   };
 }

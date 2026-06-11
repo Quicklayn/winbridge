@@ -126,6 +126,19 @@ Heartbeat checks only verify transport liveness. They must not grant permissions
 
 This is not production liveness management. Production relay design must cover distributed presence, reconnect policy, and stale-session cleanup.
 
+## Development Relay Disconnect Notices
+
+The development relay sends a `peer-disconnected` protocol message to the remaining room peer when a registered host or viewer disconnects.
+
+Disconnect notices:
+
+- Identify the disconnected peer id and role.
+- Use bounded reason codes such as `peer-closed`.
+- Do not include raw WebSocket close reasons.
+- Do not grant permissions, approve sessions, start capture, send input, reconnect peers, suppress host visibility, or bypass consent workflows.
+
+Disconnect audit details may include the peer role, bounded reason code, notification target count, notification sent count, and notification failure count. They must not include raw shared tokens, raw pairing codes, credentials, raw payload secrets, keystrokes, screenshots, screen contents, or full secrets.
+
 ## Development Audit Files
 
 The relay can write local development audit records to JSONL when `WINBRIDGE_RELAY_AUDIT_LOG_PATH` is configured.

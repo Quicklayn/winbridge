@@ -103,9 +103,12 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
           let joinResult: RelayJoinResult | undefined;
           try {
             const registeredJoin = registerFirstMessage(rooms, envelope, (payload) => {
-              if (socket.readyState === WebSocket.OPEN) {
-                socket.send(payload);
+              if (socket.readyState !== WebSocket.OPEN) {
+                return false;
               }
+
+              socket.send(payload);
+              return true;
             });
             registeredPeer = registeredJoin.peer;
             joinResult = registeredJoin.result;
@@ -194,13 +197,45 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
     socket.on("close", () => {
       stopHeartbeat();
       if (registeredPeer) {
+        const remainingPeers = rooms.peers(registeredPeer.sessionId, registeredPeer.peerId);
+        const reasonCode = "peer-closed";
+        const notification = encodeProtocolEnvelope({
+          ...createMessageBase(registeredPeer.sessionId),
+          type: "peer-disconnected",
+          peerId: registeredPeer.peerId,
+          role: registeredPeer.role,
+          reasonCode
+        });
+
         rooms.leave(registeredPeer.sessionId, registeredPeer.peerId);
+
+        let notificationSentCount = 0;
+        let notificationFailedCount = 0;
+
+        for (const peer of remainingPeers) {
+          try {
+            if (peer.send(notification)) {
+              notificationSentCount += 1;
+            } else {
+              notificationFailedCount += 1;
+            }
+          } catch {
+            notificationFailedCount += 1;
+          }
+        }
+
         writeRelayAudit(auditSink, {
           action: "relay.peer.disconnect",
           outcome: "accepted",
           sessionId: registeredPeer.sessionId,
           peerId: registeredPeer.peerId,
-          detail: { role: registeredPeer.role }
+          detail: {
+            role: registeredPeer.role,
+            reasonCode,
+            notificationTargetCount: remainingPeers.length,
+            notificationSentCount,
+            notificationFailedCount
+          }
         });
       }
     });
@@ -313,7 +348,7 @@ function startPeerHeartbeat(options: {
 function registerFirstMessage(
   rooms: RoomRegistry,
   envelope: ProtocolEnvelope,
-  send: (data: string) => void
+  send: (data: string) => boolean
 ): { peer: RelayPeer; result: RelayJoinResult } {
   const join = JoinSessionMessageSchema.parse(envelope);
   const peer = {
