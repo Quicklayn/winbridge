@@ -54,7 +54,7 @@ export type AgentShellRuntimeOptions = {
 
 export type AgentShellEvent =
   | { direction: "sent"; message: AgentShellSentProtocolEnvelope }
-  | { direction: "received"; message: ProtocolEnvelope }
+  | { direction: "received"; message: AgentShellReceivedProtocolEnvelope }
   | { direction: "raw"; text: typeof REDACTED_EVENT_VALUE; byteLength: number }
   | { direction: "error"; error: Error }
   | { direction: "closed"; code: number; reason: typeof REDACTED_EVENT_VALUE; reasonBytes: number };
@@ -63,6 +63,15 @@ export type AgentShellSentProtocolEnvelope =
   | Exclude<ProtocolEnvelope, { type: "join-session" }>
   | (Omit<Extract<ProtocolEnvelope, { type: "join-session" }>, "pairingCode"> & {
       pairingCode: typeof REDACTED_EVENT_VALUE;
+    });
+
+export type AgentShellReceivedProtocolEnvelope =
+  | Exclude<ProtocolEnvelope, { type: "signal" }>
+  | (Omit<Extract<ProtocolEnvelope, { type: "signal" }>, "payload"> & {
+      payload: {
+        redacted: typeof REDACTED_EVENT_VALUE;
+        byteLength: number;
+      };
     });
 
 export type AgentShellRuntime = {
@@ -225,7 +234,7 @@ function handleMessage(
     return;
   }
 
-  options.onEvent?.({ direction: "received", message: envelope });
+  options.onEvent?.({ direction: "received", message: redactReceivedEventMessage(envelope) });
   options.logger?.log(`[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 
   try {
@@ -974,6 +983,20 @@ function redactSentEventMessage(message: ProtocolEnvelope): AgentShellSentProtoc
     return {
       ...message,
       pairingCode: REDACTED_EVENT_VALUE
+    };
+  }
+
+  return message;
+}
+
+function redactReceivedEventMessage(message: ProtocolEnvelope): AgentShellReceivedProtocolEnvelope {
+  if (message.type === "signal") {
+    return {
+      ...message,
+      payload: {
+        redacted: REDACTED_EVENT_VALUE,
+        byteLength: Buffer.byteLength(JSON.stringify(message.payload))
+      }
     };
   }
 

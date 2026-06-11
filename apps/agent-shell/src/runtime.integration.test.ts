@@ -11,6 +11,7 @@ import { createRelayRuntime, type RelayRuntime } from "../../relay/src/server.js
 import {
   createAgentShellRuntime,
   type AgentShellEvent,
+  type AgentShellReceivedProtocolEnvelope,
   type AgentShellRuntimeOptions,
   type AgentShellRuntime,
   type HostDecision
@@ -1024,20 +1025,32 @@ describe("agent shell consent workflow", () => {
       viewerEvents,
       (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
     );
+    const signalPayload = {
+      kind: "offer",
+      sdp: "safe-offer-data",
+      nested: { candidate: "safe-candidate" }
+    };
     host.send({
       ...createMessageBase("session-demo"),
       type: "signal",
       fromPeerId: "host-1",
       toPeerId: "viewer-1",
-      payload: {
-        kind: "offer",
-        sdp: "safe-offer-data",
-        nested: { candidate: "safe-candidate" }
-      }
+      payload: signalPayload
     });
-    await waitForMessage(viewerEvents, (message) => message.type === "signal");
+    const signal = await waitForMessage(viewerEvents, (message) => message.type === "signal");
 
     const logOutput = viewerLogs.join("\n");
+    expect(signal).toMatchObject({
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        redacted: "[REDACTED]",
+        byteLength: Buffer.byteLength(JSON.stringify(signalPayload))
+      }
+    });
+    expect(JSON.stringify(signal)).not.toContain("safe-offer-data");
+    expect(JSON.stringify(signal)).not.toContain("safe-candidate");
     expect(logOutput).toContain("received signal");
     expect(logOutput).not.toContain("safe-offer-data");
     expect(logOutput).not.toContain("safe-candidate");
@@ -1448,8 +1461,8 @@ async function startViewer(
 
 function waitForMessage(
   events: AgentShellEvent[],
-  predicate: (message: ProtocolEnvelope) => boolean
-): Promise<ProtocolEnvelope> {
+  predicate: (message: AgentShellReceivedProtocolEnvelope) => boolean
+): Promise<AgentShellReceivedProtocolEnvelope> {
   return withTimeout(
     new Promise((resolve) => {
       const interval = setInterval(() => {

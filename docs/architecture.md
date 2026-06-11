@@ -109,6 +109,7 @@ The shell has a managed runtime shared by CLI and tests. Development consent wor
 - Host mode can persist those host-generated workflow audit events to JSONL with `--audit-log` or `WINBRIDGE_AGENT_AUDIT_LOG_PATH`.
 - Host mode records `peer-disconnected` as remote peer disconnected state and suppresses later delayed workflow simulation messages for that peer.
 - Runtime `sent` events use schema-normalized event-safe protocol views; audit-event details and join-session pairing codes are redacted from the local event surface.
+- Runtime `received` events for `signal` messages expose routing metadata and redacted payload summaries, not raw signal payload contents.
 - Runtime `raw` events for non-protocol inbound text are metadata-only; they expose redacted text and byte length, not the original payload.
 - Runtime `closed` events for WebSocket disconnects are metadata-only; they expose redacted reason text and reason byte length, not the original close reason.
 - Received message logs contain summaries only, not raw protocol payloads.
