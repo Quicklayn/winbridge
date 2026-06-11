@@ -1,7 +1,7 @@
 # agent-orchestration Specification
 
 ## Purpose
-TBD - created by archiving change bootstrap-remote-assistance-platform. Update Purpose after archive.
+Defines Codex/OpenSpec orchestration, subagent review gates, and repository workflow expectations for safe development.
 ## Requirements
 ### Requirement: OpenSpec-first workflow
 The project SHALL use OpenSpec proposals, specs, design notes, and tasks for behavior changes that affect remote assistance, security, networking, native Windows APIs, installer behavior, or user-visible workflows.
@@ -30,4 +30,3 @@ Each delegated result SHALL report assumptions, edited paths or inspected paths,
 #### Scenario: Subagent completes work
 - **WHEN** a subagent returns a result
 - **THEN** the main thread records how the result was used or why it was rejected
-

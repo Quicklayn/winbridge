@@ -1,7 +1,7 @@
 # identity-pairing Specification
 
 ## Purpose
-TBD - created by archiving change add-identity-pairing-audit-foundation. Update Purpose after archive.
+Defines device identity and host-created pairing ticket requirements for development session joins without granting remote permissions.
 ## Requirements
 ### Requirement: Local device identity
 The system SHALL represent each connecting peer with schema-validated local device identity metadata that is distinct from production account authentication.
@@ -81,4 +81,3 @@ The development relay SHALL use host-created expiring pairing tickets with per-t
 #### Scenario: Pairing does not grant remote action access
 - **WHEN** a viewer successfully consumes a relay pairing ticket
 - **THEN** the relay treats the viewer as joined only and does not grant screen, input, clipboard, file, diagnostic, or other sensitive action permissions
-

@@ -1,7 +1,7 @@
 # safety-boundaries Specification
 
 ## Purpose
-TBD - created by archiving change bootstrap-remote-assistance-platform. Update Purpose after archive.
+Defines the consent-first safety invariants and prohibited capability boundaries that every WinBridge change must preserve.
 ## Requirements
 ### Requirement: Visible consent session
 The system SHALL only permit remote assistance inside an authenticated session that is explicitly approved by the host user and visibly indicated on the host machine for the entire session.
@@ -42,4 +42,3 @@ The system SHALL record security-relevant session events in an audit stream that
 #### Scenario: Session lifecycle audit
 - **WHEN** a session is requested, approved, denied, revoked, paused, resumed, or terminated
 - **THEN** the system emits an audit event with timestamp, actor, session id, action, and outcome
-

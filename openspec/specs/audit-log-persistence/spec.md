@@ -1,7 +1,7 @@
 # audit-log-persistence Specification
 
 ## Purpose
-TBD - created by archiving change add-development-audit-file-sink. Update Purpose after archive.
+Defines local development JSONL audit persistence and write-failure behavior for relay and agent-shell audit sinks.
 ## Requirements
 ### Requirement: JSONL file audit sink
 The system SHALL provide a development file audit sink that appends one schema-valid audit record as JSON per line.
@@ -49,4 +49,3 @@ The agent shell SHALL use the development JSONL file audit sink when an audit lo
 #### Scenario: Agent shell file audit redacts sensitive detail
 - **WHEN** an agent shell workflow audit record is written to the configured file
 - **THEN** the persisted JSON line is schema-valid and contains redacted placeholders instead of raw sensitive values if any sensitive detail key is present
-

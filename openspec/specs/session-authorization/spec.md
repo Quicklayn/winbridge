@@ -1,7 +1,7 @@
 # session-authorization Specification
 
 ## Purpose
-TBD - created by archiving change add-session-authorization-state-machine. Update Purpose after archive.
+Defines the consent-bound authorization state machine for visible, scoped, expiring remote assistance permissions.
 ## Requirements
 ### Requirement: Consent-bound lifecycle
 The system SHALL model remote assistance authorization as an explicit lifecycle that begins pending and cannot become active without host approval.
@@ -177,4 +177,3 @@ The system SHALL reject authorization lifecycle records and transitions that inc
 #### Scenario: Optional lifecycle reason is omitted
 - **WHEN** a transition omits an optional reason and the state machine has a safe default reason
 - **THEN** the transition remains valid and records the default reason
-

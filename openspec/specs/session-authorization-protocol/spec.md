@@ -1,7 +1,7 @@
 # session-authorization-protocol Specification
 
 ## Purpose
-TBD - created by archiving change add-session-authorization-protocol-messages. Update Purpose after archive.
+Defines protocol messages for requesting, deciding, updating, pausing, resuming, revoking, and terminating session authorization.
 ## Requirements
 ### Requirement: Authorization request message
 The protocol SHALL provide a session authorization request message that carries viewer identity, requested permissions, and request reason without granting access.
@@ -161,4 +161,3 @@ The protocol SHALL reject authorization-related messages that include blank or w
 #### Scenario: Optional authorization reason is omitted
 - **WHEN** an authorization-related protocol message omits an optional reason
 - **THEN** the protocol schema accepts the message when all other required fields are valid
-

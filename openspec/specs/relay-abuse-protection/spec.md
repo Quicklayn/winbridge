@@ -1,7 +1,7 @@
 # relay-abuse-protection Specification
 
 ## Purpose
-TBD - created by archiving change add-relay-abuse-protection. Update Purpose after archive.
+Defines development relay abuse controls for invalid access attempts, malformed messages, oversized messages, and secret-safe rejection metadata.
 ## Requirements
 ### Requirement: Invalid token rate limiting
 The relay SHALL rate-limit repeated invalid shared-token attempts before a peer joins a session.

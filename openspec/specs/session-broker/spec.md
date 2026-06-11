@@ -1,7 +1,7 @@
 # session-broker Specification
 
 ## Purpose
-TBD - created by archiving change bootstrap-remote-assistance-platform. Update Purpose after archive.
+Defines the development relay session broker contract for pairing-gated joins, two-party rooms, protocol validation, signaling safety, and disconnect notices.
 ## Requirements
 ### Requirement: Pairing-based session join
 The system SHALL require peers to join a brokered session using an explicit session id, role, peer id, and pairing credential before relay messages are accepted.

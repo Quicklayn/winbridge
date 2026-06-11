@@ -1,7 +1,7 @@
 # audit-foundation Specification
 
 ## Purpose
-TBD - created by archiving change add-identity-pairing-audit-foundation. Update Purpose after archive.
+Defines the shared audit record contract and relay audit events needed for consent, join, rejection, and safety-relevant decisions.
 ## Requirements
 ### Requirement: Structured audit record
 The system SHALL represent security-relevant events as structured audit records with event id, timestamp, actor, action, outcome, and optional session id.
@@ -57,4 +57,3 @@ The system SHALL redact sensitive fields in protocol `audit-event` message detai
 #### Scenario: Audit-event detail is omitted
 - **WHEN** an `audit-event` protocol message omits detail metadata
 - **THEN** the protocol schema accepts the message and uses an empty detail object
-
