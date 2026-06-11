@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { AgentShellUsageError, parseArgs } from "./args.js";
 
 describe("agent shell arguments", () => {
+  const workflowTimerOptions = [
+    ["authorization-ttl-ms", "authorizationTtlMs"],
+    ["revoke-after-ms", "hostRevokeAfterMs"],
+    ["pause-after-ms", "hostPauseAfterMs"],
+    ["resume-after-ms", "hostResumeAfterMs"],
+    ["terminate-after-ms", "hostTerminateAfterMs"]
+  ] as const;
+
   it("uses fail-closed defaults when optional consent flags are omitted", () => {
     const args = parseArgs(["viewer"], {}, 42);
 
@@ -107,6 +115,23 @@ describe("agent shell arguments", () => {
         AgentShellUsageError
       );
       expect(() => parseArgs(["host", `--${option}`, "x".repeat(241)], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+    }
+  });
+
+  it("parses bounded workflow timer delays", () => {
+    for (const [option, property] of workflowTimerOptions) {
+      expect(parseArgs(["host", `--${option}`, "0"], {}, 42)[property]).toBe(0);
+      expect(parseArgs(["host", `--${option}`, "2147483647"], {}, 42)[property]).toBe(
+        2147483647
+      );
+    }
+  });
+
+  it("rejects oversized workflow timer delays", () => {
+    for (const [option] of workflowTimerOptions) {
+      expect(() => parseArgs(["host", `--${option}`, "2147483648"], {}, 42)).toThrow(
         AgentShellUsageError
       );
     }

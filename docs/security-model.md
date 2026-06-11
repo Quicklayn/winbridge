@@ -85,6 +85,7 @@ The non-native agent shell can simulate consent messages for development:
 - Development `audit-event` messages are emitted for host decisions, visible activation, revocation, termination, expiration, pause, and resume using secret-safe metadata only.
 - Host workflow audit records can be persisted locally with `--audit-log` or `WINBRIDGE_AGENT_AUDIT_LOG_PATH`.
 - Received message logs use summaries and must not contain raw protocol payloads or raw non-protocol message text.
+- Workflow timer values are exact integer milliseconds bounded to the safe JavaScript timer delay range before runtime startup.
 
 The shell never captures the screen, injects input, syncs clipboard, transfers files, installs services, or enables unattended access.
 

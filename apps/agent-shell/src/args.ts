@@ -62,6 +62,7 @@ const knownOptions = new Set([
   "terminate-reason"
 ]);
 const MAX_CLI_REASON_LENGTH = 240;
+const MAX_AGENT_SHELL_TIMER_DELAY_MS = 2_147_483_647;
 
 export class AgentShellUsageError extends Error {
   constructor() {
@@ -101,15 +102,15 @@ export function parseArgs(
     requestedPermissions: parseRequestedPermissions(options.get("request")),
     hostDecision: parseHostDecision(options.get("host-decision")),
     visibleToHost: parseVisibleSession(options.get("visible-session")),
-    authorizationTtlMs: parseOptionalNonNegativeInteger(options.get("authorization-ttl-ms")),
-    hostRevokeAfterMs: parseOptionalNonNegativeInteger(options.get("revoke-after-ms")),
+    authorizationTtlMs: parseOptionalTimerDelayMs(options.get("authorization-ttl-ms")),
+    hostRevokeAfterMs: parseOptionalTimerDelayMs(options.get("revoke-after-ms")),
     hostRevokePermission: parseOptionalPermission(options.get("revoke-permission")),
     hostRevokeReason: parseOptionalReason(options.get("revoke-reason")),
-    hostPauseAfterMs: parseOptionalNonNegativeInteger(options.get("pause-after-ms")),
+    hostPauseAfterMs: parseOptionalTimerDelayMs(options.get("pause-after-ms")),
     hostPauseReason: parseOptionalReason(options.get("pause-reason")),
-    hostResumeAfterMs: parseOptionalNonNegativeInteger(options.get("resume-after-ms")),
+    hostResumeAfterMs: parseOptionalTimerDelayMs(options.get("resume-after-ms")),
     hostResumeReason: parseOptionalReason(options.get("resume-reason")),
-    hostTerminateAfterMs: parseOptionalNonNegativeInteger(options.get("terminate-after-ms")),
+    hostTerminateAfterMs: parseOptionalTimerDelayMs(options.get("terminate-after-ms")),
     hostTerminateReason: parseOptionalReason(options.get("terminate-reason"))
   };
 }
@@ -280,14 +281,19 @@ function parseOptionalToken(raw: string | undefined): string | undefined {
   return raw;
 }
 
-function parseOptionalNonNegativeInteger(raw: string | undefined): number | undefined {
+function parseOptionalTimerDelayMs(raw: string | undefined): number | undefined {
   if (!raw) {
     return undefined;
   }
 
   const value = Number.parseInt(raw, 10);
 
-  if (!Number.isInteger(value) || value < 0 || String(value) !== raw) {
+  if (
+    !Number.isInteger(value) ||
+    value < 0 ||
+    value > MAX_AGENT_SHELL_TIMER_DELAY_MS ||
+    String(value) !== raw
+  ) {
     throw new AgentShellUsageError();
   }
 

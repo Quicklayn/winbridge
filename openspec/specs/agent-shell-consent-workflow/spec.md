@@ -41,6 +41,10 @@ The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments befo
 - **WHEN** the agent shell is started with an empty or whitespace-only `--token` value
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
+#### Scenario: Oversized workflow timer option is rejected
+- **WHEN** the agent shell is started with `--authorization-ttl-ms`, `--revoke-after-ms`, `--pause-after-ms`, `--resume-after-ms`, or `--terminate-after-ms` above the safe timer delay bound
+- **THEN** it exits through bounded usage handling before connecting to the relay or scheduling workflow timers
+
 #### Scenario: Invalid lifecycle reason option is rejected
 - **WHEN** the agent shell is started with a blank or oversized lifecycle reason option
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
