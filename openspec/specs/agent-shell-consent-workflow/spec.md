@@ -17,6 +17,10 @@ The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments befo
 - **WHEN** the agent shell is started with an option name that is not part of the documented CLI
 - **THEN** it exits through bounded usage handling before connecting to the relay
 
+#### Scenario: Invalid relay URL option is rejected
+- **WHEN** the agent shell is started with a malformed, relative, or non-WebSocket `--relay` URL
+- **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
+
 #### Scenario: Visible session value is explicit
 - **WHEN** the agent shell is started with `--visible-session`
 - **THEN** the value MUST be either `true` or `false`

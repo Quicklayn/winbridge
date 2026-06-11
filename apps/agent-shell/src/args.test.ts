@@ -7,7 +7,7 @@ describe("agent shell arguments", () => {
 
     expect(args).toMatchObject({
       role: "viewer",
-      relayUrl: "ws://localhost:8787",
+      relayUrl: "ws://localhost:8787/",
       sessionId: "demo",
       pairingCode: "123-456",
       peerId: "viewer-42",
@@ -22,6 +22,23 @@ describe("agent shell arguments", () => {
   it("parses explicit visible session boolean values", () => {
     expect(parseArgs(["host", "--visible-session", "true"], {}, 42).visibleToHost).toBe(true);
     expect(parseArgs(["host", "--visible-session", "false"], {}, 42).visibleToHost).toBe(false);
+  });
+
+  it("parses absolute websocket relay urls", () => {
+    expect(parseArgs(["viewer", "--relay", "ws://127.0.0.1:8787"], {}, 42).relayUrl).toBe(
+      "ws://127.0.0.1:8787/"
+    );
+    expect(parseArgs(["viewer", "--relay", "wss://relay.example.test/session"], {}, 42).relayUrl).toBe(
+      "wss://relay.example.test/session"
+    );
+  });
+
+  it("rejects malformed relay url values", () => {
+    for (const relayUrl of ["localhost:8787", "http://localhost:8787", "file:///tmp/relay", "not a url"]) {
+      expect(() => parseArgs(["viewer", "--relay", relayUrl], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+    }
   });
 
   it("rejects malformed visible session values", () => {

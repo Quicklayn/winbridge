@@ -87,7 +87,7 @@ export function parseArgs(
 
   return {
     role,
-    relayUrl: options.get("relay") ?? "ws://localhost:8787",
+    relayUrl: parseRelayUrl(options.get("relay") ?? "ws://localhost:8787"),
     sessionId,
     pairingCode,
     peerId,
@@ -131,6 +131,22 @@ function parseOptionMap(rawOptions: string[]): Map<string, string> {
   }
 
   return options;
+}
+
+function parseRelayUrl(raw: string): string {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new AgentShellUsageError();
+  }
+
+  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
+    throw new AgentShellUsageError();
+  }
+
+  return parsed.toString();
 }
 
 function parseSessionId(raw: string): string {
