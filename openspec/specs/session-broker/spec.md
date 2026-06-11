@@ -62,6 +62,10 @@ The relay SHALL support an optional shared token for local/private development a
 - **WHEN** the relay is started without a shared token
 - **THEN** the relay starts in development mode and logs a warning that it is not production authorization
 
+#### Scenario: Blank shared token is rejected
+- **WHEN** the relay is configured with an empty or whitespace-only shared token
+- **THEN** the relay rejects the configuration before accepting peer connections
+
 ### Requirement: Host-created pairing gate
 The relay SHALL require a host-created pairing ticket before registering a viewer in a brokered development session.
 

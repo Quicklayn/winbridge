@@ -1,8 +1,13 @@
-import { createRelayPairingConfig, createRelayPortConfig, createRelayRuntime } from "./server.js";
+import {
+  createRelayPairingConfig,
+  createRelayPortConfig,
+  createRelayRuntime,
+  createRelaySharedTokenConfig
+} from "./server.js";
 
 const runtime = createRelayRuntime({
   port: createRelayPortConfig(process.env),
-  sharedToken: process.env.WINBRIDGE_RELAY_SHARED_TOKEN,
+  sharedToken: createRelaySharedTokenConfig(process.env),
   pairing: createRelayPairingConfig(process.env)
 });
 

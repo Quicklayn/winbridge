@@ -55,6 +55,15 @@ Run the development relay:
 npm run dev:relay
 ```
 
+Require a non-blank local development shared token:
+
+```powershell
+$env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
+npm run dev:relay
+```
+
+Omit `WINBRIDGE_RELAY_SHARED_TOKEN` for local development mode. Do not set it to an empty or whitespace-only value.
+
 Configure the local relay port with an exact integer TCP port:
 
 ```powershell

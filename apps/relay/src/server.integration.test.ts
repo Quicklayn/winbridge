@@ -12,6 +12,7 @@ import {
   createRelayPairingConfig,
   createRelayPortConfig,
   createRelayRuntime,
+  createRelaySharedTokenConfig,
   type RelayRuntime,
   type RelayRuntimeOptions
 } from "./server.js";
@@ -539,6 +540,27 @@ describe("relay runtime integration", () => {
     expect(denied?.detail).toMatchObject({
       accessPresented: true
     });
+  });
+
+  it("parses development shared-token environment configuration", () => {
+    expect(createRelaySharedTokenConfig({})).toBeUndefined();
+    expect(
+      createRelaySharedTokenConfig({ WINBRIDGE_RELAY_SHARED_TOKEN: "correct-token" })
+    ).toBe("correct-token");
+    expect(
+      createRelaySharedTokenConfig({ WINBRIDGE_RELAY_SHARED_TOKEN: "  padded-token  " })
+    ).toBe("  padded-token  ");
+  });
+
+  it("rejects blank development shared-token configuration", () => {
+    for (const token of ["", "   "]) {
+      expect(() =>
+        createRelaySharedTokenConfig({ WINBRIDGE_RELAY_SHARED_TOKEN: token })
+      ).toThrow("WINBRIDGE_RELAY_SHARED_TOKEN");
+      expect(() => createRelayRuntime({ port: 0, sharedToken: token })).toThrow(
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      );
+    }
   });
 
   it("closes a peer after invalid-message rate limit is exceeded", async () => {

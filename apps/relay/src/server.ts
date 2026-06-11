@@ -64,7 +64,7 @@ export type RelayRuntime = {
 
 export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRuntime {
   const port = options.port ?? 8787;
-  const sharedToken = options.sharedToken;
+  const sharedToken = normalizeRelaySharedToken(options.sharedToken);
   const pairingConfig = normalizeRelayPairingConfig(options.pairing);
   const rooms = options.rooms ?? new RoomRegistry(pairingConfig);
   const auditSink = options.auditSink ?? createRelayAuditSink();
@@ -519,6 +519,28 @@ export function createRelayPortConfig(
     65_535,
     "WINBRIDGE_RELAY_PORT"
   );
+}
+
+export function createRelaySharedTokenConfig(
+  env: NodeJS.ProcessEnv = process.env
+): string | undefined {
+  if (env.WINBRIDGE_RELAY_SHARED_TOKEN === undefined) {
+    return undefined;
+  }
+
+  return normalizeRelaySharedToken(env.WINBRIDGE_RELAY_SHARED_TOKEN);
+}
+
+function normalizeRelaySharedToken(sharedToken: string | undefined): string | undefined {
+  if (sharedToken === undefined) {
+    return undefined;
+  }
+
+  if (sharedToken.trim().length === 0) {
+    throw new Error("WINBRIDGE_RELAY_SHARED_TOKEN must not be blank");
+  }
+
+  return sharedToken;
 }
 
 function normalizeRelayPairingConfig(
