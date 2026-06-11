@@ -50,6 +50,15 @@ Remote assistance authorization is deny-by-default:
 
 Pairing is only a prerequisite relationship. It never grants screen viewing, pointer input, keyboard input, clipboard access, file transfer, or diagnostics by itself.
 
+Protocol messages for session authorization lifecycle are explicit:
+
+- `session-authorization-request`: viewer asks for scoped permissions.
+- `session-authorization-decision`: host approves or denies with grants, expiration, and reason where applicable.
+- `session-authorization-state`: peers receive current authorization state and host visibility.
+- `permission-revoked`: host or authorized actor revokes a specific permission.
+
+Receiving one of these messages is not enough to perform a sensitive action. Components must still evaluate the shared authorization state and requested permission.
+
 ## Abuse Prevention Rules
 
 The implementation must reject:

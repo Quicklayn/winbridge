@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { AuditOutcomeSchema } from "./audit.js";
+import { SessionAuthorizationStatusSchema } from "./authorization.js";
 import { DeviceIdentitySchema } from "./identity.js";
 import { PairingCodeSchema, PermissionSchema, SessionRoleSchema } from "./session.js";
 
@@ -45,6 +46,75 @@ export const HostConsentDecisionMessageSchema = BaseMessageSchema.extend({
   reason: z.string().max(240).optional()
 });
 
+export const SessionAuthorizationRequestMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("session-authorization-request"),
+  viewerPeerId: z.string().min(3),
+  requestedPermissions: z.array(PermissionSchema).min(1).max(16),
+  reason: z.string().min(1).max(240).optional()
+});
+
+export const SessionAuthorizationDecisionMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("session-authorization-decision"),
+  authorizationId: z.string().min(8),
+  hostPeerId: z.string().min(3),
+  viewerPeerId: z.string().min(3),
+  decision: z.enum(["approved", "denied"]),
+  grantedPermissions: z.array(PermissionSchema).max(16),
+  expiresAt: z.string().datetime().optional(),
+  reason: z.string().min(1).max(240).optional()
+}).superRefine((message, context) => {
+  if (message.decision === "approved" && !message.expiresAt) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Approved session authorization decisions require expiresAt",
+      path: ["expiresAt"]
+    });
+  }
+
+  if (message.decision === "denied" && message.grantedPermissions.length > 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Denied session authorization decisions cannot grant permissions",
+      path: ["grantedPermissions"]
+    });
+  }
+
+  if (message.decision === "denied" && !message.reason) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Denied session authorization decisions require a reason",
+      path: ["reason"]
+    });
+  }
+});
+
+export const SessionAuthorizationStateMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("session-authorization-state"),
+  authorizationId: z.string().min(8),
+  actorPeerId: z.string().min(3),
+  status: SessionAuthorizationStatusSchema,
+  visibleToHost: z.boolean(),
+  permissions: z.array(PermissionSchema).max(16),
+  expiresAt: z.string().datetime(),
+  reason: z.string().min(1).max(240).optional()
+}).superRefine((message, context) => {
+  if (message.status === "active" && !message.visibleToHost) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Active session authorization state requires visibleToHost",
+      path: ["visibleToHost"]
+    });
+  }
+});
+
+export const PermissionRevokedMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("permission-revoked"),
+  authorizationId: z.string().min(8),
+  actorPeerId: z.string().min(3),
+  revokedPermission: PermissionSchema,
+  reason: z.string().min(1).max(240)
+});
+
 export const RelayReadyMessageSchema = BaseMessageSchema.extend({
   type: z.literal("relay-ready"),
   peerId: z.string().min(3),
@@ -75,11 +145,15 @@ export const AuditEventMessageSchema = BaseMessageSchema.extend({
   detail: z.record(z.unknown()).default({})
 });
 
-export const ProtocolEnvelopeSchema = z.discriminatedUnion("type", [
+export const ProtocolEnvelopeSchema = z.union([
   HelloMessageSchema,
   JoinSessionMessageSchema,
   HostConsentRequiredMessageSchema,
   HostConsentDecisionMessageSchema,
+  SessionAuthorizationRequestMessageSchema,
+  SessionAuthorizationDecisionMessageSchema,
+  SessionAuthorizationStateMessageSchema,
+  PermissionRevokedMessageSchema,
   RelayReadyMessageSchema,
   SignalMessageSchema,
   SessionControlMessageSchema,

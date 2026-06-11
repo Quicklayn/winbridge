@@ -32,6 +32,15 @@ Owns shared schemas for:
 
 The protocol package is the compatibility contract between host, viewer, relay, and future native adapters.
 
+Preferred future clients should use the session authorization protocol messages for consent-bound lifecycle work:
+
+- `session-authorization-request`
+- `session-authorization-decision`
+- `session-authorization-state`
+- `permission-revoked`
+
+These messages are wire contracts only. Sensitive actions still require the shared session authorization state-machine checks.
+
 ### packages/audit-log
 
 Owns reusable development audit sinks:

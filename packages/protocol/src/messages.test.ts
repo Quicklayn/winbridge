@@ -59,6 +59,118 @@ describe("protocol envelopes", () => {
 
     expect(parsed.type).toBe("join-session");
   });
+
+  it("accepts session authorization request messages", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-authorization-request",
+      viewerPeerId: "viewer-1",
+      requestedPermissions: ["screen:view"],
+      reason: "Support request"
+    });
+
+    expect(parsed.type).toBe("session-authorization-request");
+  });
+
+  it("accepts approved session authorization decisions with expiration", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-authorization-decision",
+      authorizationId: "authz-demo",
+      hostPeerId: "host-1",
+      viewerPeerId: "viewer-1",
+      decision: "approved",
+      grantedPermissions: ["screen:view"],
+      expiresAt: new Date(Date.now() + 60_000).toISOString()
+    });
+
+    expect(parsed.type).toBe("session-authorization-decision");
+  });
+
+  it("accepts denied session authorization decisions with reason and no grants", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-authorization-decision",
+      authorizationId: "authz-demo",
+      hostPeerId: "host-1",
+      viewerPeerId: "viewer-1",
+      decision: "denied",
+      grantedPermissions: [],
+      reason: "Host denied"
+    });
+
+    expect(parsed.type).toBe("session-authorization-decision");
+  });
+
+  it("rejects approved session authorization decisions without expiration", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-decision",
+        authorizationId: "authz-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        decision: "approved",
+        grantedPermissions: ["screen:view"]
+      })
+    ).toThrow();
+  });
+
+  it("accepts active visible session authorization state updates", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "session-authorization-state",
+      authorizationId: "authz-demo",
+      actorPeerId: "host-1",
+      status: "active",
+      visibleToHost: true,
+      permissions: ["screen:view"],
+      expiresAt: new Date(Date.now() + 60_000).toISOString()
+    });
+
+    expect(parsed.type).toBe("session-authorization-state");
+  });
+
+  it("rejects active session authorization state updates that are not visible to host", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        status: "active",
+        visibleToHost: false,
+        permissions: ["screen:view"],
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      })
+    ).toThrow();
+  });
+
+  it("accepts permission revoke messages", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "permission-revoked",
+      authorizationId: "authz-demo",
+      actorPeerId: "host-1",
+      revokedPermission: "input:keyboard",
+      reason: "Host revoked keyboard"
+    });
+
+    expect(parsed.type).toBe("permission-revoked");
+  });
+
+  it("rejects malformed authorization permissions", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "permission-revoked",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        revokedPermission: "input:keylogger",
+        reason: "Invalid"
+      })
+    ).toThrow();
+  });
 });
 
 describe("session grants", () => {
