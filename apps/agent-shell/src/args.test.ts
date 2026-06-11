@@ -1,0 +1,85 @@
+import { describe, expect, it } from "vitest";
+import { AgentShellUsageError, parseArgs } from "./args.js";
+
+describe("agent shell arguments", () => {
+  it("uses fail-closed defaults when optional consent flags are omitted", () => {
+    const args = parseArgs(["viewer"], {}, 42);
+
+    expect(args).toMatchObject({
+      role: "viewer",
+      relayUrl: "ws://localhost:8787",
+      sessionId: "demo",
+      pairingCode: "123-456",
+      peerId: "viewer-42",
+      displayName: "viewer 42",
+      deviceId: "dev_viewer_42",
+      requestedPermissions: [],
+      hostDecision: "none",
+      visibleToHost: false
+    });
+  });
+
+  it("parses explicit visible session boolean values", () => {
+    expect(parseArgs(["host", "--visible-session", "true"], {}, 42).visibleToHost).toBe(true);
+    expect(parseArgs(["host", "--visible-session", "false"], {}, 42).visibleToHost).toBe(false);
+  });
+
+  it("rejects malformed visible session values", () => {
+    expect(() => parseArgs(["host", "--visible-session", "yes"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+  });
+
+  it("rejects unknown and duplicate options", () => {
+    expect(() => parseArgs(["viewer", "--visible-sesion", "true"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+    expect(() =>
+      parseArgs(["viewer", "--request", "screen:view", "--request", "input:pointer"], {}, 42)
+    ).toThrow(AgentShellUsageError);
+  });
+
+  it("rejects missing option values", () => {
+    expect(() => parseArgs(["viewer", "--peer", "--visible-session"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+  });
+
+  it("rejects invalid permission and pairing values", () => {
+    expect(() => parseArgs(["viewer", "--request", "input:keylogger"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+    expect(() => parseArgs(["viewer", "--pairing", "secret"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+  });
+
+  it("parses valid workflow options", () => {
+    const args = parseArgs(
+      [
+        "host",
+        "--request",
+        "screen:view,input:pointer,screen:view",
+        "--host-decision",
+        "approve",
+        "--visible-session",
+        "true",
+        "--authorization-ttl-ms",
+        "600000",
+        "--revoke-permission",
+        "input:pointer"
+      ],
+      { WINBRIDGE_AGENT_AUDIT_LOG_PATH: "logs/audit.jsonl" },
+      42
+    );
+
+    expect(args).toMatchObject({
+      auditLogPath: "logs/audit.jsonl",
+      requestedPermissions: ["screen:view", "input:pointer"],
+      hostDecision: "approve",
+      visibleToHost: true,
+      authorizationTtlMs: 600000,
+      hostRevokePermission: "input:pointer"
+    });
+  });
+});

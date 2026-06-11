@@ -10,6 +10,25 @@ The agent shell SHALL expose a managed runtime with explicit start and stop oper
 - **WHEN** the agent shell runtime starts
 - **THEN** it connects to the relay, sends a join message, and sends hello using the same implementation as the CLI
 
+### Requirement: Agent shell CLI argument validation
+The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime.
+
+#### Scenario: Unknown CLI option is rejected
+- **WHEN** the agent shell is started with an option name that is not part of the documented CLI
+- **THEN** it exits through bounded usage handling before connecting to the relay
+
+#### Scenario: Visible session value is explicit
+- **WHEN** the agent shell is started with `--visible-session`
+- **THEN** the value MUST be either `true` or `false`
+
+#### Scenario: Invalid permission option is rejected
+- **WHEN** the agent shell is started with an invalid requested or revocation permission value
+- **THEN** it exits through bounded usage handling before sending any protocol message
+
+#### Scenario: Valid omitted options keep safe defaults
+- **WHEN** the agent shell is started with only a valid role
+- **THEN** omitted consent-sensitive options keep fail-closed defaults such as no requested permissions, no host decision, and no visible session
+
 ### Requirement: Viewer authorization request
 The viewer shell SHALL send a session authorization request only when requested permissions are explicitly configured.
 
