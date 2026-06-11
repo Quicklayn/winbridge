@@ -117,6 +117,8 @@ This is not production identity. Production pairing needs durable storage, accou
 
 The development relay includes in-memory rate limiting for repeated invalid shared-token attempts and malformed or rejected protocol messages.
 
+Relay startup validates the configured local TCP port before opening a listener. Malformed, partial, negative, fractional, or out-of-range port values fail before network binding.
+
 The relay rejects inbound WebSocket messages larger than the development message size bound at the transport boundary or before protocol decoding. Oversized message rejection is audited through the invalid-message path without storing raw bytes or payload contents.
 
 Protocol-facing machine identifiers such as session ids, peer ids, message ids, authorization ids, pairing ids, device ids, and audit event ids are bounded and restricted to a safe printable profile before relay registration, forwarding, authorization, pairing, or audit-related protocol use.

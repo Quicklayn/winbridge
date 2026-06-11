@@ -10,6 +10,7 @@ import WebSocket, { type ClientOptions, type RawData } from "ws";
 import { SlidingWindowRateLimiter } from "./rate-limit.js";
 import {
   createRelayPairingConfig,
+  createRelayPortConfig,
   createRelayRuntime,
   type RelayRuntime,
   type RelayRuntimeOptions
@@ -599,6 +600,20 @@ describe("relay runtime integration", () => {
       ticketTtlMs: 1000,
       maxUses: 2
     });
+  });
+
+  it("parses development relay port environment configuration", () => {
+    expect(createRelayPortConfig({})).toBe(8787);
+    expect(createRelayPortConfig({ WINBRIDGE_RELAY_PORT: "0" })).toBe(0);
+    expect(createRelayPortConfig({ WINBRIDGE_RELAY_PORT: "8788" })).toBe(8788);
+  });
+
+  it("rejects malformed development relay port configuration", () => {
+    for (const port of ["", "abc", "8787abc", "-1", "1.5", "65536"]) {
+      expect(() => createRelayPortConfig({ WINBRIDGE_RELAY_PORT: port })).toThrow(
+        "WINBRIDGE_RELAY_PORT"
+      );
+    }
   });
 });
 

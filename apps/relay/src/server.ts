@@ -505,6 +505,22 @@ export function createRelayPairingConfig(
   };
 }
 
+export function createRelayPortConfig(
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  if (env.WINBRIDGE_RELAY_PORT === "") {
+    throw new Error("WINBRIDGE_RELAY_PORT must be between 0 and 65535");
+  }
+
+  return parseBoundedIntegerEnv(
+    env.WINBRIDGE_RELAY_PORT,
+    8787,
+    0,
+    65_535,
+    "WINBRIDGE_RELAY_PORT"
+  );
+}
+
 function normalizeRelayPairingConfig(
   setting: Partial<RelayPairingConfig> | undefined
 ): RelayPairingConfig {

@@ -14,6 +14,10 @@ The development relay SHALL expose a managed runtime with explicit start and sto
 - **WHEN** tests stop the relay runtime
 - **THEN** the WebSocket server and HTTP server are closed
 
+#### Scenario: Runtime rejects malformed port configuration
+- **WHEN** the relay is configured with a malformed, negative, fractional, or out-of-range port value
+- **THEN** it rejects the configuration before opening a listening socket
+
 ### Requirement: Shared CLI and test implementation
 The relay CLI and integration tests SHALL use the same runtime implementation.
 

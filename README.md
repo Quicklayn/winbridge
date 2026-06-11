@@ -55,6 +55,13 @@ Run the development relay:
 npm run dev:relay
 ```
 
+Configure the local relay port with an exact integer TCP port:
+
+```powershell
+$env:WINBRIDGE_RELAY_PORT = "8787"
+npm run dev:relay
+```
+
 Persist development relay audit records as JSONL:
 
 ```powershell
