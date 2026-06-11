@@ -59,16 +59,18 @@ export type AgentShellEvent =
   | { direction: "error"; error: Error }
   | { direction: "closed"; code: number; reason: typeof REDACTED_EVENT_VALUE; reasonBytes: number };
 
-export type AgentShellSentProtocolEnvelope =
+export type AgentShellSentProtocolEnvelope = AgentShellReasonRedacted<
   | Exclude<ProtocolEnvelope, { type: "join-session" | "signal" }>
   | (Omit<Extract<ProtocolEnvelope, { type: "join-session" }>, "pairingCode"> & {
       pairingCode: typeof REDACTED_EVENT_VALUE;
     })
-  | AgentShellSignalEventEnvelope;
+  | AgentShellSignalEventEnvelope
+>;
 
-export type AgentShellReceivedProtocolEnvelope =
+export type AgentShellReceivedProtocolEnvelope = AgentShellReasonRedacted<
   | Exclude<ProtocolEnvelope, { type: "signal" }>
-  | AgentShellSignalEventEnvelope;
+  | AgentShellSignalEventEnvelope
+>;
 
 export type AgentShellSignalEventEnvelope = Omit<Extract<ProtocolEnvelope, { type: "signal" }>, "payload"> & {
   payload: AgentShellSignalPayloadSummary;
@@ -78,6 +80,15 @@ export type AgentShellSignalPayloadSummary = {
   redacted: typeof REDACTED_EVENT_VALUE;
   byteLength: number;
 };
+
+export type AgentShellReasonRedacted<T> = T extends unknown
+  ? "reason" extends keyof T
+    ? Omit<T, "reason"> &
+        (undefined extends T["reason"]
+          ? { reason?: typeof REDACTED_EVENT_VALUE }
+          : { reason: typeof REDACTED_EVENT_VALUE })
+    : T
+  : never;
 
 export type AgentShellRuntime = {
   start(): Promise<void>;
@@ -985,25 +996,25 @@ function sendProtocol(
 
 function redactSentEventMessage(message: ProtocolEnvelope): AgentShellSentProtocolEnvelope {
   if (message.type === "join-session") {
-    return {
+    return redactProtocolReason({
       ...message,
       pairingCode: REDACTED_EVENT_VALUE
-    };
+    }) as AgentShellSentProtocolEnvelope;
   }
 
   if (message.type === "signal") {
-    return redactSignalEventMessage(message);
+    return redactProtocolReason(redactSignalEventMessage(message)) as AgentShellSentProtocolEnvelope;
   }
 
-  return message;
+  return redactProtocolReason(message) as AgentShellSentProtocolEnvelope;
 }
 
 function redactReceivedEventMessage(message: ProtocolEnvelope): AgentShellReceivedProtocolEnvelope {
   if (message.type === "signal") {
-    return redactSignalEventMessage(message);
+    return redactProtocolReason(redactSignalEventMessage(message)) as AgentShellReceivedProtocolEnvelope;
   }
 
-  return message;
+  return redactProtocolReason(message) as AgentShellReceivedProtocolEnvelope;
 }
 
 function redactSignalEventMessage(
@@ -1016,6 +1027,17 @@ function redactSignalEventMessage(
       byteLength: Buffer.byteLength(JSON.stringify(message.payload))
     }
   };
+}
+
+function redactProtocolReason<T extends object>(message: T): AgentShellReasonRedacted<T> {
+  if ("reason" in message && typeof (message as { reason?: unknown }).reason === "string") {
+    return {
+      ...message,
+      reason: REDACTED_EVENT_VALUE
+    } as AgentShellReasonRedacted<T>;
+  }
+
+  return message as AgentShellReasonRedacted<T>;
 }
 
 function currentPlatform() {

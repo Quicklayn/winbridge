@@ -12,6 +12,7 @@ import {
   createAgentShellRuntime,
   type AgentShellEvent,
   type AgentShellReceivedProtocolEnvelope,
+  type AgentShellSentProtocolEnvelope,
   type AgentShellRuntimeOptions,
   type AgentShellRuntime,
   type HostDecision
@@ -356,6 +357,40 @@ describe("agent shell consent workflow", () => {
       }
     });
     expect(JSON.stringify(denialAudit)).not.toContain("private denial reason");
+  });
+
+  it("redacts protocol reason text from sent and received runtime events", async () => {
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      decisionReason: "private denial reason",
+      hostDecision: "deny"
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const sentDecision = await waitForSentMessage(
+      hostEvents,
+      (message) =>
+        message.type === "session-authorization-decision" &&
+        message.decision === "denied"
+    );
+    const receivedDecision = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-decision" &&
+        message.decision === "denied"
+    );
+
+    expect(sentDecision).toMatchObject({
+      type: "session-authorization-decision",
+      decision: "denied",
+      reason: "[REDACTED]"
+    });
+    expect(receivedDecision).toMatchObject({
+      type: "session-authorization-decision",
+      decision: "denied",
+      reason: "[REDACTED]"
+    });
+    expect(JSON.stringify(sentDecision)).not.toContain("private denial reason");
+    expect(JSON.stringify(receivedDecision)).not.toContain("private denial reason");
   });
 
   it("persists host denial audit records without raw private reason text", async () => {
@@ -1511,6 +1546,26 @@ function waitForMessage(
         );
 
         if (match?.direction === "received") {
+          clearInterval(interval);
+          resolve(match.message);
+        }
+      }, 5);
+    })
+  );
+}
+
+function waitForSentMessage(
+  events: AgentShellEvent[],
+  predicate: (message: AgentShellSentProtocolEnvelope) => boolean
+): Promise<AgentShellSentProtocolEnvelope> {
+  return withTimeout(
+    new Promise((resolve) => {
+      const interval = setInterval(() => {
+        const match = events.find(
+          (event) => event.direction === "sent" && predicate(event.message)
+        );
+
+        if (match?.direction === "sent") {
           clearInterval(interval);
           resolve(match.message);
         }

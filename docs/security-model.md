@@ -93,6 +93,7 @@ The non-native agent shell can simulate consent messages for development:
 - Local runtime `sent` events expose a schema-validated event-safe protocol view; audit-event details and raw pairing codes are redacted from the local event surface.
 - Local runtime `sent` events for `signal` messages expose peer routing metadata and redacted payload summaries, not raw signal payload contents.
 - Local runtime `received` events for `signal` messages expose peer routing metadata and redacted payload summaries, not raw signal payload contents.
+- Local runtime `sent` and `received` events redact protocol `reason` text while preserving consent workflow metadata.
 - Local runtime `raw` events for non-protocol inbound text are metadata-only and expose redacted text plus safe byte-length diagnostics.
 - Local runtime `closed` events for WebSocket disconnects are metadata-only and expose redacted reason text plus safe reason-byte diagnostics.
 - Received message logs use summaries and must not contain raw protocol payloads or raw non-protocol message text.
