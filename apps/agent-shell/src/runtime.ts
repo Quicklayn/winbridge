@@ -60,19 +60,24 @@ export type AgentShellEvent =
   | { direction: "closed"; code: number; reason: typeof REDACTED_EVENT_VALUE; reasonBytes: number };
 
 export type AgentShellSentProtocolEnvelope =
-  | Exclude<ProtocolEnvelope, { type: "join-session" }>
+  | Exclude<ProtocolEnvelope, { type: "join-session" | "signal" }>
   | (Omit<Extract<ProtocolEnvelope, { type: "join-session" }>, "pairingCode"> & {
       pairingCode: typeof REDACTED_EVENT_VALUE;
-    });
+    })
+  | AgentShellSignalEventEnvelope;
 
 export type AgentShellReceivedProtocolEnvelope =
   | Exclude<ProtocolEnvelope, { type: "signal" }>
-  | (Omit<Extract<ProtocolEnvelope, { type: "signal" }>, "payload"> & {
-      payload: {
-        redacted: typeof REDACTED_EVENT_VALUE;
-        byteLength: number;
-      };
-    });
+  | AgentShellSignalEventEnvelope;
+
+export type AgentShellSignalEventEnvelope = Omit<Extract<ProtocolEnvelope, { type: "signal" }>, "payload"> & {
+  payload: AgentShellSignalPayloadSummary;
+};
+
+export type AgentShellSignalPayloadSummary = {
+  redacted: typeof REDACTED_EVENT_VALUE;
+  byteLength: number;
+};
 
 export type AgentShellRuntime = {
   start(): Promise<void>;
@@ -986,21 +991,31 @@ function redactSentEventMessage(message: ProtocolEnvelope): AgentShellSentProtoc
     };
   }
 
+  if (message.type === "signal") {
+    return redactSignalEventMessage(message);
+  }
+
   return message;
 }
 
 function redactReceivedEventMessage(message: ProtocolEnvelope): AgentShellReceivedProtocolEnvelope {
   if (message.type === "signal") {
-    return {
-      ...message,
-      payload: {
-        redacted: REDACTED_EVENT_VALUE,
-        byteLength: Buffer.byteLength(JSON.stringify(message.payload))
-      }
-    };
+    return redactSignalEventMessage(message);
   }
 
   return message;
+}
+
+function redactSignalEventMessage(
+  message: Extract<ProtocolEnvelope, { type: "signal" }>
+): AgentShellSignalEventEnvelope {
+  return {
+    ...message,
+    payload: {
+      redacted: REDACTED_EVENT_VALUE,
+      byteLength: Buffer.byteLength(JSON.stringify(message.payload))
+    }
+  };
 }
 
 function currentPlatform() {

@@ -119,6 +119,46 @@ describe("agent shell consent workflow", () => {
     );
   });
 
+  it("emits sent signal events without raw payload contents", async () => {
+    const { host, hostEvents } = await startRelayAndHost();
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "host-1"
+    );
+
+    const signalPayload = {
+      kind: "offer",
+      sdp: "outbound-offer-data",
+      nested: { candidate: "outbound-candidate" }
+    };
+    host.send({
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: signalPayload
+    });
+
+    const sentSignal = hostEvents.find(
+      (event) => event.direction === "sent" && event.message.type === "signal"
+    );
+
+    expect(sentSignal).toBeDefined();
+    expect(sentSignal?.direction === "sent" && sentSignal.message.type === "signal"
+      ? sentSignal.message
+      : {}).toMatchObject({
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        redacted: "[REDACTED]",
+        byteLength: Buffer.byteLength(JSON.stringify(signalPayload))
+      }
+    });
+    expect(JSON.stringify(sentSignal)).not.toContain("outbound-offer-data");
+    expect(JSON.stringify(sentSignal)).not.toContain("outbound-candidate");
+  });
+
   it("sends viewer authorization requests through the relay to the host", async () => {
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
