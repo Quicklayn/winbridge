@@ -105,6 +105,7 @@ The shell has a managed runtime shared by CLI and tests. Development consent wor
 - Host mode does nothing by default when a request is received.
 - Host mode can send approval or denial only with explicit `--host-decision`.
 - Host mode emits active state only when `--visible-session true` is also provided.
+- Inbound `relay-ready` messages whose peer id does not match the local runtime peer are ignored before local received-event emission or presence and authorization request workflow handling.
 - Inbound protocol messages whose session id does not match the local runtime session are ignored before local received-event emission or consent workflow handling.
 - Inbound authorization requests that identify the local host peer as the viewer are ignored before local received-event emission or consent workflow handling.
 - CLI argument parsing rejects unknown, duplicate, missing-value, malformed relay URL, relay URLs with embedded credentials or `token` query values, malformed protocol identifier, malformed permission, malformed pairing, malformed lifecycle reason, and non-`true`/`false` visible-session values before runtime start.

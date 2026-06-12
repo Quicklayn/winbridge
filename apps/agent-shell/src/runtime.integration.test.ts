@@ -322,6 +322,54 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("ignores relay-ready messages for a different local peer before workflow handling", async () => {
+    const foreignReadyServer = await startForeignRelayReadyServer();
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        foreignReadyServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      const rawEvent = await waitForRawEvent(viewerEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(viewerEvents.some((event) => event.direction === "received")).toBe(false);
+      expect(
+        viewerEvents.some((event) => event.direction === "sent" && event.message.type === "hello")
+      ).toBe(false);
+      expect(
+        viewerEvents.some(
+          (event) => event.direction === "sent" && event.message.type === "session-authorization-request"
+        )
+      ).toBe(false);
+
+      const serializedRawEvents = JSON.stringify(viewerEvents.filter((event) => event.direction === "raw"));
+      const logOutput = viewerLogs.join("\n");
+      expect(logOutput).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(logOutput).not.toContain("relay-ready");
+      expect(logOutput).not.toContain("host-1");
+      expect(logOutput).not.toContain("session-demo");
+      expect(serializedRawEvents).not.toContain("relay-ready");
+      expect(serializedRawEvents).not.toContain("host-1");
+      expect(serializedRawEvents).not.toContain("session-demo");
+    } finally {
+      await viewer?.stop();
+      await foreignReadyServer.stop();
+    }
+  });
+
   it("does not send a host decision when host decision is omitted", async () => {
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -2246,6 +2294,44 @@ async function startOnePeerReadyServer(): Promise<{
   const address = wss.address() as AddressInfo | string | null;
   if (!address || typeof address === "string") {
     throw new Error("One-peer ready test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startForeignRelayReadyServer(): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    socket.once("message", () => {
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "relay-ready",
+        peerId: "host-1",
+        roomSize: 2
+      }));
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Foreign relay-ready test server did not expose a TCP port");
   }
 
   return {

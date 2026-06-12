@@ -23,6 +23,19 @@ The agent shell SHALL expose a managed runtime with explicit start and stop oper
 - **THEN** it sends exactly one `hello` for its local peer before later workflow messages that depend on peer presence
 - **AND** sending `hello` MUST NOT approve authorization, activate a visible session, grant permissions, start capture, send input, reconnect a peer, suppress host visibility, or bypass consent workflows
 
+### Requirement: Inbound relay-ready peer boundary
+The agent shell SHALL ignore decoded inbound `relay-ready` messages whose `peerId` does not match the local runtime peer before emitting local `received` protocol events or using room metadata for presence or authorization request workflow handling.
+
+#### Scenario: Foreign relay-ready is ignored
+- **WHEN** a viewer shell receives a decoded `relay-ready` whose `peerId` does not equal the local viewer peer id
+- **THEN** the shell MUST NOT send `hello` or `session-authorization-request` because of that message
+- **AND** the shell MUST NOT emit a local `received` protocol event for that ignored message
+
+#### Scenario: Ignored foreign relay-ready input remains secret-safe
+- **WHEN** the shell ignores a decoded `relay-ready` that identifies a different peer
+- **THEN** local events and logs expose only redacted summary metadata such as byte length
+- **AND** they MUST NOT expose raw protocol payloads, session ids, peer ids, tokens, pairing codes, private reasons, signal payloads, keystrokes, screenshots, screen contents, or input contents
+
 ### Requirement: Managed runtime option validation
 The managed agent shell runtime SHALL reject malformed direct runtime options before opening a relay connection, sending protocol messages, scheduling workflow timers, or emitting authorization decisions. Relay URLs MUST NOT contain embedded credentials/userinfo, and relay shared-token values MUST be supplied through the dedicated token field rather than embedded in the relay URL query string. Runtime token values MUST be non-blank, 1024 UTF-8 bytes or less, and contain no ASCII control characters.
 

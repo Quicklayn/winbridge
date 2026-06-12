@@ -267,6 +267,11 @@ function handleMessage(
     return;
   }
 
+  if (isForeignRelayReady(envelope, options)) {
+    reportIgnoredUnsafeProtocolMessage(text, options);
+    return;
+  }
+
   options.onEvent?.({ direction: "received", message: redactReceivedEventMessage(envelope) });
   options.logger?.log(`[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 
@@ -300,6 +305,13 @@ function isSelfReferentialAuthorizationRequest(
   options: AgentShellRuntimeOptions
 ): boolean {
   return envelope.type === "session-authorization-request" && envelope.viewerPeerId === options.peerId;
+}
+
+function isForeignRelayReady(
+  envelope: ProtocolEnvelope,
+  options: AgentShellRuntimeOptions
+): boolean {
+  return envelope.type === "relay-ready" && envelope.peerId !== options.peerId;
 }
 
 function reportIgnoredUnsafeProtocolMessage(
