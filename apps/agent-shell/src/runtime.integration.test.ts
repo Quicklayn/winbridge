@@ -11,7 +11,7 @@ import {
   type ProtocolEnvelope
 } from "@winbridge/protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocketServer } from "ws";
+import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { createRelayRuntime, type RelayRuntime } from "../../relay/src/server.js";
 import {
   createAgentShellRuntime,
@@ -2020,6 +2020,216 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("ignores inbound viewer signals before host active visible screen authorization", async () => {
+    const hostLogs: string[] = [];
+    const { relay, hostEvents } = await startRelayAndHost({
+      hostLogger: captureLogger(hostLogs)
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      const blockedPayloadMarker = "host-blocked-before-active-payload";
+      sendRawViewerSignal(rawViewer, blockedPayloadMarker);
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(hostEvents.some((event) => event.direction === "received" && event.message.type === "signal")).toBe(false);
+      expect(hostLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(hostLogs.join("\n")).not.toContain("received signal");
+      expect(hostLogs.join("\n")).not.toContain(blockedPayloadMarker);
+      expect(JSON.stringify(hostEvents)).not.toContain(blockedPayloadMarker);
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("accepts inbound viewer signals after host active visible screen authorization", async () => {
+    const { relay, hostEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
+      await waitForSentMessage(
+        hostEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.status === "active" &&
+          message.visibleToHost
+      );
+
+      const signalPayloadMarker = "host-accepted-after-active-payload";
+      const signalPayload = createRawViewerSignalPayload(signalPayloadMarker);
+      sendRawViewerSignal(rawViewer, signalPayloadMarker);
+
+      const receivedSignal = await waitForMessage(
+        hostEvents,
+        (message) => message.type === "signal" && message.fromPeerId === "viewer-1"
+      );
+
+      expect(receivedSignal).toMatchObject({
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(JSON.stringify(signalPayload))
+        }
+      });
+      expect(JSON.stringify(receivedSignal)).not.toContain(signalPayloadMarker);
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("fails closed for inbound viewer signals after host revoke, pause, termination, or expiration", async () => {
+    const scenarios: Array<{
+      name: string;
+      options: Parameters<typeof startRelayAndHost>[0];
+      waitForClosedState: (message: AgentShellSentProtocolEnvelope) => boolean;
+    }> = [
+      {
+        name: "revoke",
+        options: {
+          hostDecision: "approve",
+          hostRevokeAfterMs: 10,
+          hostRevokePermission: "screen:view",
+          visibleToHost: true
+        },
+        waitForClosedState: (message) => message.type === "permission-revoked"
+      },
+      {
+        name: "pause",
+        options: {
+          hostDecision: "approve",
+          hostPauseAfterMs: 10,
+          visibleToHost: true
+        },
+        waitForClosedState: (message) =>
+          message.type === "session-authorization-state" && message.status === "paused"
+      },
+      {
+        name: "termination",
+        options: {
+          hostDecision: "approve",
+          hostTerminateAfterMs: 10,
+          visibleToHost: true
+        },
+        waitForClosedState: (message) =>
+          message.type === "session-authorization-state" && message.status === "terminated"
+      },
+      {
+        name: "expiration",
+        options: {
+          authorizationTtlMs: 20,
+          hostDecision: "approve",
+          visibleToHost: true
+        },
+        waitForClosedState: (message) =>
+          message.type === "session-authorization-state" && message.status === "expired"
+      }
+    ];
+
+    for (const scenario of scenarios) {
+      const hostLogs: string[] = [];
+      const { relay, hostEvents } = await startRelayAndHost({
+        ...scenario.options,
+        hostLogger: captureLogger(hostLogs)
+      });
+      const rawViewer = await startRawViewer(relay.url());
+
+      try {
+        sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
+        await waitForSentMessage(
+          hostEvents,
+          (message) =>
+            message.type === "session-authorization-state" &&
+            message.status === "active" &&
+            message.visibleToHost
+        );
+        await waitForSentMessage(hostEvents, scenario.waitForClosedState);
+
+        const rawCountBefore = hostEvents.filter((event) => event.direction === "raw").length;
+        const receivedSignalCountBefore = hostEvents.filter(
+          (event) => event.direction === "received" && event.message.type === "signal"
+        ).length;
+        const blockedPayloadMarker = `host-blocked-after-${scenario.name}-payload`;
+
+        sendRawViewerSignal(rawViewer, blockedPayloadMarker);
+        await waitForRawEventCount(hostEvents, rawCountBefore + 1);
+        await delay(100);
+
+        expect(
+          hostEvents.filter((event) => event.direction === "received" && event.message.type === "signal")
+        ).toHaveLength(receivedSignalCountBefore);
+        expect(hostLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+        expect(hostLogs.join("\n")).not.toContain("received signal");
+        expect(hostLogs.join("\n")).not.toContain(blockedPayloadMarker);
+        expect(JSON.stringify(hostEvents)).not.toContain(blockedPayloadMarker);
+      } finally {
+        await closeRawSocket(rawViewer);
+      }
+    }
+  });
+
+  it("clears host inbound signal authorization across runtime restart", async () => {
+    const hostLogs: string[] = [];
+    const { relay, host, hostEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    const rawViewerBeforeRestart = await startRawViewer(relay.url());
+
+    try {
+      sendRawViewerAuthorizationRequest(rawViewerBeforeRestart, ["screen:view"]);
+      await waitForSentMessage(
+        hostEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.status === "active" &&
+          message.visibleToHost
+      );
+    } finally {
+      await closeRawSocket(rawViewerBeforeRestart);
+    }
+
+    await host.stop();
+    await host.start();
+
+    const rawViewerAfterRestart = await startRawViewer(relay.url());
+    try {
+      const rawCountBefore = hostEvents.filter((event) => event.direction === "raw").length;
+      const receivedSignalCountBefore = hostEvents.filter(
+        (event) => event.direction === "received" && event.message.type === "signal"
+      ).length;
+      const blockedPayloadMarker = "host-blocked-after-restart-payload";
+
+      sendRawViewerSignal(rawViewerAfterRestart, blockedPayloadMarker);
+      await waitForRawEventCount(hostEvents, rawCountBefore + 1);
+      await delay(100);
+
+      expect(
+        hostEvents.filter((event) => event.direction === "received" && event.message.type === "signal")
+      ).toHaveLength(receivedSignalCountBefore);
+      expect(hostLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(hostLogs.join("\n")).not.toContain("received signal");
+      expect(hostLogs.join("\n")).not.toContain(blockedPayloadMarker);
+      expect(JSON.stringify(hostEvents)).not.toContain(blockedPayloadMarker);
+    } finally {
+      await closeRawSocket(rawViewerAfterRestart);
+    }
+  });
+
   it("receives host disconnect notices through the agent shell runtime", async () => {
     const { relay, host, viewerEvents } = await startRelayAndHost();
     const viewerLogs: string[] = [];
@@ -2545,6 +2755,91 @@ async function startViewer(
   await viewer.start();
   agentRuntimes.push(viewer);
   return viewer;
+}
+
+async function startRawViewer(relayUrl: string): Promise<WebSocket> {
+  const socket = await openRawSocket(relayUrl);
+  socket.send(encodeProtocolEnvelope({
+    ...createMessageBase("session-demo"),
+    type: "join-session",
+    peerId: "viewer-1",
+    role: "viewer",
+    pairingCode: "123-456"
+  }));
+  await waitForRawSocketProtocolMessage(
+    socket,
+    (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
+  );
+  return socket;
+}
+
+function sendRawViewerAuthorizationRequest(
+  socket: WebSocket,
+  requestedPermissions: Permission[]
+): void {
+  socket.send(encodeProtocolEnvelope({
+    ...createMessageBase("session-demo"),
+    type: "session-authorization-request",
+    viewerPeerId: "viewer-1",
+    requestedPermissions,
+    reason: "Raw viewer authorization request"
+  }));
+}
+
+function sendRawViewerSignal(socket: WebSocket, payloadMarker: string): void {
+  socket.send(encodeProtocolEnvelope({
+    ...createMessageBase("session-demo"),
+    type: "signal",
+    fromPeerId: "viewer-1",
+    toPeerId: "host-1",
+    payload: createRawViewerSignalPayload(payloadMarker)
+  }));
+}
+
+function createRawViewerSignalPayload(payloadMarker: string): Record<string, unknown> {
+  return {
+    kind: "viewer-offer",
+    safeMarker: payloadMarker
+  };
+}
+
+function openRawSocket(url: string): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url);
+    socket.once("open", () => resolve(socket));
+    socket.once("error", reject);
+  });
+}
+
+function closeRawSocket(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.CLOSED) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    socket.once("close", () => resolve());
+    socket.close();
+  });
+}
+
+function waitForRawSocketProtocolMessage(
+  socket: WebSocket,
+  predicate: (message: ProtocolEnvelope) => boolean
+): Promise<ProtocolEnvelope> {
+  return withTimeout(
+    new Promise((resolve) => {
+      const onMessage = (data: RawData) => {
+        const parsed = JSON.parse(data.toString()) as ProtocolEnvelope;
+
+        if (predicate(parsed)) {
+          socket.off("message", onMessage);
+          resolve(parsed);
+        }
+      };
+
+      socket.on("message", onMessage);
+    })
+  );
 }
 
 function waitForMessage(

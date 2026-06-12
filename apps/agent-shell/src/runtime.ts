@@ -127,7 +127,7 @@ const AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE =
   "Agent shell signal requires active visible screen authorization";
 const REDACTED_EVENT_VALUE = "[REDACTED]";
 const VALID_HOST_DECISIONS = new Set(["none", "approve", "deny"]);
-const VIEWER_SIGNAL_REQUIRED_PERMISSION: Permission = "screen:view";
+const SIGNAL_REQUIRED_PERMISSION: Permission = "screen:view";
 
 type HostWorkflowState = {
   terminalStatus?: "revoked" | "terminated" | "expired";
@@ -138,10 +138,11 @@ type HostWorkflowState = {
 type AgentShellSessionState = {
   remotePeerDisconnected: boolean;
   helloSent: boolean;
-  viewerAuthorization?: ViewerAuthorizationSnapshot;
+  hostAuthorization?: RuntimeAuthorizationSnapshot;
+  viewerAuthorization?: RuntimeAuthorizationSnapshot;
 };
 
-type ViewerAuthorizationSnapshot = {
+type RuntimeAuthorizationSnapshot = {
   authorizationId: string;
   status: SessionAuthorizationStatus;
   visibleToHost: boolean;
@@ -178,6 +179,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
 
   return {
     async start() {
+      resetConnectionScopedSessionState(sessionState);
       socket = new WebSocket(relayUrl);
 
       socket.on("message", (data) => {
@@ -227,14 +229,18 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         clearTimeout(timer);
       }
       timers.clear();
+      resetConnectionScopedSessionState(sessionState);
 
-      if (!socket || socket.readyState === WebSocket.CLOSED) {
+      const socketToClose = socket;
+      socket = undefined;
+
+      if (!socketToClose || socketToClose.readyState === WebSocket.CLOSED) {
         return;
       }
 
       await new Promise<void>((resolve) => {
-        socket?.once("close", () => resolve());
-        socket?.close();
+        socketToClose.once("close", () => resolve());
+        socketToClose.close();
       });
     },
 
@@ -251,6 +257,13 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       sendProtocol(socket, options, message);
     }
   };
+}
+
+function resetConnectionScopedSessionState(sessionState: AgentShellSessionState): void {
+  sessionState.remotePeerDisconnected = false;
+  sessionState.helloSent = false;
+  sessionState.hostAuthorization = undefined;
+  sessionState.viewerAuthorization = undefined;
 }
 
 function handleMessage(
@@ -302,6 +315,11 @@ function handleMessage(
   }
 
   if (isSelfAuthorityWorkflowMessage(envelope, options)) {
+    reportIgnoredUnsafeProtocolMessage(text, options);
+    return;
+  }
+
+  if (isUnauthorizedHostInboundSignal(envelope, options, sessionState)) {
     reportIgnoredUnsafeProtocolMessage(text, options);
     return;
   }
@@ -400,6 +418,18 @@ function reportIgnoredUnsafeProtocolMessage(
   options.logger?.log(`[winbridge-agent] ignored unsafe inbound protocol message bytes=${byteLength}`);
 }
 
+function isUnauthorizedHostInboundSignal(
+  envelope: ProtocolEnvelope,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState
+): boolean {
+  return (
+    options.role === "host" &&
+    envelope.type === "signal" &&
+    !hasActiveSignalAuthorization(sessionState.hostAuthorization)
+  );
+}
+
 function updateViewerAuthorizationState(
   options: AgentShellRuntimeOptions,
   sessionState: AgentShellSessionState,
@@ -493,9 +523,9 @@ function updateViewerAuthorizationAfterSessionControl(
 }
 
 function removeViewerAuthorizationPermission(
-  snapshot: ViewerAuthorizationSnapshot,
+  snapshot: RuntimeAuthorizationSnapshot,
   permission: Permission
-): ViewerAuthorizationSnapshot {
+): RuntimeAuthorizationSnapshot {
   const permissions = snapshot.permissions.filter((existing) => existing !== permission);
 
   return {
@@ -515,16 +545,20 @@ function assertViewerSignalSendAuthorized(
   }
 
   const snapshot = sessionState.viewerAuthorization;
-  if (
-    !snapshot ||
-    snapshot.status !== "active" ||
-    !snapshot.visibleToHost ||
-    !snapshot.expiresAt ||
-    hasAuthorizationExpired(snapshot.expiresAt) ||
-    !snapshot.permissions.includes(VIEWER_SIGNAL_REQUIRED_PERMISSION)
-  ) {
+  if (!hasActiveSignalAuthorization(snapshot)) {
     throw new Error(AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE);
   }
+}
+
+function hasActiveSignalAuthorization(snapshot: RuntimeAuthorizationSnapshot | undefined): boolean {
+  return Boolean(
+    snapshot &&
+      snapshot.status === "active" &&
+      snapshot.visibleToHost &&
+      snapshot.expiresAt &&
+      !hasAuthorizationExpired(snapshot.expiresAt) &&
+      snapshot.permissions.includes(SIGNAL_REQUIRED_PERMISSION)
+  );
 }
 
 function sendHelloOnce(
@@ -609,6 +643,12 @@ function handleHostAuthorizationRequest(
       return;
     case "deny": {
       const authorizationId = `authz_${randomUUID()}`;
+      setHostAuthorizationSnapshot(sessionState, {
+        authorizationId,
+        status: "denied",
+        visibleToHost: false,
+        permissions: []
+      });
       sendProtocol(socket, options, {
         ...createMessageBase(options.sessionId),
         type: "session-authorization-decision",
@@ -638,6 +678,13 @@ function handleHostAuthorizationRequest(
   const authorizationId = `authz_${randomUUID()}`;
   const expiresAt = new Date(Date.now() + (options.authorizationTtlMs ?? 10 * 60_000)).toISOString();
 
+  setHostAuthorizationSnapshot(sessionState, {
+    authorizationId,
+    status: "approved",
+    visibleToHost: false,
+    permissions: request.requestedPermissions,
+    expiresAt
+  });
   sendProtocol(socket, options, {
     ...createMessageBase(options.sessionId),
     type: "session-authorization-decision",
@@ -672,6 +719,13 @@ function handleHostAuthorizationRequest(
     permissions: request.requestedPermissions,
     expiresAt
   });
+  setHostAuthorizationSnapshot(sessionState, {
+    authorizationId,
+    status: "active",
+    visibleToHost: true,
+    permissions: request.requestedPermissions,
+    expiresAt
+  });
   sendDevelopmentAuditEvent(socket, options, {
     action: "agent-shell.authorization.active",
     outcome: "accepted",
@@ -685,6 +739,16 @@ function handleHostAuthorizationRequest(
   scheduleHostTerminate(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostPause(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostExpiration(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
+}
+
+function setHostAuthorizationSnapshot(
+  sessionState: AgentShellSessionState,
+  input: RuntimeAuthorizationSnapshot
+): void {
+  sessionState.hostAuthorization = {
+    ...input,
+    permissions: [...input.permissions]
+  };
 }
 
 function assertValidHostDecision(value: unknown): asserts value is HostDecision | undefined {
@@ -972,6 +1036,13 @@ function scheduleHostRevoke(
       expiresAt,
       reason
     });
+    setHostAuthorizationSnapshot(sessionState, {
+      authorizationId,
+      status: finalGrantRevoked ? "revoked" : workflowState.paused ? "paused" : "active",
+      visibleToHost: true,
+      permissions: remainingPermissions,
+      expiresAt
+    });
     sendDevelopmentAuditEvent(socket, options, {
       action: "agent-shell.permission.revoked",
       outcome: "accepted",
@@ -1042,6 +1113,13 @@ function scheduleHostPause(
       permissions: workflowState.permissions,
       expiresAt,
       reason
+    });
+    setHostAuthorizationSnapshot(sessionState, {
+      authorizationId,
+      status: "paused",
+      visibleToHost: true,
+      permissions: workflowState.permissions,
+      expiresAt
     });
 
     sendDevelopmentAuditEvent(socket, options, {
@@ -1115,6 +1193,13 @@ function scheduleHostResume(
       expiresAt,
       reason
     });
+    setHostAuthorizationSnapshot(sessionState, {
+      authorizationId,
+      status: "active",
+      visibleToHost: true,
+      permissions: workflowState.permissions,
+      expiresAt
+    });
 
     sendDevelopmentAuditEvent(socket, options, {
       action: "agent-shell.authorization.resumed",
@@ -1180,6 +1265,13 @@ function scheduleHostTerminate(
       expiresAt,
       reason
     });
+    setHostAuthorizationSnapshot(sessionState, {
+      authorizationId,
+      status: "terminated",
+      visibleToHost: true,
+      permissions: [],
+      expiresAt
+    });
 
     sendDevelopmentAuditEvent(socket, options, {
       action: "agent-shell.authorization.terminated",
@@ -1227,6 +1319,13 @@ function scheduleHostExpiration(
       permissions: [],
       expiresAt,
       reason: "Authorization expired"
+    });
+    setHostAuthorizationSnapshot(sessionState, {
+      authorizationId,
+      status: "expired",
+      visibleToHost: true,
+      permissions: [],
+      expiresAt
     });
 
     sendDevelopmentAuditEvent(socket, options, {
