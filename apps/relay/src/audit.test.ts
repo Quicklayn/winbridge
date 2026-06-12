@@ -2,10 +2,48 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemoryAuditSink } from "@winbridge/audit-log";
+import { PROTOCOL_IDENTIFIER_MAX_LENGTH } from "@winbridge/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { createRelayAuditSink, writeRelayAudit } from "./audit.js";
 
 describe("relay audit", () => {
+  it("keeps readable relay actor ids for short peer ids", () => {
+    const sink = new MemoryAuditSink();
+
+    const record = writeRelayAudit(sink, {
+      action: "relay.peer.join.accepted",
+      outcome: "accepted",
+      sessionId: "session-demo",
+      peerId: "host-1"
+    });
+
+    expect(record.actor).toMatchObject({
+      type: "relay",
+      id: "development-relay:host-1"
+    });
+  });
+
+  it("bounds relay actor ids for max-length peer ids", () => {
+    const sink = new MemoryAuditSink();
+    const peerId = "p".repeat(PROTOCOL_IDENTIFIER_MAX_LENGTH);
+
+    const record = writeRelayAudit(sink, {
+      action: "relay.peer.join.accepted",
+      outcome: "accepted",
+      sessionId: "session-demo",
+      peerId
+    });
+
+    expect(record.actor.id).toMatch(/^development-relay:peer:[a-f0-9]{16}$/);
+    expect(record.actor.id.length).toBeLessThanOrEqual(PROTOCOL_IDENTIFIER_MAX_LENGTH);
+    expect(record.detail).toMatchObject({
+      relayPeerIdBounded: true,
+      relayPeerIdLength: PROTOCOL_IDENTIFIER_MAX_LENGTH
+    });
+    expect(record.detail.relayPeerIdHash).toEqual(expect.stringMatching(/^[a-f0-9]{64}$/));
+    expect(JSON.stringify(record)).not.toContain(peerId);
+  });
+
   it("redacts raw token and pairing code if a caller passes them by mistake", () => {
     const sink = new MemoryAuditSink();
 

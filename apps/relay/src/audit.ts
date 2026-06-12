@@ -1,7 +1,15 @@
+import { createHash } from "node:crypto";
 import { ConsoleAuditSink, FileAuditSink, type AuditSink } from "@winbridge/audit-log";
-import type { AuditDetail, AuditOutcome, AuditRecord } from "@winbridge/protocol";
+import {
+  PROTOCOL_IDENTIFIER_MAX_LENGTH,
+  type AuditActor,
+  type AuditDetail,
+  type AuditOutcome,
+  type AuditRecord
+} from "@winbridge/protocol";
 
 const relayActor = { type: "relay", id: "development-relay" } as const;
+const boundedRelayPeerActorPrefix = `${relayActor.id}:peer`;
 
 export function createRelayAuditSink(env: NodeJS.ProcessEnv = process.env): AuditSink {
   const auditLogPath = env.WINBRIDGE_RELAY_AUDIT_LOG_PATH;
@@ -28,15 +36,45 @@ export function writeRelayAudit(
     detail?: AuditDetail;
   }
 ): AuditRecord {
+  const actor = relayAuditActor(input.peerId);
   return sink.write({
-    actor: {
-      ...relayActor,
-      id: input.peerId ? `${relayActor.id}:${input.peerId}` : relayActor.id
-    },
+    actor: actor.actor,
     action: input.action,
     outcome: input.outcome,
     sessionId: input.sessionId,
     reason: input.reason,
-    detail: input.detail ?? {}
+    detail: actor.detail ? { ...(input.detail ?? {}), ...actor.detail } : (input.detail ?? {})
   });
+}
+
+function relayAuditActor(peerId: string | undefined): {
+  actor: AuditActor;
+  detail?: AuditDetail;
+} {
+  if (!peerId) {
+    return { actor: relayActor };
+  }
+
+  const readableId = `${relayActor.id}:${peerId}`;
+  if (readableId.length <= PROTOCOL_IDENTIFIER_MAX_LENGTH) {
+    return {
+      actor: {
+        ...relayActor,
+        id: readableId
+      }
+    };
+  }
+
+  const peerIdHash = createHash("sha256").update(peerId, "utf8").digest("hex");
+  return {
+    actor: {
+      ...relayActor,
+      id: `${boundedRelayPeerActorPrefix}:${peerIdHash.slice(0, 16)}`
+    },
+    detail: {
+      relayPeerIdBounded: true,
+      relayPeerIdHash: peerIdHash,
+      relayPeerIdLength: peerId.length
+    }
+  };
 }

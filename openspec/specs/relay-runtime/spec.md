@@ -186,6 +186,17 @@ The relay runtime SHALL emit secret-safe audit events for pairing ticket creatio
 - **WHEN** a viewer join is rejected because pairing material is missing, mismatched, expired, or consumed
 - **THEN** the relay audit details include safe reason metadata without raw pairing codes, credentials, tokens, protocol payloads, keystrokes, screenshots, or screen contents
 
+### Requirement: Max-length peer audit reliability
+The relay runtime SHALL write schema-valid audit records for accepted joins and peer events even when the registered peer id is at the maximum valid protocol identifier length.
+
+#### Scenario: Max-length peer join audit is accepted
+- **WHEN** a peer joins the relay with a valid max-length peer id
+- **THEN** the relay emits `relay.peer.join.accepted` without audit schema failure
+
+#### Scenario: Max-length peer audit omits pairing material
+- **WHEN** the relay records audit metadata for a max-length peer id join
+- **THEN** the audit record MUST NOT include raw pairing codes, tokens, credentials, protocol payloads, keystrokes, screenshots, screen contents, or full secrets
+
 ### Requirement: Testable duplicate peer join rejection
 The relay runtime SHALL expose integration-test coverage proving duplicate live peer-id joins are rejected before registration or pairing mutation, while the original peer remains active.
 

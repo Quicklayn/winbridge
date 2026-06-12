@@ -3,6 +3,7 @@ import {
   type AuditRecord,
   createMessageBase,
   encodeProtocolEnvelope,
+  PROTOCOL_IDENTIFIER_MAX_LENGTH,
   type ProtocolEnvelope
 } from "@winbridge/protocol";
 import { afterEach, describe, expect, it } from "vitest";
@@ -91,6 +92,33 @@ describe("relay runtime integration", () => {
       (record) => record.action === "relay.peer.join.accepted"
     );
     expect(JSON.stringify(auditRecords)).not.toContain("123-456");
+  });
+
+  it("emits schema-valid audit records for max-length peer ids", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+    const peerId = "h".repeat(PROTOCOL_IDENTIFIER_MAX_LENGTH);
+
+    host.send(joinMessage("session-demo", peerId, "host", "123-456"));
+    expect(await waitForProtocolMessage(host, (message) => message.type === "relay-ready")).toMatchObject({
+      type: "relay-ready",
+      peerId,
+      roomSize: 1
+    });
+
+    const accepted = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.peer.join.accepted"
+    );
+    expect(accepted.actor.id).toMatch(/^development-relay:peer:[a-f0-9]{16}$/);
+    expect(accepted.actor.id.length).toBeLessThanOrEqual(PROTOCOL_IDENTIFIER_MAX_LENGTH);
+    expect(accepted.detail).toMatchObject({
+      relayPeerIdBounded: true,
+      relayPeerIdLength: PROTOCOL_IDENTIFIER_MAX_LENGTH
+    });
+    expect(accepted.detail.relayPeerIdHash).toEqual(expect.stringMatching(/^[a-f0-9]{64}$/));
+    expect(JSON.stringify(accepted)).not.toContain("123-456");
   });
 
   it("audits forwarded signal authorization ids without payload contents", async () => {
