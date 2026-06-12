@@ -68,6 +68,7 @@ Provides a development WebSocket relay:
 - Creates a salted hashed expiring pairing ticket when the host joins, then requires the viewer to consume that ticket before room registration.
 - Optionally enforces a shared development token by requiring exactly one matching `token` query parameter before room registration; when no shared token is configured, token-bearing client URLs are rejected before room registration instead of being silently accepted.
 - Limits a room to one host and one viewer.
+- Treats live peer ids as exclusive within a session room; duplicate joins for an already registered peer id are rejected before replacing the peer send path or mutating pairing-ticket state. The same peer id can join again only after normal disconnect cleanup removes the previous peer.
 - Validates protocol envelopes before forwarding.
 - Binds registered-peer forwarding to the socket's peer id and rejects join-only, relay-originated, spoofed sender/actor, or role-mismatched authorization messages.
 - Requires host role before forwarding host-originated legacy consent decisions and host-only workflow authority messages such as authorization state, permission revocation, session control, and development workflow audit events.

@@ -42,6 +42,7 @@ export const DEFAULT_RELAY_PAIRING_TICKET_TTL_MS = 5 * 60_000;
 export const DEFAULT_RELAY_PAIRING_TICKET_MAX_USES = 1;
 export const MAX_RELAY_PAIRING_TICKET_TTL_MS = 24 * 60 * 60_000;
 export const MAX_RELAY_PAIRING_TICKET_MAX_USES = 10;
+export const DUPLICATE_RELAY_PEER_JOIN_REASON = "Peer is already connected to session";
 
 export class RoomRegistry {
   private readonly rooms = new Map<string, RelayRoom>();
@@ -57,6 +58,11 @@ export class RoomRegistry {
 
   join(peer: RelayPeerJoin): RelayJoinResult {
     const room = this.rooms.get(peer.sessionId) ?? { peers: new Map<string, RelayPeer>() };
+
+    if (room.peers.has(peer.peerId)) {
+      throw new Error(DUPLICATE_RELAY_PEER_JOIN_REASON);
+    }
+
     const sameRole = [...room.peers.values()].find((existing) => existing.role === peer.role);
 
     if (sameRole && sameRole.peerId !== peer.peerId) {

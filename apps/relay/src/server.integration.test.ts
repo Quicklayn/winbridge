@@ -92,6 +92,133 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(auditRecords)).not.toContain("123-456");
   });
 
+  it("rejects duplicate live host joins without replacing the original host or refreshing pairing", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+    const duplicateHost = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url());
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+
+    duplicateHost.send(joinMessage("session-demo", "host-1", "host", "999-000"));
+    expect(await waitForJsonMessage(duplicateHost, (message) => message.type === "relay-error")).toMatchObject({
+      type: "relay-error",
+      reason: "Peer is already connected to session"
+    });
+
+    const denied = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.peer.join.denied" && record.reason === "Peer is already connected to session"
+    );
+    expect(denied).toMatchObject({
+      action: "relay.peer.join.denied",
+      outcome: "denied",
+      detail: {
+        messageType: "join-session",
+        pairing: {
+          duplicatePeer: true
+        }
+      }
+    });
+    expect(JSON.stringify(denied)).not.toContain("999-000");
+    expect(JSON.stringify(denied)).not.toContain("123-456");
+
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+    await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready");
+
+    viewer.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: { kind: "original-host-continuity" }
+      })
+    );
+
+    expect(await waitForProtocolMessage(host, (message) => message.type === "signal")).toMatchObject({
+      type: "signal",
+      fromPeerId: "viewer-1",
+      payload: { kind: "original-host-continuity" }
+    });
+    await expectNoProtocolMessage(duplicateHost, (message) => message.type === "signal");
+  });
+
+  it("rejects duplicate live viewer joins without replacing the original viewer", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const duplicateViewer = await openSocket(runtime.url());
+
+    duplicateViewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+    expect(await waitForJsonMessage(duplicateViewer, (message) => message.type === "relay-error")).toMatchObject({
+      type: "relay-error",
+      reason: "Peer is already connected to session"
+    });
+
+    const denied = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.peer.join.denied" && record.reason === "Peer is already connected to session"
+    );
+    expect(denied).toMatchObject({
+      action: "relay.peer.join.denied",
+      outcome: "denied",
+      detail: {
+        messageType: "join-session",
+        pairing: {
+          duplicatePeer: true
+        }
+      }
+    });
+    expect(JSON.stringify(denied)).not.toContain("123-456");
+
+    host.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: { kind: "original-viewer-continuity" }
+      })
+    );
+
+    expect(await waitForProtocolMessage(viewer, (message) => message.type === "signal")).toMatchObject({
+      type: "signal",
+      fromPeerId: "host-1",
+      payload: { kind: "original-viewer-continuity" }
+    });
+    await expectNoProtocolMessage(duplicateViewer, (message) => message.type === "signal");
+  });
+
+  it("allows the same peer id to rejoin after disconnect cleanup", async () => {
+    const runtime = await startRuntime();
+    const host = await openSocket(runtime.url());
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    host.close();
+    await waitForClose(host);
+
+    const replacementHost = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url());
+
+    replacementHost.send(joinMessage("session-demo", "host-1", "host", "999-000"));
+    expect(await waitForProtocolMessage(replacementHost, (message) => message.type === "relay-ready")).toMatchObject({
+      type: "relay-ready",
+      peerId: "host-1",
+      roomSize: 1
+    });
+
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "999-000"));
+    expect(await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready")).toMatchObject({
+      type: "relay-ready",
+      peerId: "viewer-1",
+      roomSize: 2
+    });
+  });
+
   it("rejects unsafe signal payloads before forwarding", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });

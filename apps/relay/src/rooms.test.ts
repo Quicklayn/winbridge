@@ -67,6 +67,108 @@ describe("RoomRegistry", () => {
     );
   });
 
+  it("rejects a duplicate live host without replacing peer or refreshing pairing", () => {
+    const rooms = new RoomRegistry();
+    const originalSend = () => true;
+
+    rooms.join(joinPeer({ peerId: "host-1", role: "host", send: originalSend }));
+
+    expect(() =>
+      rooms.join(joinPeer({ peerId: "host-1", role: "host", pairingCode: "999-000" }))
+    ).toThrow("Peer is already connected to session");
+    expect(rooms.size("session-demo")).toBe(1);
+    expect(rooms.peers("session-demo")[0]?.send).toBe(originalSend);
+
+    expect(() =>
+      rooms.join(
+        joinPeer({
+          peerId: "viewer-1",
+          role: "viewer",
+          deviceId: "dev_viewer_1",
+          pairingCode: "999-000"
+        })
+      )
+    ).toThrow("Pairing code mismatch");
+    expect(
+      rooms.join(joinPeer({ peerId: "viewer-1", role: "viewer", deviceId: "dev_viewer_1" }))
+    ).toMatchObject({
+      ticketConsumed: true
+    });
+  });
+
+  it("rejects a duplicate live viewer without replacing peer or consuming pairing", () => {
+    const rooms = new RoomRegistry({ ticketTtlMs: 60_000, maxUses: 2 });
+    const originalViewerSend = () => true;
+
+    rooms.join(joinPeer({ peerId: "host-1", role: "host" }));
+    rooms.join(
+      joinPeer({
+        peerId: "viewer-1",
+        role: "viewer",
+        deviceId: "dev_viewer_1",
+        send: originalViewerSend
+      })
+    );
+
+    expect(() =>
+      rooms.join(
+        joinPeer({
+          peerId: "viewer-1",
+          role: "viewer",
+          deviceId: "dev_viewer_1",
+          send: () => false
+        })
+      )
+    ).toThrow("Peer is already connected to session");
+    expect(rooms.size("session-demo")).toBe(2);
+    expect(rooms.peers("session-demo").find((existing) => existing.peerId === "viewer-1")?.send).toBe(
+      originalViewerSend
+    );
+
+    rooms.leave("session-demo", "viewer-1");
+    expect(
+      rooms.join(joinPeer({ peerId: "viewer-2", role: "viewer", deviceId: "dev_viewer_2" }))
+    ).toMatchObject({
+      ticketConsumed: true,
+      ticketRemainingUses: 0
+    });
+  });
+
+  it("allows the same peer id to join after leave cleanup", () => {
+    const rooms = new RoomRegistry();
+    const replacementSend = () => true;
+
+    rooms.join(joinPeer({ peerId: "host-1", role: "host" }));
+    rooms.leave("session-demo", "host-1");
+
+    expect(
+      rooms.join(
+        joinPeer({
+          peerId: "host-1",
+          role: "host",
+          pairingCode: "999-000",
+          send: replacementSend
+        })
+      )
+    ).toMatchObject({
+      ticketCreated: true,
+      ticketConsumed: false
+    });
+    expect(rooms.peers("session-demo")[0]?.send).toBe(replacementSend);
+    expect(
+      rooms.join(
+        joinPeer({
+          peerId: "viewer-1",
+          role: "viewer",
+          deviceId: "dev_viewer_1",
+          pairingCode: "999-000"
+        })
+      )
+    ).toMatchObject({
+      ticketConsumed: true
+    });
+  });
+
   it("rejects viewer joins before the host creates pairing material", () => {
     const rooms = new RoomRegistry();
 
