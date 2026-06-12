@@ -64,6 +64,7 @@ Pairing is only a prerequisite relationship. It never grants screen viewing, poi
 
 Pending, approved, and denied authorization records must not report host visible active-session state. Host visibility begins at activation, not at request, approval, or denial.
 Pending, approved, and denied authorization records must also reject lifecycle timestamps from impossible later states so audit history cannot imply hidden activation, pause, revocation, termination, or expiration.
+Authorization record timestamps must be ordered so `updatedAt` is not earlier than `createdAt`, `expiresAt` is after `createdAt`, and lifecycle timestamps stay within the record's creation-to-update window.
 
 Protocol messages for session authorization lifecycle are explicit:
 

@@ -47,6 +47,16 @@ const deniedForbiddenLifecycleTimestamps = [
   "terminatedAt",
   "expiredAt"
 ] as const;
+const lifecycleTimestampFields = [
+  "deniedAt",
+  "approvedAt",
+  "activatedAt",
+  "pausedAt",
+  "resumedAt",
+  "revokedAt",
+  "terminatedAt",
+  "expiredAt"
+] as const;
 const AuthorizationReasonSchema = z
   .string()
   .min(1)
@@ -75,6 +85,8 @@ const SessionAuthorizationBaseSchema = z.object({
   reason: AuthorizationReasonSchema.optional()
 });
 export const SessionAuthorizationSchema = SessionAuthorizationBaseSchema.superRefine((authorization, ctx) => {
+  validateTimestampOrder(authorization, ctx);
+
   if (new Set(authorization.permissions).size !== authorization.permissions.length) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -541,5 +553,54 @@ function rejectForbiddenLifecycleTimestamps(
       message: `${authorization.status} session authorization cannot include ${field}`,
       path: [field]
     });
+  }
+}
+
+function validateTimestampOrder(
+  authorization: z.infer<typeof SessionAuthorizationBaseSchema>,
+  ctx: z.RefinementCtx
+): void {
+  const createdAtMs = Date.parse(authorization.createdAt);
+  const updatedAtMs = Date.parse(authorization.updatedAt);
+  const expiresAtMs = Date.parse(authorization.expiresAt);
+
+  if (updatedAtMs < createdAtMs) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Session authorization updatedAt must not be before createdAt",
+      path: ["updatedAt"]
+    });
+  }
+
+  if (expiresAtMs <= createdAtMs) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Session authorization expiresAt must be after createdAt",
+      path: ["expiresAt"]
+    });
+  }
+
+  for (const field of lifecycleTimestampFields) {
+    const value = authorization[field];
+    if (value === undefined) {
+      continue;
+    }
+
+    const valueMs = Date.parse(value);
+    if (valueMs < createdAtMs) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${field} must not be before createdAt`,
+        path: [field]
+      });
+    }
+
+    if (valueMs > updatedAtMs) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${field} must not be after updatedAt`,
+        path: [field]
+      });
+    }
   }
 }

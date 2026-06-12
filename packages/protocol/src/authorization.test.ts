@@ -437,6 +437,51 @@ describe("session authorization state machine", () => {
     }
   });
 
+  it("rejects out-of-order authorization timestamps", () => {
+    const approved = approveSessionAuthorization(pending(), {
+      grantedPermissions: ["screen:view"],
+      now: new Date("2026-06-11T00:01:00.000Z")
+    });
+    const active = activateSessionAuthorization(approved, {
+      visibleToHost: true,
+      now: new Date("2026-06-11T00:02:00.000Z")
+    });
+
+    expect(() =>
+      SessionAuthorizationSchema.parse({
+        ...pending(),
+        updatedAt: "2026-06-10T23:59:59.999Z"
+      })
+    ).toThrow("updatedAt must not be before createdAt");
+
+    expect(() =>
+      SessionAuthorizationSchema.parse({
+        ...pending(),
+        expiresAt: baseTime.toISOString()
+      })
+    ).toThrow("expiresAt must be after createdAt");
+
+    expect(() =>
+      SessionAuthorizationSchema.parse({
+        ...approved,
+        approvedAt: "2026-06-10T23:59:59.999Z"
+      })
+    ).toThrow("approvedAt must not be before createdAt");
+
+    expect(() =>
+      SessionAuthorizationSchema.parse({
+        ...active,
+        approvedAt: "2026-06-11T00:03:00.000Z"
+      })
+    ).toThrow("approvedAt must not be after updatedAt");
+
+    expect(SessionAuthorizationSchema.parse(active)).toMatchObject({
+      status: "active",
+      approvedAt: "2026-06-11T00:01:00.000Z",
+      activatedAt: "2026-06-11T00:02:00.000Z"
+    });
+  });
+
   it("requires auditable resume history for parsed active authorization records", () => {
     const active = activateSessionAuthorization(
       approveSessionAuthorization(pending(), {

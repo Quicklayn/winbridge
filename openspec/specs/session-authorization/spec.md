@@ -157,7 +157,7 @@ The system SHALL allow host approval to grant only a non-empty subset of the per
 - **THEN** the system rejects the pending authorization request before host approval
 
 ### Requirement: Schema-level authorization record invariants
-The system SHALL reject malformed session authorization records during schema parsing before any remote action authorization check can use them, including pre-active or denied records that carry lifecycle timestamps from impossible later states.
+The system SHALL reject malformed session authorization records during schema parsing before any remote action authorization check can use them, including pre-active or denied records that carry lifecycle timestamps from impossible later states and records whose authorization timestamps are out of order.
 
 #### Scenario: Duplicate permissions are parsed
 - **WHEN** a session authorization record includes duplicate permissions
@@ -206,6 +206,18 @@ The system SHALL reject malformed session authorization records during schema pa
 #### Scenario: Denied authorization carries conflicting lifecycle timestamp
 - **WHEN** a denied authorization record carries approved, activated, paused, resumed, revoked, terminated, or expired timestamp metadata
 - **THEN** the schema rejects the record so denied consent cannot be confused with an approved, active, or terminal session history
+
+#### Scenario: Authorization record updated before creation
+- **WHEN** an authorization record has `updatedAt` earlier than `createdAt`
+- **THEN** the schema rejects the record so audit chronology cannot run backward
+
+#### Scenario: Authorization expires before or at creation
+- **WHEN** an authorization record has `expiresAt` earlier than or equal to `createdAt`
+- **THEN** the schema rejects the record so zero or negative authorization windows cannot be represented
+
+#### Scenario: Lifecycle timestamp is outside record window
+- **WHEN** an authorization record carries a lifecycle timestamp earlier than `createdAt` or later than `updatedAt`
+- **THEN** the schema rejects the record before any remote action authorization check can use it
 
 #### Scenario: Active authorization resumed from pause lacks resume timestamp
 - **WHEN** an active authorization record includes a prior pause timestamp but lacks a resume timestamp
