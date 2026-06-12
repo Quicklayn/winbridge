@@ -508,6 +508,22 @@ describe("protocol envelopes", () => {
     ).toThrow("cannot grant permissions");
   });
 
+  it("rejects denied session authorization decisions with expiration", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-decision",
+        authorizationId: "authz-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        decision: "denied",
+        grantedPermissions: [],
+        reason: "Host denied",
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      })
+    ).toThrow("cannot include expiresAt");
+  });
+
   it("rejects blank session authorization decision reasons", () => {
     expect(() =>
       parseProtocolEnvelope({

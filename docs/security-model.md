@@ -63,7 +63,7 @@ Pairing is only a prerequisite relationship. It never grants screen viewing, poi
 Protocol messages for session authorization lifecycle are explicit:
 
 - `session-authorization-request`: viewer asks for scoped permissions.
-- `session-authorization-decision`: host approves or denies with grants, expiration, and reason where applicable.
+- `session-authorization-decision`: host approves or denies with grants, approval expiration, and reason where applicable. Denials carry no grants and no expiration.
 - `session-authorization-state`: peers receive current authorization state and host visibility.
 - `session-control`: host controls pause, resume, termination, or permission-revocation workflow intent.
 - `permission-revoked`: host or authorized actor revokes a specific permission.

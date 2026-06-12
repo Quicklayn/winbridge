@@ -51,7 +51,7 @@ The protocol SHALL represent host pause and resume as explicit session control m
 - **THEN** they do not authorize screen capture, input, clipboard, file transfer, diagnostics, or any other sensitive action unless the resulting authorization state is active, visible, unexpired, and scoped to the requested permission
 
 ### Requirement: Authorization protocol permission-scope invariants
-The protocol SHALL reject malformed authorization request, decision, and state update messages that carry empty, duplicate, or fail-open permission scopes.
+The protocol SHALL reject malformed authorization request, decision, and state update messages that carry empty, duplicate, or fail-open permission scopes or approval-only metadata on fail-closed decisions.
 
 #### Scenario: Authorization request includes duplicate permissions
 - **WHEN** a viewer sends a `session-authorization-request` with duplicate requested permissions
@@ -68,6 +68,10 @@ The protocol SHALL reject malformed authorization request, decision, and state u
 #### Scenario: Denied decision carries granted permissions
 - **WHEN** a host sends a denied `session-authorization-decision` with any granted permissions
 - **THEN** the protocol schema rejects the message and preserves deny-by-default behavior
+
+#### Scenario: Denied decision carries expiration
+- **WHEN** a host sends a denied `session-authorization-decision` with `expiresAt`
+- **THEN** the protocol schema rejects the message because expiration metadata only applies to approval grants
 
 #### Scenario: Active or paused state lacks permissions
 - **WHEN** a `session-authorization-state` update has status `approved`, `active`, or `paused` and no permissions

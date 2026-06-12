@@ -153,6 +153,14 @@ export const SessionAuthorizationDecisionMessageSchema = BaseMessageSchema.exten
     });
   }
 
+  if (message.decision === "denied" && message.expiresAt) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Denied session authorization decisions cannot include expiresAt",
+      path: ["expiresAt"]
+    });
+  }
+
   if (message.decision === "denied" && !message.reason) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
