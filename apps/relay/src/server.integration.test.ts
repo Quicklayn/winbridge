@@ -1136,6 +1136,35 @@ describe("relay runtime integration", () => {
     });
   });
 
+  it("accepts joins with exactly one matching shared token", async () => {
+    const auditSink = new MemoryAuditSink();
+    const sharedToken = "correct-token";
+    const runtime = await startRuntime({ auditSink, sharedToken });
+    const tokenQuery = `token=${encodeURIComponent(sharedToken)}`;
+    const host = await openSocket(`${runtime.url()}?${tokenQuery}`);
+    const viewer = await openSocket(`${runtime.url()}?${tokenQuery}`);
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    expect(await waitForProtocolMessage(host, (message) => message.type === "relay-ready")).toMatchObject({
+      type: "relay-ready",
+      peerId: "host-1",
+      roomSize: 1
+    });
+
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+    expect(
+      await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready")
+    ).toMatchObject({
+      type: "relay-ready",
+      peerId: "viewer-1",
+      roomSize: 2
+    });
+
+    expect(auditSink.records().some((record) => record.action === "relay.token.denied")).toBe(
+      false
+    );
+  });
+
   it("audits invalid shared-token attempts without logging the raw token", async () => {
     const auditSink = new MemoryAuditSink();
     const configuredToken = "correct-token configured-token-marker";
@@ -1157,6 +1186,34 @@ describe("relay runtime integration", () => {
     expect(denied?.detail).toMatchObject({
       accessPresented: true
     });
+  });
+
+  it("rejects duplicate shared-token query parameters without logging raw tokens", async () => {
+    const auditSink = new MemoryAuditSink();
+    const configuredToken = "correct-token configured-token-marker";
+    const duplicateToken = "duplicate-token duplicate-token-marker";
+    const runtime = await startRuntime({ auditSink, sharedToken: configuredToken });
+    const socket = await openSocket(
+      `${runtime.url()}?token=${encodeURIComponent(configuredToken)}&token=${encodeURIComponent(duplicateToken)}`
+    );
+
+    expect(await waitForClose(socket)).toEqual({
+      code: 1008,
+      reason: "Invalid relay token"
+    });
+
+    const denied = auditSink.records().find((record) => record.action === "relay.token.denied");
+    expect(denied).toBeDefined();
+    expect(JSON.stringify(denied)).not.toContain(configuredToken);
+    expect(JSON.stringify(denied)).not.toContain(duplicateToken);
+    expect(JSON.stringify(denied)).not.toContain("configured-token-marker");
+    expect(JSON.stringify(denied)).not.toContain("duplicate-token-marker");
+    expect(denied?.detail).toMatchObject({
+      accessPresented: true
+    });
+    expect(auditSink.records().some((record) => record.action === "relay.peer.join.accepted")).toBe(
+      false
+    );
   });
 
   it("parses development shared-token environment configuration", () => {

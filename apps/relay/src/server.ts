@@ -105,16 +105,16 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
 
   wss.on("connection", (socket, request) => {
     const requestUrl = new URL(request.url ?? "/", "ws://localhost");
-    const token = requestUrl.searchParams.get("token");
+    const token = readSingleRelayToken(requestUrl);
     const remoteKey = request.socket.remoteAddress ?? "unknown-remote";
 
-    if (sharedToken && token !== sharedToken) {
+    if (sharedToken && token.value !== sharedToken) {
       const decision = invalidTokenLimiter.consume(remoteKey);
       writeRelayAudit(auditSink, {
         action: "relay.token.denied",
         outcome: "denied",
         detail: {
-          accessPresented: Boolean(token),
+          accessPresented: token.presented,
           rateLimit: rateLimitAuditDetail(decision)
         }
       });
@@ -342,6 +342,15 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
     url() {
       return serverUrl(server);
     }
+  };
+}
+
+function readSingleRelayToken(requestUrl: URL): { presented: boolean; value?: string } {
+  const tokenValues = requestUrl.searchParams.getAll("token");
+
+  return {
+    presented: tokenValues.length > 0,
+    value: tokenValues.length === 1 ? tokenValues[0] : undefined
   };
 }
 

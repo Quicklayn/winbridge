@@ -68,11 +68,15 @@ The relay and agents SHALL reject `signal` protocol messages whose payload is em
 - **THEN** the relay rejects the message before forwarding it and MUST NOT treat the payload as trusted remote-assistance data
 
 ### Requirement: Development relay token
-The relay SHALL support an optional shared token for local/private development and SHALL document that production deployments require stronger identity and authorization.
+The relay SHALL support an optional shared token for local/private development and SHALL document that production deployments require stronger identity and authorization. When a shared token is configured, peers MUST present exactly one `token` query parameter whose value exactly matches the configured shared token before joining a session room.
 
 #### Scenario: Shared token configured
 - **WHEN** the relay is started with a shared token
-- **THEN** peers without the matching token are rejected before joining a session room
+- **THEN** peers without exactly one matching token are rejected before joining a session room
+
+#### Scenario: Duplicate shared token query is rejected
+- **WHEN** the relay is started with a shared token and a peer connects with more than one `token` query parameter
+- **THEN** the peer is rejected before joining a session room
 
 #### Scenario: Shared token omitted
 - **WHEN** the relay is started without a shared token
