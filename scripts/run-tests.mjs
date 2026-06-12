@@ -12,7 +12,9 @@ if (testFiles.length === 0) {
 }
 
 for (const testFile of testFiles) {
-  const pool = testFile === "apps/agent-shell/src/runtime.integration.test.ts" ? "vmThreads" : "forks";
+  const isAgentShellRuntime = testFile === "apps/agent-shell/src/runtime.integration.test.ts";
+  const pool = isAgentShellRuntime ? "vmThreads" : "forks";
+  const reporter = isAgentShellRuntime ? "default" : "dot";
   const result = spawnSync(
     process.execPath,
     [
@@ -28,7 +30,7 @@ for (const testFile of testFiles) {
       "--no-file-parallelism",
       "--no-isolate",
       "--reporter",
-      "dot"
+      reporter
     ],
     { stdio: "inherit" }
   );
