@@ -5,6 +5,7 @@ import {
   parseProtocolEnvelope
 } from "./messages.js";
 import type { AuditDetail } from "./audit.js";
+import type { JsonObject } from "./json.js";
 import { assertConsentBoundGrant } from "./session.js";
 
 describe("protocol envelopes", () => {
@@ -82,6 +83,9 @@ describe("protocol envelopes", () => {
   });
 
   it("accepts safe non-empty signal payloads", () => {
+    const sharedMetadata = {
+      relay: "local-dev"
+    };
     const parsed = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
       type: "signal",
@@ -91,6 +95,11 @@ describe("protocol envelopes", () => {
         authorizationId: "authz-demo",
         kind: "offer",
         sdp: "v=0",
+        revision: 1,
+        trickle: true,
+        optional: null,
+        metadata: sharedMetadata,
+        mirroredMetadata: sharedMetadata,
         candidates: [{ candidate: "candidate:1 1 udp 1 127.0.0.1 9 typ host" }]
       }
     });
@@ -101,9 +110,188 @@ describe("protocol envelopes", () => {
       payload: {
         authorizationId: "authz-demo",
         kind: "offer",
-        sdp: "v=0"
+        sdp: "v=0",
+        revision: 1,
+        trickle: true,
+        optional: null,
+        metadata: {
+          relay: "local-dev"
+        },
+        mirroredMetadata: {
+          relay: "local-dev"
+        }
       }
     });
+  });
+
+  it("rejects non-JSON signal payload values when parsing protocol messages", () => {
+    const circularPayload: Record<string, unknown> = { authorizationId: "authz-demo" };
+    circularPayload.self = circularPayload;
+    const symbolKeyPayload = {
+      authorizationId: "authz-demo",
+      safe: "kept",
+      [Symbol("hidden")]: "hidden"
+    };
+    const nonEnumerablePayload: Record<string, unknown> = { authorizationId: "authz-demo" };
+    Object.defineProperty(nonEnumerablePayload, "hidden", {
+      value: "hidden",
+      enumerable: false
+    });
+    const accessorPayload: Record<string, unknown> = { authorizationId: "authz-demo" };
+    Object.defineProperty(accessorPayload, "hidden", {
+      get: () => "hidden",
+      enumerable: true
+    });
+    const sparseArrayPayload: Record<string, unknown> = {
+      authorizationId: "authz-demo",
+      candidates: []
+    };
+    (sparseArrayPayload.candidates as unknown[])[1] = { candidate: "second" };
+    const arrayExtraPropertyPayload: Record<string, unknown> = {
+      authorizationId: "authz-demo",
+      candidates: [{ candidate: "first" }]
+    };
+    Object.defineProperty(arrayExtraPropertyPayload.candidates as object, "hidden", {
+      value: "hidden",
+      enumerable: true
+    });
+    const invalidPayloads: Array<Record<string, unknown>> = [
+      { authorizationId: "authz-demo", handler: () => "handled" },
+      { authorizationId: "authz-demo", marker: Symbol("marker") },
+      { authorizationId: "authz-demo", count: BigInt(1) },
+      { authorizationId: "authz-demo", omitted: undefined },
+      { authorizationId: "authz-demo", count: NaN },
+      { authorizationId: "authz-demo", count: Infinity },
+      { authorizationId: "authz-demo", count: -Infinity },
+      { authorizationId: "authz-demo", nested: { handler: () => "handled" } },
+      { authorizationId: "authz-demo", candidates: [undefined] },
+      symbolKeyPayload,
+      nonEnumerablePayload,
+      accessorPayload,
+      sparseArrayPayload,
+      arrayExtraPropertyPayload,
+      circularPayload
+    ];
+
+    for (const payload of invalidPayloads) {
+      expect(() =>
+        parseProtocolEnvelope({
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload
+        })
+      ).toThrow("JSON-compatible");
+    }
+  });
+
+  it("rejects non-JSON signal payload values when encoding protocol messages", () => {
+    const invalidPayloads: Array<Record<string, unknown>> = [
+      { authorizationId: "authz-demo", handler: () => "handled" },
+      { authorizationId: "authz-demo", count: BigInt(1) },
+      { authorizationId: "authz-demo", omitted: undefined },
+      { authorizationId: "authz-demo", count: NaN },
+      { authorizationId: "authz-demo", count: Infinity },
+      { authorizationId: "authz-demo", count: -Infinity },
+      { authorizationId: "authz-demo", candidates: [undefined] }
+    ];
+
+    for (const payload of invalidPayloads) {
+      expect(() =>
+        encodeProtocolEnvelope({
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: payload as JsonObject
+        })
+      ).toThrow("JSON-compatible");
+    }
+  });
+
+  it("encodes signal payloads from a canonical JSON snapshot", () => {
+    const payload = createLateSensitiveSignalPayloadProxy();
+    const encoded = encodeProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: payload as JsonObject
+    });
+
+    expect(encoded).not.toContain("raw-screen-content");
+    expect(JSON.parse(encoded)).toMatchObject({
+      type: "signal",
+      payload: {
+        authorizationId: "authz-demo",
+        kind: "offer"
+      }
+    });
+  });
+
+  it("encodes signal payloads without inherited toJSON hooks", () => {
+    let encoded = "";
+    withPrototypeToJsonHooks(() => {
+      encoded = encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          authorizationId: "authz-demo",
+          kind: "offer",
+          candidates: [{ candidate: "safe-candidate" }],
+          nested: { safe: "kept" }
+        }
+      });
+    });
+
+    expect(encoded).not.toContain("raw-screen-content");
+    expect(JSON.parse(encoded)).toMatchObject({
+      type: "signal",
+      payload: {
+        authorizationId: "authz-demo",
+        kind: "offer",
+        candidates: [{ candidate: "safe-candidate" }],
+        nested: { safe: "kept" }
+      }
+    });
+  });
+
+  it("does not treat own __proto__ signal payload data as inherited authorization", () => {
+    const payload = createSignalPayloadWithOwnProto({ authorizationId: "authz-demo" }, {
+      kind: "offer"
+    });
+
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload
+      })
+    ).toThrow("Signal payload requires authorizationId");
+  });
+
+  it("rejects sensitive keys inside own __proto__ signal payload data", () => {
+    const payload = createSignalPayloadWithOwnProto({
+      screenContent: "raw-screen-content"
+    }, {
+      authorizationId: "authz-demo",
+      kind: "offer"
+    });
+
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload
+      })
+    ).toThrow("must not contain sensitive remote-assistance data");
   });
 
   it("rejects signal payloads without top-level authorization identifiers", () => {
@@ -1551,3 +1739,118 @@ describe("session grants", () => {
     ).toThrow();
   });
 });
+
+function createLateSensitiveSignalPayloadProxy(): Record<string, unknown> {
+  let ownKeysCalls = 0;
+
+  return new Proxy(
+    {},
+    {
+      getPrototypeOf: () => Object.prototype,
+      ownKeys: () => {
+        ownKeysCalls += 1;
+        return ownKeysCalls > 6
+          ? ["authorizationId", "kind", "screenContent"]
+          : ["authorizationId", "kind"];
+      },
+      getOwnPropertyDescriptor: (_target, key) => {
+        if (key === "authorizationId") {
+          return {
+            configurable: true,
+            enumerable: true,
+            value: "authz-demo"
+          };
+        }
+
+        if (key === "kind") {
+          return {
+            configurable: true,
+            enumerable: true,
+            value: "offer"
+          };
+        }
+
+        if (key === "screenContent") {
+          return {
+            configurable: true,
+            enumerable: true,
+            value: "raw-screen-content"
+          };
+        }
+
+        return undefined;
+      },
+      get: (_target, key) => {
+        if (key === "authorizationId") {
+          return "authz-demo";
+        }
+
+        if (key === "kind") {
+          return "offer";
+        }
+
+        if (key === "screenContent") {
+          return "raw-screen-content";
+        }
+
+        return undefined;
+      }
+    }
+  );
+}
+
+function createSignalPayloadWithOwnProto(
+  protoValue: Record<string, unknown>,
+  entries: Record<string, unknown>
+): Record<string, unknown> {
+  const value = Object.create(null) as Record<string, unknown>;
+  for (const [key, entryValue] of Object.entries(entries)) {
+    Object.defineProperty(value, key, {
+      configurable: true,
+      enumerable: true,
+      value: entryValue,
+      writable: true
+    });
+  }
+  Object.defineProperty(value, "__proto__", {
+    configurable: true,
+    enumerable: true,
+    value: protoValue,
+    writable: true
+  });
+
+  return value;
+}
+
+function withPrototypeToJsonHooks(callback: () => void): void {
+  const objectToJson = Object.getOwnPropertyDescriptor(Object.prototype, "toJSON");
+  const arrayToJson = Object.getOwnPropertyDescriptor(Array.prototype, "toJSON");
+  Object.defineProperty(Object.prototype, "toJSON", {
+    configurable: true,
+    value: () => ({ screenContent: "raw-screen-content" })
+  });
+  Object.defineProperty(Array.prototype, "toJSON", {
+    configurable: true,
+    value: () => ["raw-screen-content"]
+  });
+
+  try {
+    callback();
+  } finally {
+    restorePropertyDescriptor(Object.prototype, "toJSON", objectToJson);
+    restorePropertyDescriptor(Array.prototype, "toJSON", arrayToJson);
+  }
+}
+
+function restorePropertyDescriptor(
+  target: object,
+  key: string,
+  descriptor: PropertyDescriptor | undefined
+): void {
+  if (descriptor) {
+    Object.defineProperty(target, key, descriptor);
+    return;
+  }
+
+  delete (target as Record<string, unknown>)[key];
+}

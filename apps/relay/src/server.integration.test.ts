@@ -383,6 +383,54 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(rejected)).not.toContain("raw-diagnostic-dump");
   });
 
+  it("rejects non-JSON signal payloads before forwarding", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const privateMarker = "non-json-signal-private-marker";
+    const base = createMessageBase("session-demo");
+
+    host.send(
+      [
+        "{",
+        `"protocolVersion":${base.protocolVersion},`,
+        `"messageId":"${base.messageId}",`,
+        `"sessionId":"${base.sessionId}",`,
+        `"createdAt":"${base.createdAt}",`,
+        "\"type\":\"signal\",",
+        "\"fromPeerId\":\"host-1\",",
+        "\"toPeerId\":\"viewer-1\",",
+        "\"payload\":{",
+        "\"authorizationId\":\"authz-demo\",",
+        `"safeMarker":"${privateMarker}",`,
+        "\"count\":NaN",
+        "}}"
+      ].join("")
+    );
+
+    const relayError = await waitForJsonMessage(host, (message) => message.type === "relay-error");
+    expect(String(relayError.reason)).toBe("Invalid relay message");
+    await expectNoProtocolMessage(viewer, (message) => message.type === "signal");
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.rejected" &&
+        record.reason === "Invalid relay message"
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      reason: "Invalid relay message",
+      detail: {
+        registered: true
+      }
+    });
+    expect(JSON.stringify(relayError)).not.toContain(privateMarker);
+    expect(JSON.stringify(rejected)).not.toContain(privateMarker);
+  });
+
   it("rejects signal payloads without valid authorization ids before forwarding", async () => {
     const cases: Array<{
       name: string;

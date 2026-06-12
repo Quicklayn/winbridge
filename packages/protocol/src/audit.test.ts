@@ -42,6 +42,33 @@ describe("audit records", () => {
     });
   });
 
+  it("preserves own __proto__ audit detail properties as JSON data", () => {
+    const detail = Object.create(null) as Record<string, unknown>;
+    Object.defineProperty(detail, "role", {
+      configurable: true,
+      enumerable: true,
+      value: "viewer",
+      writable: true
+    });
+    Object.defineProperty(detail, "__proto__", {
+      configurable: true,
+      enumerable: true,
+      value: { safe: "kept" },
+      writable: true
+    });
+
+    const record = createAuditRecord({
+      actor: { type: "relay", id: "relay-dev" },
+      action: "relay.peer.join.accepted",
+      outcome: "accepted",
+      detail: detail as AuditDetail
+    });
+
+    expect(Object.prototype.hasOwnProperty.call(record.detail, "__proto__")).toBe(true);
+    expect(record.detail.__proto__).toEqual({ safe: "kept" });
+    expect(JSON.stringify(record.detail)).toContain("\"__proto__\":{\"safe\":\"kept\"}");
+  });
+
   it("rejects non-JSON audit detail values", () => {
     const circularDetail: Record<string, unknown> = {};
     circularDetail.self = circularDetail;

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { AuditDetailSchema, AuditOutcomeSchema, redactAuditDetail } from "./audit.js";
 import { SessionAuthorizationStatusSchema } from "./authorization.js";
 import { DeviceDisplayNameSchema, DeviceIdentitySchema } from "./identity.js";
+import { createJsonObjectSchema, stringifyJson, type JsonObject } from "./json.js";
 import {
   PairingCodeSchema,
   PeerIdSchema,
@@ -63,6 +64,9 @@ const ProtocolCapabilitySchema = z
   .min(1)
   .max(80)
   .refine((capability) => capability.trim().length > 0, "Capability must not be blank");
+const SignalPayloadSchema = createJsonObjectSchema(
+  "Signal payload must be JSON-compatible"
+);
 
 export const HelloMessageSchema = BaseMessageSchema.extend({
   type: z.literal("hello"),
@@ -263,7 +267,7 @@ export const SignalMessageSchema = BaseMessageSchema.extend({
   type: z.literal("signal"),
   fromPeerId: PeerIdSchema,
   toPeerId: PeerIdSchema.optional(),
-  payload: z.record(z.unknown())
+  payload: SignalPayloadSchema
 }).superRefine((message, context) => {
   const authorizationId = message.payload.authorizationId;
   if (typeof authorizationId !== "string") {
@@ -372,7 +376,7 @@ export function decodeProtocolEnvelope(raw: string): ProtocolEnvelope {
 }
 
 export function encodeProtocolEnvelope(envelope: ProtocolEnvelope): string {
-  return JSON.stringify(parseProtocolEnvelope(envelope));
+  return stringifyJson(parseProtocolEnvelope(envelope));
 }
 
 export function createMessageBase(sessionId: string) {
@@ -413,7 +417,7 @@ function rejectDuplicateCapabilities(capabilities: unknown[], context: z.Refinem
 }
 
 function measureSignalPayloadBytes(
-  payload: Record<string, unknown>,
+  payload: JsonObject,
   context: z.RefinementCtx
 ): number | undefined {
   try {
@@ -433,8 +437,8 @@ function findSensitiveSignalPayloadPath(
   path: Array<string | number> = []
 ): Array<string | number> | undefined {
   if (Array.isArray(value)) {
-    for (const [index, item] of value.entries()) {
-      const found = findSensitiveSignalPayloadPath(item, [...path, index]);
+    for (let index = 0; index < value.length; index += 1) {
+      const found = findSensitiveSignalPayloadPath(value[index], [...path, index]);
       if (found) {
         return found;
       }

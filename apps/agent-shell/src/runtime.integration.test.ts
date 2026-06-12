@@ -407,6 +407,97 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(receivedSignal)).not.toContain("outbound-candidate");
   });
 
+  it("blocks public signal sends with non-JSON payloads before sent events", async () => {
+    const hostLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    const beforeSentSignals = hostEvents.filter(
+      (event) => event.direction === "sent" && event.message.type === "signal"
+    ).length;
+    const privateMarker = "non-json-agent-signal-private-marker";
+
+    expect(() =>
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          authorizationId,
+          safeMarker: privateMarker,
+          handler: () => "handled"
+        } as never
+      })
+    ).toThrow("JSON-compatible");
+
+    expect(
+      hostEvents.filter((event) => event.direction === "sent" && event.message.type === "signal")
+    ).toHaveLength(beforeSentSignals);
+    expect(viewerEvents.some((event) => event.direction === "received" && event.message.type === "signal")).toBe(false);
+    expect(JSON.stringify(hostEvents)).not.toContain(privateMarker);
+    expect(JSON.stringify(viewerEvents)).not.toContain(privateMarker);
+    expect(hostLogs.join("\n")).not.toContain(privateMarker);
+  });
+
+  it("sends public signal payloads from a canonical JSON snapshot", async () => {
+    const hostLogs: string[] = [];
+    const viewerLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents, captureLogger(viewerLogs));
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    const safePayloadSnapshot = {
+      authorizationId,
+      kind: "offer"
+    };
+    const payload = createLateSensitiveAgentSignalPayloadProxy(authorizationId);
+
+    host.send({
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: payload as never
+    });
+
+    const sentSignal = await waitForSentMessage(
+      hostEvents,
+      (message) => message.type === "signal" && message.fromPeerId === "host-1"
+    );
+    const receivedSignal = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "signal" && message.fromPeerId === "host-1"
+    );
+    const safePayloadByteLength = Buffer.byteLength(JSON.stringify(safePayloadSnapshot));
+
+    expect(sentSignal).toMatchObject({
+      type: "signal",
+      payload: {
+        redacted: "[REDACTED]",
+        byteLength: safePayloadByteLength
+      }
+    });
+    expect(receivedSignal).toMatchObject({
+      type: "signal",
+      payload: {
+        redacted: "[REDACTED]",
+        byteLength: safePayloadByteLength
+      }
+    });
+    expect(JSON.stringify(hostEvents)).not.toContain("raw-screen-content");
+    expect(JSON.stringify(viewerEvents)).not.toContain("raw-screen-content");
+    expect(hostLogs.join("\n")).not.toContain("raw-screen-content");
+    expect(viewerLogs.join("\n")).not.toContain("raw-screen-content");
+  });
+
   it("blocks public signal sends with spoofed sender, explicit self target, or third-peer target", async () => {
     const hostLogs: string[] = [];
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -5840,6 +5931,65 @@ function captureLogger(logs: string[]): TestLogger {
     warn: (message) => logs.push(message),
     error: (message) => logs.push(message)
   };
+}
+
+function createLateSensitiveAgentSignalPayloadProxy(authorizationId: string): Record<string, unknown> {
+  let ownKeysCalls = 0;
+
+  return new Proxy(
+    {},
+    {
+      getPrototypeOf: () => Object.prototype,
+      ownKeys: () => {
+        ownKeysCalls += 1;
+        return ownKeysCalls > 6
+          ? ["authorizationId", "kind", "screenContent"]
+          : ["authorizationId", "kind"];
+      },
+      getOwnPropertyDescriptor: (_target, key) => {
+        if (key === "authorizationId") {
+          return {
+            configurable: true,
+            enumerable: true,
+            value: authorizationId
+          };
+        }
+
+        if (key === "kind") {
+          return {
+            configurable: true,
+            enumerable: true,
+            value: "offer"
+          };
+        }
+
+        if (key === "screenContent") {
+          return {
+            configurable: true,
+            enumerable: true,
+            value: "raw-screen-content"
+          };
+        }
+
+        return undefined;
+      },
+      get: (_target, key) => {
+        if (key === "authorizationId") {
+          return authorizationId;
+        }
+
+        if (key === "kind") {
+          return "offer";
+        }
+
+        if (key === "screenContent") {
+          return "raw-screen-content";
+        }
+
+        return undefined;
+      }
+    }
+  );
 }
 
 function delay(ms: number): Promise<void> {

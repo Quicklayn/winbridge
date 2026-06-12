@@ -199,6 +199,30 @@ describe("ConsoleAuditSink", () => {
       sessionId: "session-demo"
     });
   });
+
+  it("writes JSON without inherited toJSON hooks", () => {
+    const lines: string[] = [];
+    const sink = new ConsoleAuditSink((line) => lines.push(line));
+
+    withPrototypeToJsonHooks(() => {
+      sink.write({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay.message.forwarded",
+        outcome: "accepted",
+        detail: {
+          safe: "kept",
+          attempts: [1]
+        }
+      });
+    });
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toContain("raw-screen-content");
+    expect(JSON.parse(lines[0] ?? "{}").detail).toEqual({
+      safe: "kept",
+      attempts: [1]
+    });
+  });
 });
 
 describe("FileAuditSink", () => {
@@ -465,3 +489,36 @@ describe("FileAuditSink", () => {
     }
   });
 });
+
+function withPrototypeToJsonHooks(callback: () => void): void {
+  const objectToJson = Object.getOwnPropertyDescriptor(Object.prototype, "toJSON");
+  const arrayToJson = Object.getOwnPropertyDescriptor(Array.prototype, "toJSON");
+  Object.defineProperty(Object.prototype, "toJSON", {
+    configurable: true,
+    value: () => ({ screenContent: "raw-screen-content" })
+  });
+  Object.defineProperty(Array.prototype, "toJSON", {
+    configurable: true,
+    value: () => ["raw-screen-content"]
+  });
+
+  try {
+    callback();
+  } finally {
+    restorePropertyDescriptor(Object.prototype, "toJSON", objectToJson);
+    restorePropertyDescriptor(Array.prototype, "toJSON", arrayToJson);
+  }
+}
+
+function restorePropertyDescriptor(
+  target: object,
+  key: string,
+  descriptor: PropertyDescriptor | undefined
+): void {
+  if (descriptor) {
+    Object.defineProperty(target, key, descriptor);
+    return;
+  }
+
+  delete (target as Record<string, unknown>)[key];
+}

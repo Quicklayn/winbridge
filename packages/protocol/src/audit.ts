@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { createJsonObjectSchema, type JsonObject, type JsonValue } from "./json.js";
 import { ProtocolIdentifierSchema, SessionIdSchema } from "./session.js";
 
 export const AuditOutcomeSchema = z.enum(["accepted", "denied", "failed"]);
@@ -11,14 +12,8 @@ export const AuditActorSchema = z.object({
   deviceId: ProtocolIdentifierSchema.min(8).optional()
 });
 export type AuditActor = z.infer<typeof AuditActorSchema>;
-export type AuditJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | AuditJsonValue[]
-  | { [key: string]: AuditJsonValue };
-export type AuditDetail = Record<string, AuditJsonValue>;
+export type AuditJsonValue = JsonValue;
+export type AuditDetail = JsonObject;
 
 const AuditActionSchema = z
   .string()
@@ -35,11 +30,9 @@ const AuditTargetTypeSchema = z
   .min(1)
   .max(80)
   .refine((type) => type.trim().length > 0, "Audit target type must not be blank");
-const JSON_COMPATIBLE_AUDIT_DETAIL_MESSAGE = "Audit detail must be JSON-compatible";
 
-export const AuditDetailSchema: z.ZodType<AuditDetail> = z.custom<AuditDetail>(
-  (value): value is AuditDetail => isAuditDetail(value),
-  JSON_COMPATIBLE_AUDIT_DETAIL_MESSAGE
+export const AuditDetailSchema = createJsonObjectSchema(
+  "Audit detail must be JSON-compatible"
 );
 
 export const AuditRecordSchema = z.object({
@@ -152,7 +145,11 @@ function redactValue(value: unknown, key?: string): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => redactValue(item));
+    const redacted: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      redacted.push(redactValue(value[index]));
+    }
+    return redacted;
   }
 
   if (value && typeof value === "object") {
@@ -198,108 +195,4 @@ function isSensitiveAuditDetailKey(key: string): boolean {
     sensitiveKeyExactMatches.has(normalizedKey) ||
     sensitiveKeySubstrings.some((sensitiveKey) => normalizedKey.includes(sensitiveKey))
   );
-}
-
-function isAuditDetail(value: unknown): value is AuditDetail {
-  if (!value || typeof value !== "object" || Array.isArray(value) || !isPlainJsonObject(value)) {
-    return false;
-  }
-
-  if (!hasOnlyJsonObjectProperties(value)) {
-    return false;
-  }
-
-  const ancestors = new WeakSet<object>();
-  ancestors.add(value);
-  const valid = Object.values(value).every((detailValue) =>
-    isAuditJsonValue(detailValue, ancestors)
-  );
-  ancestors.delete(value);
-  return valid;
-}
-
-function isAuditJsonValue(value: unknown, ancestors = new WeakSet<object>()): value is AuditJsonValue {
-  if (value === null) {
-    return true;
-  }
-
-  if (typeof value === "string" || typeof value === "boolean") {
-    return true;
-  }
-
-  if (typeof value === "number") {
-    return Number.isFinite(value);
-  }
-
-  if (typeof value !== "object") {
-    return false;
-  }
-
-  if (ancestors.has(value)) {
-    return false;
-  }
-  ancestors.add(value);
-
-  const valid = Array.isArray(value)
-    ? isAuditJsonArray(value, ancestors)
-    : isPlainJsonObject(value) &&
-      hasOnlyJsonObjectProperties(value) &&
-      Object.values(value).every((nested) => isAuditJsonValue(nested, ancestors));
-
-  ancestors.delete(value);
-  return valid;
-}
-
-function isPlainJsonObject(value: object): value is Record<string, unknown> {
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function isAuditJsonArray(value: unknown[], ancestors: WeakSet<object>): boolean {
-  if (Object.getOwnPropertySymbols(value).length > 0) {
-    return false;
-  }
-
-  for (const key of Object.getOwnPropertyNames(value)) {
-    if (key === "length") {
-      continue;
-    }
-
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (
-      !descriptor?.enumerable ||
-      !("value" in descriptor) ||
-      !isArrayIndexKey(key, value.length)
-    ) {
-      return false;
-    }
-  }
-
-  for (let index = 0; index < value.length; index += 1) {
-    if (!Object.prototype.hasOwnProperty.call(value, index)) {
-      return false;
-    }
-
-    if (!isAuditJsonValue(value[index], ancestors)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function hasOnlyJsonObjectProperties(value: object): boolean {
-  if (Object.getOwnPropertySymbols(value).length > 0) {
-    return false;
-  }
-
-  return Object.getOwnPropertyNames(value).every((key) => {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    return Boolean(descriptor?.enumerable) && Boolean(descriptor && "value" in descriptor);
-  });
-}
-
-function isArrayIndexKey(key: string, length: number): boolean {
-  const index = Number(key);
-  return Number.isInteger(index) && index >= 0 && index < length && String(index) === key;
 }
