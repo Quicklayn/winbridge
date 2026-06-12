@@ -1872,6 +1872,391 @@ describe("agent shell consent workflow", () => {
     expect(viewerLogs.join("\n")).not.toContain(blockedPayloadMarker);
   });
 
+  it("ignores unbound viewer authorization state before authorizing signal sends", async () => {
+    const unboundServer = await startViewerAuthorizationLifecycleServer(() => [
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId: "authz_unbound_state",
+        actorPeerId: "host-1",
+        status: "active",
+        visibleToHost: true,
+        permissions: ["screen:view"],
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        reason: "private unbound state reason raw-token"
+      }
+    ]);
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        unboundServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      const rawEvent = await waitForRawEvent(viewerEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(
+        viewerEvents.some(
+          (event) =>
+            event.direction === "received" &&
+            event.message.type === "session-authorization-state"
+        )
+      ).toBe(false);
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-unbound-state-payload",
+        viewerLogs
+      );
+      expect(viewerLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(viewerLogs.join("\n")).not.toContain("session-authorization-state");
+      expect(viewerLogs.join("\n")).not.toContain("authz_unbound_state");
+      expect(viewerLogs.join("\n")).not.toContain("private unbound state reason");
+      expect(viewerLogs.join("\n")).not.toContain("raw-token");
+      expect(JSON.stringify(viewerEvents.filter((event) => event.direction === "raw"))).not.toContain(
+        "authz_unbound_state"
+      );
+    } finally {
+      await viewer?.stop();
+      await unboundServer.stop();
+    }
+  });
+
+  it("ignores mismatched viewer authorization authority before signal authorization", async () => {
+    const mismatchedServer = await startViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_bound_authority",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_bound_authority",
+          actorPeerId: "host-2",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt,
+          reason: "private mismatched state reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          actorPeerId: "host-2",
+          action: "pause",
+          reason: "private mismatched control reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "permission-revoked",
+          authorizationId: "authz_bound_authority",
+          actorPeerId: "host-2",
+          revokedPermission: "screen:view",
+          reason: "private mismatched revoke reason raw-token"
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        mismatchedServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForMessage(
+        viewerEvents,
+        (message) =>
+          message.type === "session-authorization-decision" &&
+          message.authorizationId === "authz_bound_authority"
+      );
+      const rawEvents = await waitForRawEventCount(viewerEvents, 3);
+      await delay(100);
+
+      expect(rawEvents).toHaveLength(3);
+      expect(
+        viewerEvents.some(
+          (event) =>
+            event.direction === "received" &&
+            (event.message.type === "session-authorization-state" ||
+              event.message.type === "session-control" ||
+              event.message.type === "permission-revoked")
+        )
+      ).toBe(false);
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-mismatched-authority-payload",
+        viewerLogs
+      );
+      expect(viewerLogs.join("\n").match(/ignored unsafe inbound protocol message bytes=/g)).toHaveLength(3);
+      expect(viewerLogs.join("\n")).not.toContain("host-2");
+      expect(viewerLogs.join("\n")).not.toContain("private mismatched");
+      expect(viewerLogs.join("\n")).not.toContain("raw-token");
+      expect(JSON.stringify(rawEvents)).not.toContain("host-2");
+      expect(JSON.stringify(rawEvents)).not.toContain("private mismatched");
+      expect(JSON.stringify(rawEvents)).not.toContain("raw-token");
+    } finally {
+      await viewer?.stop();
+      await mismatchedServer.stop();
+    }
+  });
+
+  it("keeps viewer authorization denied when a later active state uses the same authority", async () => {
+    const deniedThenActiveServer = await startViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_denied_then_active",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "denied",
+          grantedPermissions: [],
+          reason: "private denied decision reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_denied_then_active",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt,
+          reason: "private denied-active state reason raw-token"
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        deniedThenActiveServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForMessage(
+        viewerEvents,
+        (message) =>
+          message.type === "session-authorization-decision" &&
+          message.authorizationId === "authz_denied_then_active" &&
+          message.decision === "denied"
+      );
+      const rawEvent = await waitForRawEvent(viewerEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(
+        viewerEvents.some(
+          (event) =>
+            event.direction === "received" &&
+            event.message.type === "session-authorization-state"
+        )
+      ).toBe(false);
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-denied-active-state-payload",
+        viewerLogs
+      );
+      expect(viewerLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(viewerLogs.join("\n")).not.toContain("private denied-active");
+      expect(viewerLogs.join("\n")).not.toContain("raw-token");
+      expect(JSON.stringify(viewerEvents.filter((event) => event.direction === "raw"))).not.toContain(
+        "authz_denied_then_active"
+      );
+    } finally {
+      await viewer?.stop();
+      await deniedThenActiveServer.stop();
+    }
+  });
+
+  it("ignores viewer authorization decisions addressed to another viewer", async () => {
+    const wrongViewerServer = await startViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_other_viewer",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-2",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_other_viewer",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt,
+          reason: "private wrong-viewer state reason raw-token"
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        wrongViewerServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      const rawEvents = await waitForRawEventCount(viewerEvents, 2);
+      await delay(100);
+
+      expect(rawEvents).toHaveLength(2);
+      expect(
+        viewerEvents.some(
+          (event) =>
+            event.direction === "received" &&
+            (event.message.type === "session-authorization-decision" ||
+              event.message.type === "session-authorization-state")
+        )
+      ).toBe(false);
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-wrong-viewer-decision-payload",
+        viewerLogs
+      );
+      expect(viewerLogs.join("\n").match(/ignored unsafe inbound protocol message bytes=/g)).toHaveLength(2);
+      expect(viewerLogs.join("\n")).not.toContain("viewer-2");
+      expect(viewerLogs.join("\n")).not.toContain("authz_other_viewer");
+      expect(viewerLogs.join("\n")).not.toContain("private wrong-viewer");
+      expect(viewerLogs.join("\n")).not.toContain("raw-token");
+      expect(JSON.stringify(rawEvents)).not.toContain("viewer-2");
+      expect(JSON.stringify(rawEvents)).not.toContain("authz_other_viewer");
+    } finally {
+      await viewer?.stop();
+      await wrongViewerServer.stop();
+    }
+  });
+
+  it("clears viewer authorization authority across runtime restart", async () => {
+    let connectionCount = 0;
+    const restartServer = await startViewerAuthorizationLifecycleServer(() => {
+      connectionCount += 1;
+
+      if (connectionCount > 1) {
+        return [];
+      }
+
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_restart_bound",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_restart_bound",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    const viewer = createAgentShellRuntime(createRuntimeOptions({
+      role: "viewer",
+      relayUrl: restartServer.url,
+      peerId: "viewer-1",
+      displayName: "Viewer",
+      deviceId: "dev_viewer_1",
+      requestedPermissions: ["screen:view"],
+      logger: captureLogger(viewerLogs),
+      onEvent: (event) => viewerEvents.push(event)
+    }));
+    agentRuntimes.push(viewer);
+
+    try {
+      await viewer.start();
+      await waitForMessage(
+        viewerEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.status === "active" &&
+          message.visibleToHost
+      );
+
+      await viewer.stop();
+      await viewer.start();
+      await delay(100);
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-viewer-restart-payload",
+        viewerLogs
+      );
+      expect(connectionCount).toBe(2);
+    } finally {
+      await viewer.stop();
+      await restartServer.stop();
+    }
+  });
+
   it("allows viewer signal sends after active visible screen authorization", async () => {
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
@@ -2963,6 +3348,34 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function expectViewerSignalSendBlocked(
+  viewer: AgentShellRuntime,
+  viewerEvents: AgentShellEvent[],
+  blockedPayloadMarker: string,
+  viewerLogs: string[] = []
+): Promise<void> {
+  const sentCountBefore = viewerEvents.filter((event) => event.direction === "sent").length;
+
+  expect(() =>
+    viewer.send({
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      payload: {
+        kind: "viewer-offer",
+        safeMarker: blockedPayloadMarker
+      }
+    })
+  ).toThrow("Agent shell signal requires active visible screen authorization");
+
+  await delay(100);
+
+  expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBefore);
+  expect(JSON.stringify(viewerEvents)).not.toContain(blockedPayloadMarker);
+  expect(viewerLogs.join("\n")).not.toContain(blockedPayloadMarker);
+}
+
 async function startCloseReasonServer(closeReason: string): Promise<{
   url: string;
   stop(): Promise<void>;
@@ -2976,6 +3389,41 @@ async function startCloseReasonServer(closeReason: string): Promise<{
   const address = wss.address() as AddressInfo | string | null;
   if (!address || typeof address === "string") {
     throw new Error("Close reason test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startViewerAuthorizationLifecycleServer(createMessages: () => ProtocolEnvelope[]): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    socket.once("message", () => {
+      for (const message of createMessages()) {
+        socket.send(encodeProtocolEnvelope(message));
+      }
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Viewer authorization lifecycle test server did not expose a TCP port");
   }
 
   return {

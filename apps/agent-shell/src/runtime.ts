@@ -128,6 +128,12 @@ const AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE =
 const REDACTED_EVENT_VALUE = "[REDACTED]";
 const VALID_HOST_DECISIONS = new Set(["none", "approve", "deny"]);
 const SIGNAL_REQUIRED_PERMISSION: Permission = "screen:view";
+const TERMINAL_AUTHORIZATION_STATUSES = new Set<SessionAuthorizationStatus>([
+  "denied",
+  "revoked",
+  "terminated",
+  "expired"
+]);
 
 type HostWorkflowState = {
   terminalStatus?: "revoked" | "terminated" | "expired";
@@ -144,6 +150,7 @@ type AgentShellSessionState = {
 
 type RuntimeAuthorizationSnapshot = {
   authorizationId: string;
+  authorityPeerId?: string;
   status: SessionAuthorizationStatus;
   visibleToHost: boolean;
   permissions: Permission[];
@@ -319,6 +326,11 @@ function handleMessage(
     return;
   }
 
+  if (isUntrustedViewerAuthorizationLifecycleMessage(envelope, options, sessionState)) {
+    reportIgnoredUnsafeProtocolMessage(text, options);
+    return;
+  }
+
   if (isUnauthorizedHostInboundSignal(envelope, options, sessionState)) {
     reportIgnoredUnsafeProtocolMessage(text, options);
     return;
@@ -409,6 +421,95 @@ function isSelfAuthorityWorkflowMessage(
   );
 }
 
+function isUntrustedViewerAuthorizationLifecycleMessage(
+  envelope: ProtocolEnvelope,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState
+): boolean {
+  if (options.role !== "viewer") {
+    return false;
+  }
+
+  switch (envelope.type) {
+    case "session-authorization-decision":
+      return envelope.viewerPeerId !== options.peerId;
+    case "session-authorization-state":
+      return !hasBoundViewerAuthorizationStateAuthority(
+        sessionState,
+        envelope.authorizationId,
+        envelope.actorPeerId,
+        envelope.status
+      );
+    case "permission-revoked":
+      return !hasMutableBoundViewerAuthorizationAuthority(
+        sessionState,
+        envelope.authorizationId,
+        envelope.actorPeerId
+      );
+    case "session-control":
+      return !hasMutableBoundViewerControlAuthority(sessionState, envelope.actorPeerId);
+    default:
+      return false;
+  }
+}
+
+function hasBoundViewerAuthorizationStateAuthority(
+  sessionState: AgentShellSessionState,
+  authorizationId: string,
+  actorPeerId: string,
+  nextStatus: SessionAuthorizationStatus
+): boolean {
+  const snapshot = sessionState.viewerAuthorization;
+
+  if (!isBoundViewerAuthorizationAuthority(snapshot, authorizationId, actorPeerId)) {
+    return false;
+  }
+
+  return !isTerminalAuthorizationStatus(snapshot.status) || snapshot.status === nextStatus;
+}
+
+function hasMutableBoundViewerAuthorizationAuthority(
+  sessionState: AgentShellSessionState,
+  authorizationId: string,
+  actorPeerId: string
+): boolean {
+  const snapshot = sessionState.viewerAuthorization;
+
+  return (
+    isBoundViewerAuthorizationAuthority(snapshot, authorizationId, actorPeerId) &&
+    !isTerminalAuthorizationStatus(snapshot.status)
+  );
+}
+
+function hasMutableBoundViewerControlAuthority(
+  sessionState: AgentShellSessionState,
+  actorPeerId: string
+): boolean {
+  const snapshot = sessionState.viewerAuthorization;
+
+  return Boolean(
+    snapshot &&
+      snapshot.authorityPeerId === actorPeerId &&
+      !isTerminalAuthorizationStatus(snapshot.status)
+  );
+}
+
+function isBoundViewerAuthorizationAuthority(
+  snapshot: RuntimeAuthorizationSnapshot | undefined,
+  authorizationId: string,
+  actorPeerId: string
+): snapshot is RuntimeAuthorizationSnapshot {
+  return Boolean(
+    snapshot &&
+      snapshot.authorizationId === authorizationId &&
+      snapshot.authorityPeerId === actorPeerId
+  );
+}
+
+function isTerminalAuthorizationStatus(status: SessionAuthorizationStatus): boolean {
+  return TERMINAL_AUTHORIZATION_STATUSES.has(status);
+}
+
 function reportIgnoredUnsafeProtocolMessage(
   text: string,
   options: AgentShellRuntimeOptions
@@ -441,8 +542,13 @@ function updateViewerAuthorizationState(
 
   switch (envelope.type) {
     case "session-authorization-decision":
+      if (envelope.viewerPeerId !== options.peerId) {
+        return;
+      }
+
       sessionState.viewerAuthorization = {
         authorizationId: envelope.authorizationId,
+        authorityPeerId: envelope.hostPeerId,
         status: envelope.decision === "approved" ? "approved" : "denied",
         visibleToHost: false,
         permissions: [...envelope.grantedPermissions],
@@ -450,8 +556,20 @@ function updateViewerAuthorizationState(
       };
       return;
     case "session-authorization-state":
+      if (
+        !hasBoundViewerAuthorizationStateAuthority(
+          sessionState,
+          envelope.authorizationId,
+          envelope.actorPeerId,
+          envelope.status
+        )
+      ) {
+        return;
+      }
+
       sessionState.viewerAuthorization = {
         authorizationId: envelope.authorizationId,
+        authorityPeerId: envelope.actorPeerId,
         status: envelope.status,
         visibleToHost: envelope.visibleToHost,
         permissions: [...envelope.permissions],
