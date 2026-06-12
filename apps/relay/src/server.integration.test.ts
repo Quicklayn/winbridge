@@ -1231,6 +1231,53 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(result.rejected)).not.toContain("123-456");
   });
 
+  it("encodes same-role join relay errors without inherited toJSON hooks", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+    const secondHost = await openSocket(runtime.url());
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+
+    const result = await withInheritedObjectToJsonHook(async () => {
+      const relayError = waitForRawJsonMessage(secondHost, (message) => message.type === "relay-error");
+
+      secondHost.send(joinMessage("session-demo", "host-2", "host", "999-000"));
+
+      const denied = await waitForAuditRecord(
+        auditSink,
+        (record) =>
+          record.action === "relay.peer.join.denied" &&
+          record.reason === SAME_ROLE_RELAY_PEER_JOIN_REASON
+      );
+
+      return { relayError: await relayError, denied };
+    });
+
+    expect(result.relayError.message).toEqual({
+      type: "relay-error",
+      reason: SAME_ROLE_RELAY_PEER_JOIN_REASON
+    });
+    expect(result.relayError.raw).not.toContain(INHERITED_TO_JSON_PRIVATE_MARKER);
+    expect(result.relayError.raw).not.toContain("raw-screen-content");
+    expect(result.relayError.raw).not.toContain("999-000");
+    expect(result.relayError.raw).not.toContain("123-456");
+    expect(result.denied).toMatchObject({
+      action: "relay.peer.join.denied",
+      outcome: "denied",
+      detail: {
+        messageType: "join-session",
+        pairing: {
+          roleConflict: true
+        }
+      }
+    });
+    expect(JSON.stringify(result.denied)).not.toContain(INHERITED_TO_JSON_PRIVATE_MARKER);
+    expect(JSON.stringify(result.denied)).not.toContain("999-000");
+    expect(JSON.stringify(result.denied)).not.toContain("123-456");
+  });
+
   it("rejects malformed join identifiers without reflecting them", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
@@ -2950,7 +2997,7 @@ async function withInheritedObjectToJsonHook<T>(callback: () => Promise<T>): Pro
   Object.defineProperty(Object.prototype, "toJSON", {
     configurable: true,
     value: function inheritedRelayErrorToJson(this: Record<string, unknown>) {
-      if (this.type !== "relay-error" || this.reason !== "Invalid relay message") {
+      if (this.type !== "relay-error") {
         return this;
       }
 
