@@ -12,6 +12,10 @@ describe("interactive host consent prompt", () => {
     await expect(promptWithInput("Approve\n")).resolves.toBe("none");
     await expect(promptWithInput("   \n")).resolves.toBe("none");
     await expect(promptWithInput("allow\n")).resolves.toBe("none");
+    await expect(promptWithInput(" approve\n")).resolves.toBe("none");
+    await expect(promptWithInput("approve \n")).resolves.toBe("none");
+    await expect(promptWithInput(" deny\n")).resolves.toBe("none");
+    await expect(promptWithInput("deny \n")).resolves.toBe("none");
 
     const output = createCapturingOutput();
     await expect(

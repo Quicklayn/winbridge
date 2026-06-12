@@ -1120,18 +1120,23 @@ The host agent shell SHALL support an opt-in interactive consent path that asks 
 
 #### Scenario: Host approves through interactive prompt
 - **WHEN** a host shell is configured for interactive consent and receives a same-session authorization request from the observed viewer
-- **AND** the host operator explicitly enters the accepted approval response
+- **AND** the host operator explicitly enters the exact accepted approval response
 - **THEN** the shell sends the same approved authorization decision, audit event, visible-session-gated active state, indicator event, and lifecycle simulations that the static approve workflow would send
 - **AND** active visible state remains withheld unless `visibleToHost` is true
 
 #### Scenario: Host denies through interactive prompt
 - **WHEN** a host shell is configured for interactive consent and receives a same-session authorization request from the observed viewer
-- **AND** the host operator explicitly enters the accepted denial response
+- **AND** the host operator explicitly enters the exact accepted denial response
 - **THEN** the shell sends the same denied authorization decision and denied audit event that the static deny workflow would send
 - **AND** it MUST NOT emit active visible state, grant permissions, start capture, send input, or enable signal authorization
 
+#### Scenario: Whitespace-padded prompt response fails closed
+- **WHEN** an interactive host consent prompt receives input with leading or trailing whitespace around `approve` or `deny`
+- **THEN** the prompt result is treated as no accepted decision
+- **AND** the host shell MUST NOT send approval, denial, active state, session-control, permission-revoked, signal, or workflow audit messages for that request
+
 #### Scenario: Prompt cancellation or invalid response fails closed
-- **WHEN** an interactive host consent prompt is cancelled, fails, or returns anything other than the accepted approval or denial response
+- **WHEN** an interactive host consent prompt is cancelled, fails, or returns anything other than the exact accepted approval or denial response
 - **THEN** the host shell MUST NOT send approval, denial, active state, session-control, permission-revoked, signal, or workflow audit messages for that request
 - **AND** it logs only secret-safe metadata about the prompt outcome
 

@@ -55,10 +55,8 @@ function formatHostConsentPrompt(request: HostDecisionProviderRequest): string {
 }
 
 function parseHostConsentPromptAnswer(answer: string): HostDecision {
-  const trimmedAnswer = answer.trim();
-
-  if (trimmedAnswer === "approve" || trimmedAnswer === "deny") {
-    return trimmedAnswer;
+  if (answer === "approve" || answer === "deny") {
+    return answer;
   }
 
   return "none";
