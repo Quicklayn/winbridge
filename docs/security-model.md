@@ -72,7 +72,7 @@ Protocol messages for session authorization lifecycle are explicit:
 - `session-authorization-request`: viewer asks for scoped permissions.
 - `session-authorization-decision`: host approves or denies with grants, approval expiration, and reason where applicable. Denials carry no grants and no expiration.
 - `session-authorization-state`: peers receive current authorization state and host visibility.
-- `session-control`: host controls pause, resume, termination, or permission-revocation workflow intent.
+- `session-control`: host controls pause, resume, termination, or permission-revocation workflow intent for a named `authorizationId`.
 - `permission-revoked`: host or authorized actor revokes a specific permission.
 
 Receiving one of these messages is not enough to perform a sensitive action. Components must still evaluate the shared authorization state and requested permission.
@@ -115,7 +115,7 @@ The non-native agent shell can simulate consent messages for development:
 - Local runtime `sent` events expose a schema-validated event-safe protocol view; audit-event details and raw pairing codes are redacted from the local event surface.
 - Local runtime `sent` events for `signal` messages expose peer routing metadata and redacted payload summaries, not raw signal payload contents.
 - Viewer-originated `signal` sends are rejected before socket write and local `sent` event emission unless the viewer has observed an active, visible, unexpired `screen:view` authorization state; blocked-send errors, events, and logs do not include raw signal payload contents.
-- Viewer-side authorization lifecycle state is bound to the host authority from a decision addressed to the local viewer; inbound legacy consent decisions plus unbound, mismatched, denied-to-active, prior-connection state, permission revocation, and session-control messages are ignored before local `received` event emission and cannot grant or restore signal-send authorization.
+- Viewer-side authorization lifecycle state is bound to the host authority and authorization id from a decision addressed to the local viewer; inbound legacy consent decisions plus unbound, mismatched-authority, mismatched-authorization, denied-to-active, prior-connection state, permission revocation, and session-control messages are ignored before local `received` event emission and cannot grant or restore signal-send authorization.
 - Local runtime `received` events for `signal` messages expose peer routing metadata and redacted payload summaries, not raw signal payload contents.
 - Host inbound `signal` messages are ignored before local `received` event emission unless the host has locally emitted an active, visible, unexpired `screen:view` authorization state; ignored-signal events and logs remain redacted to summary metadata.
 - Host-originated public runtime `signal` sends are rejected before socket write and local `sent` event emission unless the host has locally emitted an active, visible, unexpired `screen:view` authorization state; blocked-send errors, events, and logs do not include raw signal payload contents.

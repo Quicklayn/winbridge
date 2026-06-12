@@ -841,6 +841,7 @@ describe("protocol envelopes", () => {
     const pause = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
       type: "session-control",
+      authorizationId: "authz-demo",
       actorPeerId: "host-1",
       action: "pause",
       reason: "Host paused"
@@ -848,6 +849,7 @@ describe("protocol envelopes", () => {
     const resume = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
       type: "session-control",
+      authorizationId: "authz-demo",
       actorPeerId: "host-1",
       action: "resume",
       reason: "Host resumed"
@@ -855,6 +857,7 @@ describe("protocol envelopes", () => {
     const terminate = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
       type: "session-control",
+      authorizationId: "authz-demo",
       actorPeerId: "host-1",
       action: "terminate",
       reason: "Host terminated"
@@ -862,6 +865,7 @@ describe("protocol envelopes", () => {
     const revokePermission = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
       type: "session-control",
+      authorizationId: "authz-demo",
       actorPeerId: "host-1",
       action: "revoke-permission",
       permission: "screen:view",
@@ -873,9 +877,22 @@ describe("protocol envelopes", () => {
     expect(terminate).toMatchObject({ type: "session-control", action: "terminate" });
     expect(revokePermission).toMatchObject({
       type: "session-control",
+      authorizationId: "authz-demo",
       action: "revoke-permission",
       permission: "screen:view"
     });
+  });
+
+  it("rejects session control messages without authorization binding", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-control",
+        actorPeerId: "host-1",
+        action: "pause",
+        reason: "Host paused"
+      })
+    ).toThrow();
   });
 
   it("rejects ambiguous session control permission payloads", () => {
@@ -883,6 +900,7 @@ describe("protocol envelopes", () => {
       parseProtocolEnvelope({
         ...createMessageBase("session-demo"),
         type: "session-control",
+        authorizationId: "authz-demo",
         actorPeerId: "host-1",
         action: "revoke-permission",
         reason: "Host revoked screen"
@@ -894,6 +912,7 @@ describe("protocol envelopes", () => {
         parseProtocolEnvelope({
           ...createMessageBase("session-demo"),
           type: "session-control",
+          authorizationId: "authz-demo",
           actorPeerId: "host-1",
           action,
           permission: "screen:view",
@@ -908,6 +927,7 @@ describe("protocol envelopes", () => {
       parseProtocolEnvelope({
         ...createMessageBase("session-demo"),
         type: "session-control",
+        authorizationId: "authz-demo",
         actorPeerId: "host-1",
         action: "pause",
         reason: "   "

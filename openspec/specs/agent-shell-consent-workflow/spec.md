@@ -243,7 +243,7 @@ The agent shell SHALL block viewer-originated `signal` sends before socket write
 - **THEN** thrown errors, runtime events, and logs MUST NOT expose raw signal payloads, signal payload keys, tokens, pairing codes, authorization reasons, keystrokes, screenshots, screen contents, or input contents
 
 ### Requirement: Viewer authorization authority binding
-The agent shell SHALL bind viewer-side authorization lifecycle state to the host authority from a `session-authorization-decision` addressed to the local viewer before using lifecycle messages to authorize viewer-originated `signal` sends. The viewer runtime MUST ignore inbound legacy `host-consent-decision` messages before local `received` protocol event emission and MUST NOT treat them as authorization decisions.
+The agent shell SHALL bind viewer-side authorization lifecycle state to the host authority from a `session-authorization-decision` addressed to the local viewer before using lifecycle messages to authorize viewer-originated `signal` sends. Viewer-side `session-control` messages MUST match both the bound host authority and the current authorization id before they can change local authorization state. The viewer runtime MUST ignore inbound legacy `host-consent-decision` messages before local `received` protocol event emission and MUST NOT treat them as authorization decisions.
 
 #### Scenario: Viewer ignores authorization state without bound decision
 - **WHEN** a viewer runtime receives a decoded `session-authorization-state` before it has received a `session-authorization-decision` for the local viewer and matching authorization id
@@ -255,6 +255,12 @@ The agent shell SHALL bind viewer-side authorization lifecycle state to the host
 - **AND** it then receives `session-authorization-state`, `permission-revoked`, or `session-control` from a different actor authority for the same session
 - **THEN** the runtime MUST ignore the mismatched lifecycle message before local `received` protocol event emission
 - **AND** the mismatched message MUST NOT grant, restore, pause, revoke, terminate, or otherwise alter viewer signal-send authorization
+
+#### Scenario: Viewer ignores mismatched session-control authorization id
+- **WHEN** a viewer runtime has received a host decision and active visible state for one authorization id
+- **AND** it then receives `session-control` from the bound host authority with a different authorization id
+- **THEN** the runtime MUST ignore the mismatched control before local `received` protocol event emission
+- **AND** the mismatched control MUST NOT pause, resume, terminate, revoke, restore, or otherwise alter viewer signal-send authorization
 
 #### Scenario: Viewer ignores legacy host consent decision
 - **WHEN** a viewer runtime receives a decoded legacy `host-consent-decision` addressed to the local viewer
@@ -268,8 +274,8 @@ The agent shell SHALL bind viewer-side authorization lifecycle state to the host
 
 #### Scenario: Viewer denied decision remains fail-closed
 - **WHEN** a viewer runtime receives a denied `session-authorization-decision` for the local viewer
-- **AND** it later receives an active `session-authorization-state` for the same authorization id and host authority
-- **THEN** the runtime MUST ignore the active state before local `received` protocol event emission
+- **AND** it later receives an active `session-authorization-state` or `session-control` for the same authorization id and host authority
+- **THEN** the runtime MUST ignore the lifecycle message before local `received` protocol event emission
 - **AND** later viewer-originated `signal` sends MUST still be rejected before socket write and local `sent` event emission
 
 #### Scenario: Viewer restart clears authorization authority binding
@@ -702,11 +708,11 @@ The host shell SHALL emit secret-safe development `audit-event` protocol message
 - **THEN** audit details MUST NOT contain raw tokens, raw pairing codes, credentials, display names, signal payloads, keystrokes, screenshots, screen contents, or raw denial/revocation reason text
 
 ### Requirement: Host session terminate simulation
-The host shell SHALL send session termination simulation messages only when termination is explicitly configured, the host has already emitted an active visible session state for the same authorization, and the authorization is still unexpired when the terminate delay fires.
+The host shell SHALL send session termination simulation messages only when termination is explicitly configured, the host has already emitted an active visible session state for the same authorization, and the authorization is still unexpired when the terminate delay fires. Host-generated terminate `session-control` messages MUST include the authorization id of the visible active or paused session being controlled.
 
 #### Scenario: Host terminates after visible activation
 - **WHEN** the host shell is explicitly configured to approve, visible session state is true, and a terminate delay is configured
-- **THEN** it sends an approved decision, sends active visible state, sends `session-control` with action `terminate` after the delay, sends `session-authorization-state` with status `terminated`, and sends a secret-safe termination `audit-event`
+- **THEN** it sends an approved decision, sends active visible state, sends `session-control` with action `terminate` and the active authorization id after the delay, sends `session-authorization-state` with status `terminated`, and sends a secret-safe termination `audit-event`
 
 #### Scenario: Terminate configured without visible activation
 - **WHEN** the host shell is configured to approve but visible session state is false
@@ -752,15 +758,15 @@ The host shell SHALL simulate authorization expiration only after an explicitly 
 - **THEN** it MUST NOT start screen capture, send input, sync clipboard, transfer files, install services, configure startup persistence, collect credentials, or hide the session from the host
 
 ### Requirement: Host pause and resume simulation
-The host shell SHALL send pause and resume simulation messages only when they are explicitly configured and the host has already emitted an active visible session state for the same authorization.
+The host shell SHALL send pause and resume simulation messages only when they are explicitly configured and the host has already emitted an active visible session state for the same authorization. Host-generated pause and resume `session-control` messages MUST include the authorization id of the visible active session being controlled.
 
 #### Scenario: Host pauses after visible activation
 - **WHEN** the host shell is explicitly configured to approve, visible session state is true, and a pause delay is configured
-- **THEN** it sends an approved decision, sends active visible state, sends `session-control` with action `pause` after the delay, sends `session-authorization-state` with status `paused`, and sends a secret-safe pause `audit-event`
+- **THEN** it sends an approved decision, sends active visible state, sends `session-control` with action `pause` and the active authorization id after the delay, sends `session-authorization-state` with status `paused`, and sends a secret-safe pause `audit-event`
 
 #### Scenario: Host resumes after pause
 - **WHEN** the host shell has paused an authorization and a resume delay is configured
-- **THEN** it sends `session-control` with action `resume`, sends `session-authorization-state` with status `active`, and sends a secret-safe resume `audit-event`
+- **THEN** it sends `session-control` with action `resume` and the paused authorization id, sends `session-authorization-state` with status `active`, and sends a secret-safe resume `audit-event`
 
 #### Scenario: Pause configured without visible activation
 - **WHEN** the host shell is configured to approve but visible session state is false

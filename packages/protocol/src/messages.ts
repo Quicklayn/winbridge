@@ -294,6 +294,7 @@ export const SignalMessageSchema = BaseMessageSchema.extend({
 
 export const SessionControlMessageSchema = BaseMessageSchema.extend({
   type: z.literal("session-control"),
+  authorizationId: ProtocolIdentifierSchema.min(8),
   actorPeerId: PeerIdSchema,
   action: z.enum(["pause", "resume", "terminate", "revoke-permission"]),
   permission: PermissionSchema.optional(),

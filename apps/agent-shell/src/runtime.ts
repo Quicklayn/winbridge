@@ -524,7 +524,11 @@ function isUntrustedViewerAuthorizationLifecycleMessage(
         envelope.actorPeerId
       );
     case "session-control":
-      return !hasMutableBoundViewerControlAuthority(sessionState, envelope.actorPeerId);
+      return !hasMutableBoundViewerControlAuthority(
+        sessionState,
+        envelope.authorizationId,
+        envelope.actorPeerId
+      );
     default:
       return false;
   }
@@ -572,14 +576,14 @@ function hasMutableBoundViewerAuthorizationAuthority(
 
 function hasMutableBoundViewerControlAuthority(
   sessionState: AgentShellSessionState,
+  authorizationId: string,
   actorPeerId: string
 ): boolean {
   const snapshot = sessionState.viewerAuthorization;
 
-  return Boolean(
-    snapshot &&
-      snapshot.authorityPeerId === actorPeerId &&
-      !isTerminalAuthorizationStatus(snapshot.status)
+  return (
+    isBoundViewerAuthorizationAuthority(snapshot, authorizationId, actorPeerId) &&
+    !isTerminalAuthorizationStatus(snapshot.status)
   );
 }
 
@@ -700,7 +704,7 @@ function updateViewerAuthorizationAfterSessionControl(
   message: Extract<ProtocolEnvelope, { type: "session-control" }>
 ): void {
   const snapshot = sessionState.viewerAuthorization;
-  if (!snapshot) {
+  if (!snapshot || snapshot.authorizationId !== message.authorizationId) {
     return;
   }
 
@@ -1411,6 +1415,7 @@ function scheduleHostPause(
     sendProtocol(socket, options, {
       ...createMessageBase(options.sessionId),
       type: "session-control",
+      authorizationId,
       actorPeerId: options.peerId,
       action: "pause",
       reason
@@ -1484,6 +1489,7 @@ function scheduleHostResume(
     sendProtocol(socket, options, {
       ...createMessageBase(options.sessionId),
       type: "session-control",
+      authorizationId,
       actorPeerId: options.peerId,
       action: "resume",
       reason
@@ -1563,6 +1569,7 @@ function scheduleHostTerminate(
     sendProtocol(socket, options, {
       ...createMessageBase(options.sessionId),
       type: "session-control",
+      authorizationId,
       actorPeerId: options.peerId,
       action: "terminate",
       reason

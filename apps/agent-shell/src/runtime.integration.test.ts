@@ -1455,6 +1455,7 @@ describe("agent shell consent workflow", () => {
 
     expect(control).toMatchObject({
       type: "session-control",
+      authorizationId: terminatedState.type === "session-authorization-state" ? terminatedState.authorizationId : "",
       action: "terminate",
       actorPeerId: "host-1"
     });
@@ -1607,6 +1608,7 @@ describe("agent shell consent workflow", () => {
 
     expect(control).toMatchObject({
       type: "session-control",
+      authorizationId: pausedState.type === "session-authorization-state" ? pausedState.authorizationId : "",
       action: "pause",
       actorPeerId: "host-1"
     });
@@ -1663,6 +1665,7 @@ describe("agent shell consent workflow", () => {
 
     expect(resumeControl).toMatchObject({
       type: "session-control",
+      authorizationId: activeStates.at(-1)?.authorizationId,
       action: "resume",
       actorPeerId: "host-1"
     });
@@ -2346,6 +2349,7 @@ describe("agent shell consent workflow", () => {
         message: {
           ...createMessageBase("session-demo"),
           type: "session-control",
+          authorizationId: "authz_public_control",
           actorPeerId: "host-1",
           action: "pause",
           reason: "public-control-private-reason"
@@ -3040,6 +3044,7 @@ describe("agent shell consent workflow", () => {
         {
           ...createMessageBase("session-demo"),
           type: "session-control",
+          authorizationId: "authz_bound_authority",
           actorPeerId: "host-2",
           action: "pause",
           reason: "private mismatched control reason raw-token"
@@ -3105,6 +3110,116 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("ignores viewer session controls with mismatched authorization ids", async () => {
+    const controlBindingServer = await startViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "relay-ready",
+          peerId: "viewer-1",
+          roomSize: 2
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_control_bound",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_control_bound",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          authorizationId: "authz_control_other",
+          actorPeerId: "host-1",
+          action: "pause",
+          reason: "private mismatched control id reason raw-token"
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        controlBindingServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForMessage(
+        viewerEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.authorizationId === "authz_control_bound" &&
+          message.status === "active"
+      );
+      const rawEvent = await waitForRawEvent(viewerEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(
+        viewerEvents.some(
+          (event) => event.direction === "received" && event.message.type === "session-control"
+        )
+      ).toBe(false);
+
+      const signalPayload = {
+        kind: "offer",
+        safeMarker: "allowed-after-mismatched-control-id"
+      };
+      viewer.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: signalPayload
+      });
+
+      const sentSignal = await waitForSentMessage(
+        viewerEvents,
+        (message) => message.type === "signal" && message.fromPeerId === "viewer-1"
+      );
+      expect(sentSignal).toMatchObject({
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(JSON.stringify(signalPayload))
+        }
+      });
+      expect(viewerLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(viewerLogs.join("\n")).not.toContain("authz_control_other");
+      expect(viewerLogs.join("\n")).not.toContain("private mismatched control id");
+      expect(viewerLogs.join("\n")).not.toContain("raw-token");
+      expect(JSON.stringify(viewerEvents)).not.toContain("allowed-after-mismatched-control-id");
+    } finally {
+      await viewer?.stop();
+      await controlBindingServer.stop();
+    }
+  });
+
   it("keeps viewer authorization denied when a later active state uses the same authority", async () => {
     const deniedThenActiveServer = await startViewerAuthorizationLifecycleServer(() => {
       const expiresAt = new Date(Date.now() + 60_000).toISOString();
@@ -3130,6 +3245,14 @@ describe("agent shell consent workflow", () => {
           permissions: ["screen:view"],
           expiresAt,
           reason: "private denied-active state reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          authorizationId: "authz_denied_then_active",
+          actorPeerId: "host-1",
+          action: "resume",
+          reason: "private denied-control reason raw-token"
         }
       ];
     });
@@ -3152,10 +3275,11 @@ describe("agent shell consent workflow", () => {
           message.authorizationId === "authz_denied_then_active" &&
           message.decision === "denied"
       );
-      const rawEvent = await waitForRawEvent(viewerEvents);
+      const rawEvents = await waitForRawEventCount(viewerEvents, 2);
       await delay(100);
 
-      expect(rawEvent).toMatchObject({
+      expect(rawEvents).toHaveLength(2);
+      expect(rawEvents[0]).toMatchObject({
         direction: "raw",
         text: "[REDACTED]",
         byteLength: expect.any(Number)
@@ -3164,7 +3288,8 @@ describe("agent shell consent workflow", () => {
         viewerEvents.some(
           (event) =>
             event.direction === "received" &&
-            event.message.type === "session-authorization-state"
+            (event.message.type === "session-authorization-state" ||
+              event.message.type === "session-control")
         )
       ).toBe(false);
 
@@ -3176,6 +3301,7 @@ describe("agent shell consent workflow", () => {
       );
       expect(viewerLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
       expect(viewerLogs.join("\n")).not.toContain("private denied-active");
+      expect(viewerLogs.join("\n")).not.toContain("private denied-control");
       expect(viewerLogs.join("\n")).not.toContain("raw-token");
       expect(JSON.stringify(viewerEvents.filter((event) => event.direction === "raw"))).not.toContain(
         "authz_denied_then_active"
@@ -5425,6 +5551,7 @@ async function startSelfAuthorityWorkflowServer(): Promise<{
         {
           ...createMessageBase("session-demo"),
           type: "session-control",
+          authorizationId: "authz_self_control",
           actorPeerId: "host-1",
           action: "pause",
           reason: "private self-authority reason raw-token"

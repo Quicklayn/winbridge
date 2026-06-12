@@ -737,6 +737,7 @@ describe("relay runtime integration", () => {
       encodeProtocolEnvelope({
         ...createMessageBase("session-demo"),
         type: "session-control",
+        authorizationId: "authz-demo",
         actorPeerId: "viewer-1",
         action: "pause",
         reason: "actor-spoof-private-reason"
@@ -965,6 +966,7 @@ describe("relay runtime integration", () => {
         buildMessage: () => ({
           ...createMessageBase("session-demo"),
           type: "session-control",
+          authorizationId: "authz-demo",
           actorPeerId: "viewer-1",
           action: "pause",
           reason: "viewer-control-private-reason"
