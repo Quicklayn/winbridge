@@ -94,6 +94,45 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(auditRecords)).not.toContain("123-456");
   });
 
+  it("rejects join messages with unknown fixed fields before registration", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+    const privateMarker = "unknown-join-fixed-field-private-marker";
+
+    host.send(
+      JSON.stringify({
+        ...createMessageBase("session-demo"),
+        type: "join-session",
+        peerId: "host-1",
+        role: "host",
+        pairingCode: "123-456",
+        unknownFixedField: privateMarker
+      })
+    );
+
+    expect(await waitForJsonMessage(host, (message) => message.type === "relay-error")).toEqual({
+      type: "relay-error",
+      reason: "Invalid relay message"
+    });
+    expect(auditSink.records().some((record) => record.action === "relay.peer.join.accepted")).toBe(false);
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.message.rejected" && record.reason === "Invalid relay message"
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      reason: "Invalid relay message",
+      detail: {
+        registered: false
+      }
+    });
+    expect(JSON.stringify(rejected)).not.toContain(privateMarker);
+    expect(JSON.stringify(rejected)).not.toContain("123-456");
+  });
+
   it("emits schema-valid audit records for max-length peer ids", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
@@ -504,6 +543,48 @@ describe("relay runtime integration", () => {
       }
     });
     expect(JSON.stringify(relayError)).not.toContain(privateMarker);
+    expect(JSON.stringify(rejected)).not.toContain(privateMarker);
+  });
+
+  it("rejects registered messages with unknown fixed fields before forwarding", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const privateMarker = "unknown-registered-fixed-field-private-marker";
+
+    host.send(
+      JSON.stringify({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          authorizationId: "authz-demo",
+          kind: "offer"
+        },
+        unknownFixedField: privateMarker
+      })
+    );
+
+    expect(await waitForJsonMessage(host, (message) => message.type === "relay-error")).toEqual({
+      type: "relay-error",
+      reason: "Invalid relay message"
+    });
+    await expectNoProtocolMessage(viewer, (message) => message.type === "signal");
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.message.rejected" && record.reason === "Invalid relay message"
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      reason: "Invalid relay message",
+      detail: {
+        registered: true
+      }
+    });
     expect(JSON.stringify(rejected)).not.toContain(privateMarker);
   });
 

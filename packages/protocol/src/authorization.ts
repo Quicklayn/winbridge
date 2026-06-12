@@ -88,7 +88,7 @@ const SessionAuthorizationBaseSchema = z.object({
   terminatedAt: z.string().datetime().optional(),
   expiredAt: z.string().datetime().optional(),
   reason: AuthorizationReasonSchema.optional()
-});
+}).strict();
 export const SessionAuthorizationSchema = SessionAuthorizationBaseSchema.superRefine((authorization, ctx) => {
   validateTimestampOrder(authorization, ctx);
 

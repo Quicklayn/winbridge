@@ -49,7 +49,7 @@ const BaseMessageSchema = z.object({
   messageId: ProtocolIdentifierSchema,
   sessionId: SessionIdSchema,
   createdAt: z.string().datetime()
-});
+}).strict();
 const ProtocolReasonSchema = z
   .string()
   .min(1)

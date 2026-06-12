@@ -351,6 +351,55 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("treats inbound messages with unknown fixed fields as raw unsafe input", async () => {
+    const privateMarker = "agent-inbound-unknown-fixed-field-private-marker";
+    const server = await startViewerAuthorizationLifecycleServer(() => [
+      JSON.stringify({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Viewer",
+        capabilities: ["session:visible", "consent:required"],
+        unknownFixedField: privateMarker
+      })
+    ]);
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: server.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(hostEvents.some((event) => event.direction === "received")).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "hello")).toBe(false);
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("received non-protocol message bytes=");
+      expect(logOutput).not.toContain(privateMarker);
+      expect(logOutput).not.toContain("unknownFixedField");
+      expect(serializedEvents).not.toContain(privateMarker);
+      expect(serializedEvents).not.toContain("unknownFixedField");
+    } finally {
+      await host?.stop();
+      await server.stop();
+    }
+  });
+
   it("allows host signal sends after active visible authorization and redacts payload contents", async () => {
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
@@ -5175,6 +5224,48 @@ describe("agent shell consent workflow", () => {
     ).toThrow();
 
     expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBefore);
+  });
+
+  it("blocks public sends with unknown fixed fields before socket write or sent events", async () => {
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
+    const viewerLogs: string[] = [];
+    const viewer = await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      captureLogger(viewerLogs)
+    );
+    await waitForMessage(hostEvents, (message) => message.type === "session-authorization-request");
+
+    const privateMarker = "agent-public-send-unknown-fixed-field-private-marker";
+    const sentCountBefore = viewerEvents.filter((event) => event.direction === "sent").length;
+    const receivedRequestCountBefore = hostEvents.filter(
+      (event) => event.direction === "received" && event.message.type === "session-authorization-request"
+    ).length;
+
+    expect(() =>
+      viewer.send({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        reason: "Viewer requested access",
+        unknownFixedField: privateMarker
+      } as unknown as ProtocolEnvelope)
+    ).toThrow();
+
+    await delay(50);
+
+    expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBefore);
+    expect(
+      hostEvents.filter(
+        (event) => event.direction === "received" && event.message.type === "session-authorization-request"
+      )
+    ).toHaveLength(receivedRequestCountBefore);
+    expect(JSON.stringify(viewerEvents)).not.toContain(privateMarker);
+    expect(JSON.stringify(hostEvents)).not.toContain(privateMarker);
+    expect(viewerLogs.join("\n")).not.toContain(privateMarker);
+    expect(viewerLogs.join("\n")).not.toContain("unknownFixedField");
   });
 
   it("surfaces audit sink write failures as runtime errors", async () => {

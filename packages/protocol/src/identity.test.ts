@@ -6,7 +6,10 @@ import {
   createPairingCodeSalt,
   createPairingTicket,
   createPairedDevice,
-  hashPairingCode
+  DeviceIdentitySchema,
+  hashPairingCode,
+  PairedDeviceSchema,
+  PairingTicketSchema
 } from "./identity.js";
 
 describe("device identity", () => {
@@ -49,6 +52,19 @@ describe("device identity", () => {
         deviceId: "dev_host_1"
       })
     ).toThrow("Display name must not be blank");
+  });
+
+  it("rejects device identity records with unknown fixed fields", () => {
+    expect(() =>
+      DeviceIdentitySchema.parse({
+        deviceId: "dev_host_1",
+        displayName: "Host workstation",
+        platform: "windows",
+        trustLevel: "local-dev",
+        createdAt: new Date().toISOString(),
+        unknownFixedField: "must-fail"
+      })
+    ).toThrow();
   });
 });
 
@@ -95,6 +111,31 @@ describe("pairing tickets", () => {
       createPairedDevice({
         ticket,
         viewerDeviceId: "viewer/1"
+      })
+    ).toThrow();
+  });
+
+  it("rejects pairing records with unknown fixed fields", () => {
+    const ticket = createPairingTicket({
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456"
+    });
+    const pair = createPairedDevice({
+      ticket,
+      viewerDeviceId: "dev_viewer_1"
+    });
+
+    expect(() =>
+      PairingTicketSchema.parse({
+        ...ticket,
+        unknownFixedField: "must-fail"
+      })
+    ).toThrow();
+    expect(() =>
+      PairedDeviceSchema.parse({
+        ...pair,
+        unknownFixedField: "must-fail"
       })
     ).toThrow();
   });

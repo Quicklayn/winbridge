@@ -224,6 +224,28 @@ describe("session authorization state machine", () => {
     ).toThrow();
   });
 
+  it("rejects authorization records and grants with unknown fixed fields", () => {
+    expect(() =>
+      SessionAuthorizationSchema.parse({
+        ...pending(),
+        unknownFixedField: "must-fail"
+      })
+    ).toThrow();
+    expect(() =>
+      assertConsentBoundGrant({
+        sessionId: "session-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        permissions: ["screen:view"],
+        requiresHostApproval: true,
+        visibleSessionRequired: true,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        auditId: "audit-demo",
+        unknownFixedField: "must-fail"
+      } as unknown as Parameters<typeof assertConsentBoundGrant>[0])
+    ).toThrow();
+  });
+
   it("rejects malformed authorization records at schema parse time", () => {
     const active = activateSessionAuthorization(
       approveSessionAuthorization(pending(), {

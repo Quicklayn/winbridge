@@ -32,6 +32,170 @@ describe("protocol envelopes", () => {
     ).toThrow();
   });
 
+  it("rejects unknown fixed top-level protocol fields", () => {
+    const validMessages = [
+      {
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "Host",
+        capabilities: ["session:visible"]
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "join-session",
+        peerId: "viewer-1",
+        role: "viewer",
+        pairingCode: "123-456"
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "host-consent-required",
+        viewerPeerId: "viewer-1",
+        viewerDisplayName: "Viewer",
+        requestedPermissions: ["screen:view"]
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "host-consent-decision",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        approved: true,
+        grantedPermissions: ["screen:view"]
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"]
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-decision",
+        authorizationId: "authz-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        decision: "approved",
+        grantedPermissions: ["screen:view"],
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        status: "active",
+        visibleToHost: true,
+        permissions: ["screen:view"],
+        expiresAt: new Date(Date.now() + 60_000).toISOString()
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "permission-revoked",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        revokedPermission: "screen:view",
+        reason: "Host revoked screen"
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "relay-ready",
+        peerId: "host-1",
+        roomSize: 1
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "peer-disconnected",
+        peerId: "viewer-1",
+        role: "viewer",
+        reasonCode: "peer-closed"
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          authorizationId: "authz-demo",
+          kind: "offer"
+        }
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-control",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        action: "pause"
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "audit-event",
+        eventId: "audit-demo",
+        actorPeerId: "host-1",
+        action: "agent-shell.test",
+        outcome: "accepted"
+      }
+    ];
+
+    for (const message of validMessages) {
+      expect(() =>
+        parseProtocolEnvelope({
+          ...message,
+          unknownFixedField: "must-fail"
+        })
+      ).toThrow();
+    }
+  });
+
+  it("preserves extensible signal payload and audit detail metadata", () => {
+    const signal = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        authorizationId: "authz-demo",
+        kind: "offer",
+        applicationMetadata: {
+          safe: "kept"
+        }
+      }
+    });
+    const auditEvent = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "audit-event",
+      eventId: "audit-demo",
+      actorPeerId: "host-1",
+      action: "agent-shell.test",
+      outcome: "accepted",
+      detail: {
+        customMetadata: "kept",
+        nested: {
+          safe: true
+        }
+      }
+    });
+
+    expect(signal).toMatchObject({
+      type: "signal",
+      payload: {
+        applicationMetadata: {
+          safe: "kept"
+        }
+      }
+    });
+    expect(auditEvent).toMatchObject({
+      type: "audit-event",
+      detail: {
+        customMetadata: "kept",
+        nested: {
+          safe: true
+        }
+      }
+    });
+  });
+
   it("rejects blank hello display names", () => {
     expect(() =>
       parseProtocolEnvelope({

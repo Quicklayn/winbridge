@@ -154,6 +154,32 @@ describe("audit records", () => {
     ).toThrow();
   });
 
+  it("rejects unknown fixed audit record, actor, and target fields", () => {
+    expect(() =>
+      createAuditRecord({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay.peer.join.accepted",
+        outcome: "accepted",
+        unknownFixedField: "must-fail"
+      } as unknown as Parameters<typeof createAuditRecord>[0])
+    ).toThrow();
+    expect(() =>
+      createAuditRecord({
+        actor: { type: "relay", id: "relay-dev", unknownFixedField: "must-fail" },
+        action: "relay.peer.join.accepted",
+        outcome: "accepted"
+      } as unknown as Parameters<typeof createAuditRecord>[0])
+    ).toThrow();
+    expect(() =>
+      createAuditRecord({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay.message.forwarded",
+        outcome: "accepted",
+        target: { type: "peer", id: "viewer-1", unknownFixedField: "must-fail" }
+      } as unknown as Parameters<typeof createAuditRecord>[0])
+    ).toThrow();
+  });
+
   it("rejects blank audit metadata fields", () => {
     expect(() =>
       createAuditRecord({

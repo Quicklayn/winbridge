@@ -25,7 +25,7 @@ export const DeviceIdentitySchema = z.object({
   platform: z.enum(["windows", "linux", "macos", "unknown"]),
   trustLevel: DeviceTrustLevelSchema,
   createdAt: z.string().datetime()
-});
+}).strict();
 export type DeviceIdentity = z.infer<typeof DeviceIdentitySchema>;
 
 export const PairingTicketSchema = z.object({
@@ -37,7 +37,7 @@ export const PairingTicketSchema = z.object({
   createdAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
   remainingUses: z.number().int().min(0).max(10)
-});
+}).strict();
 export type PairingTicket = z.infer<typeof PairingTicketSchema>;
 
 export const PairedDeviceSchema = z.object({
@@ -46,7 +46,7 @@ export const PairedDeviceSchema = z.object({
   hostDeviceId: ProtocolIdentifierSchema.min(8),
   viewerDeviceId: ProtocolIdentifierSchema.min(8),
   pairedAt: z.string().datetime()
-});
+}).strict();
 export type PairedDevice = z.infer<typeof PairedDeviceSchema>;
 
 const DEFAULT_PAIRING_TICKET_TTL_MS = 5 * 60_000;

@@ -10,7 +10,7 @@ export const AuditActorSchema = z.object({
   type: z.enum(["system", "relay", "host", "viewer"]),
   id: ProtocolIdentifierSchema,
   deviceId: ProtocolIdentifierSchema.min(8).optional()
-});
+}).strict();
 export type AuditActor = z.infer<typeof AuditActorSchema>;
 export type AuditJsonValue = JsonValue;
 export type AuditDetail = JsonObject;
@@ -47,10 +47,11 @@ export const AuditRecordSchema = z.object({
       type: AuditTargetTypeSchema,
       id: ProtocolIdentifierSchema
     })
+    .strict()
     .optional(),
   reason: AuditReasonSchema.optional(),
   detail: AuditDetailSchema.default({})
-});
+}).strict();
 export type AuditRecord = z.infer<typeof AuditRecordSchema>;
 export type AuditRecordInput = Omit<AuditRecord, "eventId" | "timestamp"> & {
   eventId?: string;

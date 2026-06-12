@@ -52,7 +52,7 @@ export const SessionGrantSchema = z.object({
   visibleSessionRequired: z.literal(true),
   expiresAt: z.string().datetime(),
   auditId: ProtocolIdentifierSchema
-});
+}).strict();
 export type SessionGrant = z.infer<typeof SessionGrantSchema>;
 
 export const PairingCodeSchema = z.string().regex(/^\d{3}-\d{3}$/);
