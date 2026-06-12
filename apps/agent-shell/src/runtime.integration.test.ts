@@ -1770,6 +1770,58 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(receivedDecision)).not.toContain("private denial reason");
   });
 
+  it("fails closed for viewer signal sends after host denial", async () => {
+    const privateDenialReason = "private denial reason raw-token";
+    const blockedPayloadMarker = "blocked-after-denial-payload";
+    const viewerLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      decisionReason: privateDenialReason,
+      hostDecision: "deny"
+    });
+    const viewer = await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      captureLogger(viewerLogs)
+    );
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-decision" &&
+        message.decision === "denied"
+    );
+
+    const sentCountBefore = viewerEvents.filter((event) => event.direction === "sent").length;
+    const hostSignalCountBefore = hostEvents.filter(
+      (event) => event.direction === "received" && event.message.type === "signal"
+    ).length;
+
+    expect(() =>
+      viewer.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: {
+          kind: "viewer-offer",
+          safeMarker: blockedPayloadMarker
+        }
+      })
+    ).toThrow("Agent shell signal requires active visible screen authorization");
+
+    await delay(100);
+
+    expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBefore);
+    expect(
+      hostEvents.filter((event) => event.direction === "received" && event.message.type === "signal")
+    ).toHaveLength(hostSignalCountBefore);
+    expect(JSON.stringify(viewerEvents)).not.toContain(blockedPayloadMarker);
+    expect(JSON.stringify(viewerEvents)).not.toContain(privateDenialReason);
+    expect(viewerLogs.join("\n")).not.toContain(blockedPayloadMarker);
+    expect(viewerLogs.join("\n")).not.toContain(privateDenialReason);
+  });
+
   it("persists host denial audit records without raw private reason text", async () => {
     const root = mkdtempSync(join(tmpdir(), "winbridge-agent-audit-"));
     const auditPath = join(root, "agent-audit.jsonl");
