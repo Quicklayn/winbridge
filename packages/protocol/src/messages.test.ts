@@ -1132,6 +1132,20 @@ describe("protocol envelopes", () => {
     });
   });
 
+  it("accepts session control messages without optional reasons for non-revoke actions", () => {
+    for (const action of ["pause", "resume", "terminate"] as const) {
+      const parsed = parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-control",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        action
+      });
+
+      expect(parsed).toMatchObject({ type: "session-control", action });
+    }
+  });
+
   it("rejects session control messages without authorization binding", () => {
     expect(() =>
       parseProtocolEnvelope({
@@ -1169,6 +1183,19 @@ describe("protocol envelopes", () => {
         })
       ).toThrow("cannot include permission");
     }
+  });
+
+  it("rejects revoke-permission session control messages without reason", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-control",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        action: "revoke-permission",
+        permission: "screen:view"
+      })
+    ).toThrow("require reason");
   });
 
   it("rejects blank session control reasons", () => {

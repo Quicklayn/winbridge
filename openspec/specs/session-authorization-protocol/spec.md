@@ -148,7 +148,7 @@ The protocol SHALL reject malformed legacy `host-consent-required` and `host-con
 - **THEN** the protocol schema rejects the message so denial remains explicit and auditable
 
 ### Requirement: Session control action payload invariants
-The protocol SHALL reject malformed `session-control` messages whose action-specific payload or authorization binding is ambiguous or fail-open.
+The protocol SHALL reject malformed `session-control` messages whose action-specific payload or authorization binding is ambiguous, unauditable, or fail-open.
 
 #### Scenario: Control includes authorization id
 - **WHEN** a `session-control` message includes an authorization id and otherwise valid action-specific payload
@@ -158,13 +158,17 @@ The protocol SHALL reject malformed `session-control` messages whose action-spec
 - **WHEN** a `session-control` message omits `authorizationId`
 - **THEN** the protocol schema rejects the message before peers can process ambiguous lifecycle intent
 
-#### Scenario: Revoke-permission control includes permission
-- **WHEN** a `session-control` message has action `revoke-permission`, includes `authorizationId`, and includes a permission
+#### Scenario: Revoke-permission control includes permission and reason
+- **WHEN** a `session-control` message has action `revoke-permission`, includes `authorizationId`, includes a permission, and includes a non-blank reason
 - **THEN** the protocol schema accepts the message as permission-revocation intent for that authorization
 
 #### Scenario: Revoke-permission control lacks permission
 - **WHEN** a `session-control` message has action `revoke-permission` and omits permission
 - **THEN** the protocol schema rejects the message before peers can process ambiguous revocation intent
+
+#### Scenario: Revoke-permission control lacks reason
+- **WHEN** a `session-control` message has action `revoke-permission` and omits reason
+- **THEN** the protocol schema rejects the message before peers can process unauditable revocation intent
 
 #### Scenario: Pause control includes permission
 - **WHEN** a `session-control` message has action `pause` and includes permission

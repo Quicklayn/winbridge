@@ -330,6 +330,14 @@ export const SessionControlMessageSchema = BaseMessageSchema.extend({
     });
   }
 
+  if (message.action === "revoke-permission" && !message.reason) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Revoke-permission session control messages require reason",
+      path: ["reason"]
+    });
+  }
+
   if (message.action !== "revoke-permission" && message.permission) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
