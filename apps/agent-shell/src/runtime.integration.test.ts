@@ -238,6 +238,51 @@ describe("agent shell consent workflow", () => {
     expect(hostReceivedRequestIndex).toBeGreaterThan(hostSentHelloIndex);
   });
 
+  it("ignores hello messages that identify the local peer before presence handling", async () => {
+    const selfHelloServer = await startSelfHelloServer();
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: selfHelloServer.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(hostEvents.some((event) => event.direction === "received")).toBe(false);
+      expect(
+        hostEvents.some((event) => event.direction === "sent" && event.message.type === "hello")
+      ).toBe(false);
+
+      const serializedRawEvents = JSON.stringify(hostEvents.filter((event) => event.direction === "raw"));
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(logOutput).not.toContain("hello");
+      expect(logOutput).not.toContain("host-1");
+      expect(logOutput).not.toContain("session-demo");
+      expect(logOutput).not.toContain("self hello display");
+      expect(serializedRawEvents).not.toContain("hello");
+      expect(serializedRawEvents).not.toContain("host-1");
+      expect(serializedRawEvents).not.toContain("session-demo");
+      expect(serializedRawEvents).not.toContain("self hello display");
+    } finally {
+      await host?.stop();
+      await selfHelloServer.stop();
+    }
+  });
+
   it("emits sent signal events without raw payload contents", async () => {
     const { host, hostEvents } = await startRelayAndHost();
     await waitForMessage(
@@ -2393,6 +2438,46 @@ async function startForeignRelayReadyServer(): Promise<{
   const address = wss.address() as AddressInfo | string | null;
   if (!address || typeof address === "string") {
     throw new Error("Foreign relay-ready test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startSelfHelloServer(): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    socket.once("message", () => {
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "self hello display",
+        capabilities: ["session:visible", "consent:required"]
+      }));
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Self-hello test server did not expose a TCP port");
   }
 
   return {

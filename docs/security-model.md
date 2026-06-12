@@ -98,6 +98,7 @@ The non-native agent shell can simulate consent messages for development:
 - Host approval requires `--host-decision approve`.
 - Active session state is withheld unless `--visible-session true` is set.
 - Inbound `relay-ready` messages that identify a peer other than the local runtime peer are ignored before local `received` protocol events or presence and authorization request workflow handling; ignored foreign relay-ready input is logged only as redacted summary metadata.
+- Inbound `hello` messages that identify the local runtime peer are ignored before local `received` protocol events or presence workflow handling; ignored self-hello input is logged only as redacted summary metadata.
 - Inbound protocol messages for any session other than the local runtime session are ignored before local `received` protocol events or consent workflow handling; ignored cross-session input is logged only as redacted summary metadata.
 - Inbound authorization requests that identify the local host peer as the viewer are ignored before local `received` protocol events or consent workflow handling; ignored self-authority input is logged only as redacted summary metadata.
 - CLI parsing rejects unknown, duplicate option, duplicate requested permission, missing-value, malformed token, relay URLs with embedded credentials or `token` query values, malformed relay URL, malformed protocol identifier, malformed display name, malformed permission, malformed pairing, malformed lifecycle reason, and non-`true`/`false` `--visible-session` values before starting the runtime.

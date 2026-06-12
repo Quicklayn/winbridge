@@ -277,6 +277,11 @@ function handleMessage(
     return;
   }
 
+  if (isSelfHelloMessage(envelope, options)) {
+    reportIgnoredUnsafeProtocolMessage(text, options);
+    return;
+  }
+
   options.onEvent?.({ direction: "received", message: redactReceivedEventMessage(envelope) });
   options.logger?.log(`[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 
@@ -324,6 +329,13 @@ function isSelfDisconnectNotice(
   options: AgentShellRuntimeOptions
 ): boolean {
   return envelope.type === "peer-disconnected" && envelope.peerId === options.peerId;
+}
+
+function isSelfHelloMessage(
+  envelope: ProtocolEnvelope,
+  options: AgentShellRuntimeOptions
+): boolean {
+  return envelope.type === "hello" && envelope.peerId === options.peerId;
 }
 
 function reportIgnoredUnsafeProtocolMessage(
