@@ -269,6 +269,63 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(forwarded)).not.toContain("raw-forwarded-signal-candidate");
   });
 
+  it("audits forwarded hello messages without display or capability metadata", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const displayName = "Host Forwarded Hello Private Display";
+    const privateCapability = "agent-shell:hello-private-marker";
+    const hello = {
+      ...createMessageBase("session-demo"),
+      type: "hello",
+      peerId: "host-1",
+      role: "host",
+      displayName,
+      capabilities: ["agent-shell:test", privateCapability]
+    } as const;
+
+    host.send(encodeProtocolEnvelope(hello));
+
+    expect(await waitForProtocolMessage(viewer, (message) => message.type === "hello")).toMatchObject({
+      type: "hello",
+      peerId: "host-1",
+      role: "host",
+      displayName,
+      capabilities: ["agent-shell:test", privateCapability]
+    });
+
+    const forwarded = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.forwarded" &&
+        record.detail?.messageType === "hello" &&
+        record.detail?.messageId === hello.messageId
+    );
+    expect(forwarded).toMatchObject({
+      action: "relay.message.forwarded",
+      actor: {
+        id: "development-relay:host-1"
+      },
+      outcome: "accepted",
+      sessionId: "session-demo",
+      detail: {
+        messageType: "hello",
+        messageId: hello.messageId,
+        recipientPeerId: "viewer-1",
+        recipientRole: "viewer"
+      }
+    });
+    expect(forwarded.detail).toEqual({
+      messageType: "hello",
+      messageId: hello.messageId,
+      recipientPeerId: "viewer-1",
+      recipientRole: "viewer"
+    });
+    expect(JSON.stringify(forwarded)).not.toContain(displayName);
+    expect(JSON.stringify(forwarded)).not.toContain(privateCapability);
+    expect(JSON.stringify(forwarded)).not.toContain("agent-shell:test");
+  });
+
   it("rejects duplicate live host joins without replacing the original host or refreshing pairing", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
