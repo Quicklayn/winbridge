@@ -678,6 +678,82 @@ describe("relay runtime integration", () => {
   });
 
   it("rejects viewer-forged host authorization decisions before forwarding", async () => {
+    const cases: Array<{
+      name: string;
+      buildMessage: () => ProtocolEnvelope;
+      grantMarker: string;
+      rejectedType: ProtocolEnvelope["type"];
+      privateMarker: string;
+    }> = [
+      {
+        name: "legacy host consent decision",
+        grantMarker: "input:keyboard",
+        rejectedType: "host-consent-decision",
+        privateMarker: "legacy-decision-private-marker",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "host-consent-decision",
+          hostPeerId: "viewer-1",
+          viewerPeerId: "viewer-1",
+          approved: true,
+          grantedPermissions: ["input:keyboard"],
+          reason: "legacy-decision-private-marker"
+        })
+      },
+      {
+        name: "session authorization decision",
+        grantMarker: "clipboard:write",
+        rejectedType: "session-authorization-decision",
+        privateMarker: "authorization-decision-private-marker",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz-demo",
+          hostPeerId: "viewer-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["clipboard:write"],
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          reason: "authorization-decision-private-marker"
+        })
+      }
+    ];
+
+    for (const { buildMessage, grantMarker, name, privateMarker, rejectedType } of cases) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+
+      const relayError = waitForJsonMessage(viewer, (message) => message.type === "relay-error");
+      const noForwardedDecision = expectNoProtocolMessage(host, (message) => message.type === rejectedType);
+      viewer.send(encodeProtocolEnvelope(buildMessage()));
+
+      const [error] = await Promise.all([relayError, noForwardedDecision]);
+      expect(error, name).toEqual({
+        type: "relay-error",
+        reason: "Message role does not match registered peer"
+      });
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) =>
+          record.action === "relay.message.rejected" &&
+          record.reason === "Message role does not match registered peer"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain(privateMarker);
+      expect(JSON.stringify(rejected), name).not.toContain(grantMarker);
+    }
+  });
+
+  it("forwards legacy host consent requests as viewer requests", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
     const { host, viewer } = await joinPairedSession(runtime);
@@ -685,36 +761,38 @@ describe("relay runtime integration", () => {
     viewer.send(
       encodeProtocolEnvelope({
         ...createMessageBase("session-demo"),
-        type: "session-authorization-decision",
-        authorizationId: "authz-demo",
-        hostPeerId: "viewer-1",
+        type: "host-consent-required",
         viewerPeerId: "viewer-1",
-        decision: "approved",
-        grantedPermissions: ["screen:view"],
-        expiresAt: new Date(Date.now() + 60_000).toISOString()
+        viewerDisplayName: "Viewer",
+        requestedPermissions: ["screen:view"]
       })
     );
 
-    expect(await waitForJsonMessage(viewer, (message) => message.type === "relay-error")).toEqual({
-      type: "relay-error",
-      reason: "Message role does not match registered peer"
+    expect(
+      await waitForProtocolMessage(host, (message) => message.type === "host-consent-required")
+    ).toMatchObject({
+      type: "host-consent-required",
+      viewerPeerId: "viewer-1",
+      requestedPermissions: ["screen:view"]
     });
-    await expectNoProtocolMessage(host, (message) => message.type === "session-authorization-decision");
 
-    const rejected = await waitForAuditRecord(
+    const forwarded = await waitForAuditRecord(
       auditSink,
       (record) =>
-        record.action === "relay.message.rejected" &&
-        record.reason === "Message role does not match registered peer"
+        record.action === "relay.message.forwarded" &&
+        record.detail?.messageType === "host-consent-required"
     );
-    expect(rejected).toMatchObject({
-      action: "relay.message.rejected",
-      outcome: "failed",
+    expect(forwarded).toMatchObject({
+      action: "relay.message.forwarded",
+      outcome: "accepted",
       sessionId: "session-demo",
       detail: {
-        registered: true
+        messageType: "host-consent-required"
       }
     });
+    expect(auditSink.records().some((record) => record.reason === "Message role does not match registered peer")).toBe(
+      false
+    );
   });
 
   it("rejects viewer-originated host workflow messages before forwarding", async () => {
