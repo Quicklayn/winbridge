@@ -153,6 +153,8 @@ const RUNTIME_TOKEN_ERROR_MESSAGE =
 const RUNTIME_VISIBLE_SESSION_ERROR_MESSAGE = "Runtime visibleToHost must be a boolean when provided";
 const RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE =
   "Runtime workflow reasons must be non-blank, already trimmed, and 240 characters or less";
+const RUNTIME_AUTHORIZATION_TTL_ERROR_MESSAGE =
+  "Runtime authorization TTL must be an integer from 1 through 2147483647";
 const RUNTIME_WORKFLOW_TIMER_ERROR_MESSAGE =
   "Runtime workflow timer delays must be integers from 0 through 2147483647";
 const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
@@ -1269,8 +1271,8 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
   assertRuntimeRevokePermission(options.hostRevokePermission);
   assertRuntimeVisibleToHost(options.visibleToHost);
   assertValidHostDecision(options.hostDecision);
+  assertRuntimeAuthorizationTtl(options.authorizationTtlMs);
   assertRuntimeWorkflowTimers([
-    options.authorizationTtlMs,
     options.hostRevokeAfterMs,
     options.hostPauseAfterMs,
     options.hostResumeAfterMs,
@@ -1427,6 +1429,20 @@ function assertRuntimeVisibleToHost(value: unknown): asserts value is boolean | 
   }
 
   throw new Error(RUNTIME_VISIBLE_SESSION_ERROR_MESSAGE);
+}
+
+function assertRuntimeAuthorizationTtl(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+
+  if (
+    !Number.isInteger(value) ||
+    (value as number) < 1 ||
+    (value as number) > MAX_AGENT_SHELL_TIMER_DELAY_MS
+  ) {
+    throw new Error(RUNTIME_AUTHORIZATION_TTL_ERROR_MESSAGE);
+  }
 }
 
 function assertRuntimeWorkflowTimers(values: unknown[]): void {

@@ -112,12 +112,20 @@ The agent shell SHALL ignore decoded inbound `relay-ready` messages whose `peerI
 - **AND** they MUST NOT expose raw protocol payloads, session ids, peer ids, tokens, pairing codes, private reasons, signal payloads, keystrokes, screenshots, screen contents, or input contents
 
 ### Requirement: Managed runtime option validation
-The managed agent shell runtime SHALL validate direct runtime options before opening a relay connection or sending any protocol message. Invalid role, relay URL, relay token, identifiers, display name, requested permissions, revoke permission, visible session flag, host decision, workflow timer delays, or blank, untrimmed, or oversized workflow reason options MUST fail closed before relay startup. Relay runtime token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. Relay URLs MUST NOT carry embedded credentials or token query parameters; relay shared tokens MUST use the dedicated runtime token path.
+The managed agent shell runtime SHALL validate direct runtime options before opening a relay connection or sending any protocol message. Invalid role, relay URL, relay token, identifiers, display name, requested permissions, revoke permission, visible session flag, host decision, authorization TTL, lifecycle workflow timer delays, or blank, untrimmed, or oversized workflow reason options MUST fail closed before relay startup. Authorization TTL values MUST be positive integers from `1` through the safe timer delay bound. Lifecycle workflow timer delays MUST remain bounded integers from `0` through the safe timer delay bound. Relay runtime token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. Relay URLs MUST NOT carry embedded credentials or token query parameters; relay shared tokens MUST use the dedicated runtime token path.
 
 #### Scenario: Malformed runtime options fail before relay startup
-- **WHEN** caller code creates a managed runtime with an invalid relay URL, session id, pairing code, peer id, device id, display name, requested permission, revoke permission, visible session flag, host decision, workflow timer delay, or workflow reason
+- **WHEN** caller code creates a managed runtime with an invalid relay URL, session id, pairing code, peer id, device id, display name, requested permission, revoke permission, visible session flag, host decision, authorization TTL, lifecycle workflow timer delay, or workflow reason
 - **THEN** runtime creation fails before opening a relay connection
 - **AND** it MUST NOT send join, authorization, lifecycle, signal, or audit messages
+
+#### Scenario: Zero runtime authorization TTL fails before relay startup
+- **WHEN** caller code creates a managed runtime with `authorizationTtlMs: 0`
+- **THEN** runtime creation fails before opening a relay connection, sending any protocol message, or scheduling workflow timers
+
+#### Scenario: Zero runtime lifecycle delay remains valid
+- **WHEN** caller code creates a managed runtime with `hostRevokeAfterMs`, `hostPauseAfterMs`, `hostResumeAfterMs`, `hostTerminateAfterMs`, or `hostDisconnectAfterMs` set to `0`
+- **THEN** runtime creation succeeds without weakening the authorization TTL requirement
 
 #### Scenario: Untrimmed runtime workflow reason fails before relay startup
 - **WHEN** caller code creates a managed runtime with a workflow reason option containing leading or trailing whitespace
@@ -627,7 +635,7 @@ The agent shell CLI SHALL report unexpected startup and shutdown failures withou
 - **AND** stderr output MUST NOT include raw user-provided argument values
 
 ### Requirement: Agent shell CLI argument validation
-The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime, including duplicate requested permissions. Relay URLs MUST NOT contain embedded credentials/userinfo, and relay shared-token values MUST be supplied through `--token` rather than embedded in `--relay` URLs. CLI token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. CLI audit log path values MUST be non-blank and already trimmed. Workflow timer validation SHALL include `--disconnect-after-ms`.
+The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime, including duplicate requested permissions. Relay URLs MUST NOT contain embedded credentials/userinfo, and relay shared-token values MUST be supplied through `--token` rather than embedded in `--relay` URLs. CLI token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. CLI audit log path values MUST be non-blank and already trimmed. Authorization TTL validation SHALL require `--authorization-ttl-ms` values to be positive integers from `1` through the safe timer delay bound. Lifecycle workflow timer validation SHALL allow `--revoke-after-ms`, `--pause-after-ms`, `--resume-after-ms`, `--terminate-after-ms`, and `--disconnect-after-ms` values from `0` through the safe timer delay bound.
 
 #### Scenario: Unknown CLI option is rejected
 - **WHEN** the agent shell is started with an option name that is not part of the documented CLI
@@ -669,9 +677,17 @@ The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments befo
 - **WHEN** the agent shell is started with an empty, whitespace-only, untrimmed, control-character, or oversized `--token` value
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
+#### Scenario: Zero authorization TTL option is rejected
+- **WHEN** the agent shell is started with `--authorization-ttl-ms 0`
+- **THEN** it exits through bounded usage handling before connecting to the relay, sending any protocol message, or scheduling workflow timers
+
 #### Scenario: Oversized workflow timer option is rejected
 - **WHEN** the agent shell is started with `--authorization-ttl-ms`, `--revoke-after-ms`, `--pause-after-ms`, `--resume-after-ms`, `--terminate-after-ms`, or `--disconnect-after-ms` above the safe timer delay bound
 - **THEN** it exits through bounded usage handling before connecting to the relay or scheduling workflow timers
+
+#### Scenario: Zero lifecycle simulation delay remains valid
+- **WHEN** the agent shell is started with `--revoke-after-ms 0`, `--pause-after-ms 0`, `--resume-after-ms 0`, `--terminate-after-ms 0`, or `--disconnect-after-ms 0`
+- **THEN** it constructs matching bounded runtime lifecycle delay options without weakening the authorization TTL requirement
 
 #### Scenario: Invalid lifecycle reason option is rejected
 - **WHEN** the agent shell is started with a blank, untrimmed, or oversized lifecycle reason option

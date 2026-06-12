@@ -107,7 +107,7 @@ export function parseArgs(
     requestedPermissions: parseRequestedPermissions(options.get("request")),
     hostDecision: parseHostDecision(options.get("host-decision")),
     visibleToHost: parseVisibleSession(options.get("visible-session")),
-    authorizationTtlMs: parseOptionalTimerDelayMs(options.get("authorization-ttl-ms")),
+    authorizationTtlMs: parseOptionalAuthorizationTtlMs(options.get("authorization-ttl-ms")),
     hostRevokeAfterMs: parseOptionalTimerDelayMs(options.get("revoke-after-ms")),
     hostRevokePermission: parseOptionalPermission(options.get("revoke-permission")),
     hostRevokeReason: parseOptionalReason(options.get("revoke-reason")),
@@ -339,6 +339,25 @@ function parseOptionalTimerDelayMs(raw: string | undefined): number | undefined 
   if (
     !Number.isInteger(value) ||
     value < 0 ||
+    value > MAX_AGENT_SHELL_TIMER_DELAY_MS ||
+    String(value) !== raw
+  ) {
+    throw new AgentShellUsageError();
+  }
+
+  return value;
+}
+
+function parseOptionalAuthorizationTtlMs(raw: string | undefined): number | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  const value = Number.parseInt(raw, 10);
+
+  if (
+    !Number.isInteger(value) ||
+    value < 1 ||
     value > MAX_AGENT_SHELL_TIMER_DELAY_MS ||
     String(value) !== raw
   ) {

@@ -3,7 +3,6 @@ import { AgentShellUsageError, parseArgs } from "./args.js";
 
 describe("agent shell arguments", () => {
   const workflowTimerOptions = [
-    ["authorization-ttl-ms", "authorizationTtlMs"],
     ["revoke-after-ms", "hostRevokeAfterMs"],
     ["pause-after-ms", "hostPauseAfterMs"],
     ["resume-after-ms", "hostResumeAfterMs"],
@@ -154,7 +153,20 @@ describe("agent shell arguments", () => {
     }
   });
 
-  it("parses bounded workflow timer delays", () => {
+  it("parses bounded authorization ttl", () => {
+    expect(parseArgs(["host", "--authorization-ttl-ms", "1"], {}, 42).authorizationTtlMs).toBe(1);
+    expect(
+      parseArgs(["host", "--authorization-ttl-ms", "2147483647"], {}, 42).authorizationTtlMs
+    ).toBe(2147483647);
+  });
+
+  it("rejects zero authorization ttl", () => {
+    expect(() => parseArgs(["host", "--authorization-ttl-ms", "0"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+  });
+
+  it("parses bounded lifecycle timer delays", () => {
     for (const [option, property] of workflowTimerOptions) {
       expect(parseArgs(["host", `--${option}`, "0"], {}, 42)[property]).toBe(0);
       expect(parseArgs(["host", `--${option}`, "2147483647"], {}, 42)[property]).toBe(
@@ -164,7 +176,7 @@ describe("agent shell arguments", () => {
   });
 
   it("rejects oversized workflow timer delays", () => {
-    for (const [option] of workflowTimerOptions) {
+    for (const [option] of [["authorization-ttl-ms"], ...workflowTimerOptions]) {
       expect(() => parseArgs(["host", `--${option}`, "2147483648"], {}, 42)).toThrow(
         AgentShellUsageError
       );

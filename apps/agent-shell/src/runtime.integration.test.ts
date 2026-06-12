@@ -142,6 +142,7 @@ describe("agent shell consent workflow", () => {
         { visibleToHost: "false" as unknown as boolean },
         "Runtime visibleToHost"
       ],
+      ["zero authorization TTL", { authorizationTtlMs: 0 }, "Runtime authorization TTL"],
       ["unsafe workflow timer", { hostPauseAfterMs: 2_147_483_648 }, "Runtime workflow timer"],
       ["blank decision reason", { decisionReason: "   " }, "Runtime workflow reasons"],
       ["untrimmed decision reason", { decisionReason: " Host denied" }, "Runtime workflow reasons"],
@@ -166,6 +167,18 @@ describe("agent shell consent workflow", () => {
         name
       ).toThrow(expectedMessage);
     }
+  });
+
+  it("accepts zero direct runtime lifecycle delays before relay startup", async () => {
+    const runtime = createAgentShellRuntime(createRuntimeOptions({
+      hostDisconnectAfterMs: 0,
+      hostPauseAfterMs: 0,
+      hostResumeAfterMs: 0,
+      hostRevokeAfterMs: 0,
+      hostTerminateAfterMs: 0
+    }));
+
+    await runtime.stop();
   });
 
   it("rejects untrimmed runtime tokens without exposing raw token text", () => {
@@ -2040,7 +2053,7 @@ describe("agent shell consent workflow", () => {
 
   it("does not send revoke when authorization reaches the ttl boundary first", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
-      authorizationTtlMs: 0,
+      authorizationTtlMs: 1,
       hostDecision: "approve",
       hostRevokeAfterMs: 0,
       hostRevokePermission: "screen:view",
@@ -2181,7 +2194,7 @@ describe("agent shell consent workflow", () => {
 
   it("does not send terminate when authorization reaches the ttl boundary first", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
-      authorizationTtlMs: 0,
+      authorizationTtlMs: 1,
       hostDecision: "approve",
       hostTerminateAfterMs: 0,
       visibleToHost: true
@@ -2658,7 +2671,7 @@ describe("agent shell consent workflow", () => {
 
   it("does not send pause when authorization reaches the ttl boundary first", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
-      authorizationTtlMs: 0,
+      authorizationTtlMs: 1,
       hostDecision: "approve",
       hostPauseAfterMs: 0,
       hostResumeAfterMs: 10,
