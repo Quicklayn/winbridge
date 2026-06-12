@@ -23,6 +23,7 @@ describe("agent shell arguments", () => {
       deviceId: "dev_viewer_42",
       requestedPermissions: [],
       hostDecision: "none",
+      hostConsentPrompt: false,
       visibleToHost: false
     });
   });
@@ -30,6 +31,17 @@ describe("agent shell arguments", () => {
   it("parses explicit visible session boolean values", () => {
     expect(parseArgs(["host", "--visible-session", "true"], {}, 42).visibleToHost).toBe(true);
     expect(parseArgs(["host", "--visible-session", "false"], {}, 42).visibleToHost).toBe(false);
+  });
+
+  it("parses interactive host consent prompt mode for host runtimes", () => {
+    expect(parseArgs(["host", "--host-consent-prompt", "true"], {}, 42).hostConsentPrompt).toBe(true);
+    expect(
+      parseArgs(["host", "--host-consent-prompt", "true", "--host-decision", "none"], {}, 42)
+        .hostConsentPrompt
+    ).toBe(true);
+    expect(parseArgs(["host", "--host-consent-prompt", "false"], {}, 42).hostConsentPrompt).toBe(
+      false
+    );
   });
 
   it("parses absolute websocket relay urls", () => {
@@ -77,6 +89,24 @@ describe("agent shell arguments", () => {
     expect(() => parseArgs(["host", "--visible-session", "yes"], {}, 42)).toThrow(
       AgentShellUsageError
     );
+  });
+
+  it("rejects malformed interactive host consent prompt values", () => {
+    expect(() => parseArgs(["host", "--host-consent-prompt", "yes"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+  });
+
+  it("rejects interactive host consent prompt for viewer or static decisions", () => {
+    expect(() => parseArgs(["viewer", "--host-consent-prompt", "true"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+    expect(() =>
+      parseArgs(["host", "--host-consent-prompt", "true", "--host-decision", "approve"], {}, 42)
+    ).toThrow(AgentShellUsageError);
+    expect(() =>
+      parseArgs(["host", "--host-consent-prompt", "true", "--host-decision", "deny"], {}, 42)
+    ).toThrow(AgentShellUsageError);
   });
 
   it("rejects unknown and duplicate options", () => {
@@ -286,9 +316,10 @@ describe("agent shell arguments", () => {
 
     expect(args).toMatchObject({
       auditLogPath: "logs/audit.jsonl",
-      requestedPermissions: ["screen:view", "input:pointer"],
-      hostDecision: "approve",
-      visibleToHost: true,
+        requestedPermissions: ["screen:view", "input:pointer"],
+        hostDecision: "approve",
+        hostConsentPrompt: false,
+        visibleToHost: true,
       authorizationTtlMs: 600000,
       hostRevokePermission: "input:pointer",
       hostRevokeReason: "Host revoked pointer",

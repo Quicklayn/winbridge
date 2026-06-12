@@ -28,6 +28,7 @@ export type AgentShellArgs = {
   auditLogPath?: string;
   requestedPermissions: ReturnType<typeof parsePermissions>;
   hostDecision: HostDecision;
+  hostConsentPrompt: boolean;
   visibleToHost: boolean;
   authorizationTtlMs?: number;
   hostRevokeAfterMs?: number;
@@ -43,7 +44,7 @@ export type AgentShellArgs = {
 };
 
 export const AGENT_SHELL_USAGE =
-  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000]";
+  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000]";
 
 const knownOptions = new Set([
   "relay",
@@ -56,6 +57,7 @@ const knownOptions = new Set([
   "audit-log",
   "request",
   "host-decision",
+  "host-consent-prompt",
   "visible-session",
   "authorization-ttl-ms",
   "revoke-after-ms",
@@ -92,6 +94,9 @@ export function parseArgs(
   const pairingCode = parsePairingCode(options.get("pairing") ?? "123-456");
   const peerId = parsePeerId(options.get("peer") ?? `${role}-${processId}`);
 
+  const hostDecision = parseHostDecision(options.get("host-decision"));
+  const hostConsentPrompt = parseHostConsentPrompt(role, hostDecision, options.get("host-consent-prompt"));
+
   return {
     role,
     relayUrl: parseRelayUrl(options.get("relay") ?? "ws://localhost:8787"),
@@ -105,7 +110,8 @@ export function parseArgs(
       options.get("audit-log") ?? env.WINBRIDGE_AGENT_AUDIT_LOG_PATH
     ),
     requestedPermissions: parseRequestedPermissions(options.get("request")),
-    hostDecision: parseHostDecision(options.get("host-decision")),
+    hostDecision,
+    hostConsentPrompt,
     visibleToHost: parseVisibleSession(options.get("visible-session")),
     authorizationTtlMs: parseOptionalAuthorizationTtlMs(options.get("authorization-ttl-ms")),
     hostRevokeAfterMs: parseOptionalTimerDelayMs(options.get("revoke-after-ms")),
@@ -248,6 +254,36 @@ function parseHostDecision(raw: string | undefined): HostDecision {
 function parseVisibleSession(raw: string | undefined): boolean {
   if (raw === undefined) {
     return false;
+  }
+
+  if (raw === "true") {
+    return true;
+  }
+
+  if (raw === "false") {
+    return false;
+  }
+
+  throw new AgentShellUsageError();
+}
+
+function parseHostConsentPrompt(
+  role: SessionRole,
+  hostDecision: HostDecision,
+  raw: string | undefined
+): boolean {
+  const enabled = parseBooleanFlag(raw, false);
+
+  if (enabled && (role !== "host" || hostDecision === "approve" || hostDecision === "deny")) {
+    throw new AgentShellUsageError();
+  }
+
+  return enabled;
+}
+
+function parseBooleanFlag(raw: string | undefined, defaultValue: boolean): boolean {
+  if (raw === undefined) {
+    return defaultValue;
   }
 
   if (raw === "true") {

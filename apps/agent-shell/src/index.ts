@@ -1,12 +1,14 @@
 import { FileAuditSink } from "@winbridge/audit-log";
 import { parseArgs } from "./args.js";
 import { reportAgentShellCliError } from "./cli-diagnostics.js";
+import { createInteractiveHostDecisionProvider } from "./host-consent-prompt.js";
 import { createAgentShellRuntime } from "./runtime.js";
 
 try {
   const args = parseArgs(process.argv.slice(2));
   const runtime = createAgentShellRuntime({
     ...args,
+    hostDecisionProvider: args.hostConsentPrompt ? createInteractiveHostDecisionProvider() : undefined,
     auditSink: args.auditLogPath ? new FileAuditSink(args.auditLogPath) : undefined
   });
 

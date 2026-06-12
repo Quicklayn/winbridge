@@ -139,6 +139,15 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-decision appro
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
+For a closer development consent loop, let the host terminal prompt for each request:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-consent-prompt true --visible-session true
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+The prompt accepts only exact `approve` or `deny` responses. Static `--host-decision approve|deny` remains for deterministic automation and is mutually exclusive with `--host-consent-prompt true`.
+
 This still does not capture the screen or send input. It only sends session authorization protocol messages and local secret-safe host indicator events for development UI wiring. Signaling payloads must be JSON-compatible objects; JavaScript-only values that JSON would drop or coerce are rejected before forwarding.
 
 Persist development host workflow audit records as JSONL:

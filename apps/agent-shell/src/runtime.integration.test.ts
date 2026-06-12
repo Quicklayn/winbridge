@@ -23,7 +23,8 @@ import {
   type AgentShellSentProtocolEnvelope,
   type AgentShellRuntimeOptions,
   type AgentShellRuntime,
-  type HostDecision
+  type HostDecision,
+  type HostDecisionProvider
 } from "./runtime.js";
 
 type TestLogger = {
@@ -1558,6 +1559,214 @@ describe("agent shell consent workflow", () => {
       visibleToHost: true,
       permissions: ["screen:view"]
     });
+  });
+
+  it("rejects invalid host decision provider configuration before relay startup", () => {
+    const provider: HostDecisionProvider = () => "approve";
+
+    expect(() =>
+      createAgentShellRuntime(createRuntimeOptions({
+        role: "viewer",
+        hostDecisionProvider: provider
+      }))
+    ).toThrow("Host decision provider is only valid");
+
+    expect(() =>
+      createAgentShellRuntime(createRuntimeOptions({
+        hostDecision: "approve",
+        hostDecisionProvider: provider
+      }))
+    ).toThrow("Host decision provider is only valid");
+
+    expect(() =>
+      createAgentShellRuntime(createRuntimeOptions({
+        hostDecisionProvider: "approve" as unknown as HostDecisionProvider
+      }))
+    ).toThrow("Host decision provider is only valid");
+  });
+
+  it("sends approved decision and active visible state when interactive host consent approves", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: (request) => {
+        expect(request).toEqual({
+          requestedPermissions: ["screen:view"],
+          requestedPermissionCount: 1
+        });
+        return "approve";
+      },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const decision = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-decision"
+    );
+    const state = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state"
+    );
+
+    expect(decision).toMatchObject({
+      type: "session-authorization-decision",
+      decision: "approved",
+      grantedPermissions: ["screen:view"]
+    });
+    expect(state).toMatchObject({
+      type: "session-authorization-state",
+      status: "active",
+      visibleToHost: true,
+      permissions: ["screen:view"]
+    });
+  });
+
+  it("sends denied decision when interactive host consent denies", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: () => Promise.resolve("deny"),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const decision = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-decision"
+    );
+    await delay(100);
+
+    expect(decision).toMatchObject({
+      type: "session-authorization-decision",
+      decision: "denied",
+      grantedPermissions: []
+    });
+    expect(
+      viewerEvents.some(
+        (event) => event.direction === "received" && event.message.type === "session-authorization-state"
+      )
+    ).toBe(false);
+  });
+
+  it("withholds active state when interactive host consent approves without visible session", async () => {
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: () => "approve",
+      visibleToHost: false
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(viewerEvents, (message) => message.type === "session-authorization-decision");
+    await delay(100);
+
+    expect(
+      viewerEvents.some(
+        (event) => event.direction === "received" && event.message.type === "session-authorization-state"
+      )
+    ).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+  });
+
+  it("fails closed when interactive host consent returns an invalid decision", async () => {
+    const hostLogs: string[] = [];
+    const invalidProvider = (() => "allow") as unknown as HostDecisionProvider;
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: invalidProvider,
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(hostEvents, (message) => message.type === "session-authorization-request");
+    await delay(100);
+
+    expect(hostLogs.join("\n")).toContain("interactive host consent returned no accepted decision");
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          event.direction !== "indicator" &&
+          "message" in event &&
+          (event.message.type === "session-authorization-decision" ||
+            event.message.type === "session-authorization-state" ||
+            event.message.type === "audit-event")
+      )
+    ).toBe(false);
+  });
+
+  it("fails closed with secret-safe diagnostics when interactive host consent throws", async () => {
+    const hostLogs: string[] = [];
+    const privateErrorText = "private prompt token raw-token";
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: () => {
+        throw new Error(privateErrorText);
+      },
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    await delay(100);
+
+    expect(errorEvent.error.message).toBe("Agent shell runtime error");
+    expect(JSON.stringify(errorEvent)).not.toContain(privateErrorText);
+    expect(hostLogs.join("\n")).toContain("interactive host consent failed closed");
+    expect(hostLogs.join("\n")).not.toContain(privateErrorText);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          (event.message.type === "session-authorization-decision" ||
+            event.message.type === "session-authorization-state" ||
+            event.message.type === "audit-event")
+      )
+    ).toBe(false);
+  });
+
+  it("fails closed when interactive host consent resolves after the viewer disconnects", async () => {
+    const hostLogs: string[] = [];
+    let resolveDecision: (decision: HostDecision) => void = () => undefined;
+    let resolveProviderStarted: () => void = () => undefined;
+    const providerStarted = new Promise<void>((resolve) => {
+      resolveProviderStarted = resolve;
+    });
+    const pendingDecision = new Promise<HostDecision>((resolve) => {
+      resolveDecision = resolve;
+    });
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: () => {
+        resolveProviderStarted();
+        return pendingDecision;
+      },
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(hostEvents, (message) => message.type === "session-authorization-request");
+    await providerStarted;
+    await viewer.stop();
+    await waitForMessage(hostEvents, (message) => message.type === "peer-disconnected");
+
+    resolveDecision("approve");
+    await delay(100);
+
+    expect(hostLogs.join("\n")).toContain("authorization decision skipped because peer disconnected");
+    expect(
+      hostEvents.some(
+        (event) =>
+          event.direction === "sent" &&
+          (event.message.type === "session-authorization-decision" ||
+            event.message.type === "session-authorization-state" ||
+            event.message.type === "audit-event")
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          (event.message.type === "session-authorization-decision" ||
+            event.message.type === "session-authorization-state" ||
+            event.message.type === "audit-event")
+      )
+    ).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
   });
 
   it("emits a secret-safe host indicator after visible activation", async () => {
@@ -6321,6 +6530,7 @@ async function startRelayAndHost(options: {
   hostDecision?: "none" | "approve" | "deny";
   hostDisconnectAfterMs?: number;
   hostDisplayName?: string;
+  hostDecisionProvider?: HostDecisionProvider;
   hostLogger?: TestLogger;
   hostOnEvent?: (event: AgentShellEvent) => void;
   hostPauseAfterMs?: number;
@@ -6359,6 +6569,7 @@ async function startRelayAndHost(options: {
     token: options.hostToken,
     auditSink: options.hostAuditSink,
     hostDecision: options.hostDecision ?? "none",
+    hostDecisionProvider: options.hostDecisionProvider,
     hostDisconnectAfterMs: options.hostDisconnectAfterMs,
     decisionReason: options.decisionReason,
     authorizationTtlMs: options.authorizationTtlMs,

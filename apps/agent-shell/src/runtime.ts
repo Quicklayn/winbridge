@@ -23,6 +23,14 @@ import {
 } from "@winbridge/protocol";
 
 export type HostDecision = "none" | "approve" | "deny";
+export type HostDecisionProvider = (
+  request: HostDecisionProviderRequest
+) => HostDecision | null | undefined | Promise<HostDecision | null | undefined>;
+
+export type HostDecisionProviderRequest = {
+  requestedPermissions: Permission[];
+  requestedPermissionCount: number;
+};
 
 type DevelopmentAuditInput = {
   action: string;
@@ -43,6 +51,7 @@ export type AgentShellRuntimeOptions = {
   deviceId: string;
   requestedPermissions?: Permission[];
   hostDecision?: HostDecision;
+  hostDecisionProvider?: HostDecisionProvider;
   visibleToHost?: boolean;
   decisionReason?: string;
   authorizationTtlMs?: number;
@@ -142,6 +151,8 @@ export const MAX_AGENT_SHELL_TOKEN_BYTES = 1024;
 export const MAX_AGENT_SHELL_TIMER_DELAY_MS = 2_147_483_647;
 
 const HOST_DECISION_ERROR_MESSAGE = "Host decision must be one of: none, approve, deny";
+const HOST_DECISION_PROVIDER_ERROR_MESSAGE =
+  "Host decision provider is only valid for host runtimes without static approval or denial";
 const RUNTIME_DISPLAY_NAME_ERROR_MESSAGE = "Runtime display name must be non-blank and 120 characters or less";
 const RUNTIME_IDENTIFIER_ERROR_MESSAGE = "Runtime protocol identifiers are invalid";
 const RUNTIME_PERMISSION_ERROR_MESSAGE = "Runtime requested permissions must be valid and unique";
@@ -245,7 +256,9 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       socket = new WebSocket(relayUrl);
 
       socket.on("message", (data) => {
-        handleMessage(rawDataToInboundMessage(data), socket, options, sessionState, scheduleTimer);
+        void handleMessage(rawDataToInboundMessage(data), socket, options, sessionState, scheduleTimer).catch(
+          (error) => reportRuntimeError(options, error)
+        );
       });
 
       socket.on("close", (code, reason) => {
@@ -384,13 +397,13 @@ function resetConnectionScopedSessionState(sessionState: AgentShellSessionState)
   sessionState.hostIndicator = undefined;
 }
 
-function handleMessage(
+async function handleMessage(
   inboundMessage: AgentShellInboundMessage,
   socket: WebSocket | undefined,
   options: AgentShellRuntimeOptions,
   sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
-): void {
+): Promise<void> {
   let envelope: ProtocolEnvelope;
 
   try {
@@ -493,7 +506,7 @@ function handleMessage(
     }
 
     if (envelope.type === "session-authorization-request" && options.role === "host") {
-      handleHostAuthorizationRequest(socket, options, envelope, sessionState, scheduleTimer);
+      await handleHostAuthorizationRequest(socket, options, envelope, sessionState, scheduleTimer);
     }
   } catch (error) {
     reportRuntimeError(options, error);
@@ -1016,23 +1029,29 @@ function sendViewerAuthorizationRequest(
   });
 }
 
-function handleHostAuthorizationRequest(
+async function handleHostAuthorizationRequest(
   socket: WebSocket | undefined,
   options: AgentShellRuntimeOptions,
   request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>,
   sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
-): void {
-  const decision = options.hostDecision ?? "none";
+): Promise<void> {
+  const decision = await resolveHostDecision(options, request);
+  if (decision === "none") {
+    options.logger?.log("[winbridge-agent] authorization request received; no host decision configured");
+    return;
+  }
+
+  if (!canSendHostAuthorizationDecision(socket, options, request, sessionState)) {
+    return;
+  }
+
   const workflowState: HostWorkflowState = {
     paused: false,
     permissions: [...request.requestedPermissions]
   };
 
   switch (decision) {
-    case "none":
-      options.logger?.log("[winbridge-agent] authorization request received; no host decision configured");
-      return;
     case "deny": {
       const authorizationId = `authz_${randomUUID()}`;
       const auditEvent = prepareDevelopmentAuditEvent(options, {
@@ -1139,6 +1158,55 @@ function handleHostAuthorizationRequest(
   scheduleHostPause(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostExpiration(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostDisconnect(socket, options, expiresAt, workflowState, sessionState, scheduleTimer);
+}
+
+function canSendHostAuthorizationDecision(
+  socket: WebSocket | undefined,
+  options: AgentShellRuntimeOptions,
+  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>,
+  sessionState: AgentShellSessionState
+): boolean {
+  if (!canSendDelayedHostWorkflow(socket, options, sessionState, "authorization decision")) {
+    return false;
+  }
+
+  if (
+    !sessionState.recipientAvailable ||
+    sessionState.observedPeerRole !== "viewer" ||
+    sessionState.observedPeerId !== request.viewerPeerId
+  ) {
+    options.logger?.log("[winbridge-agent] authorization decision skipped because viewer is not connected");
+    return false;
+  }
+
+  return true;
+}
+
+async function resolveHostDecision(
+  options: AgentShellRuntimeOptions,
+  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>
+): Promise<HostDecision> {
+  if (!options.hostDecisionProvider) {
+    return options.hostDecision ?? "none";
+  }
+
+  try {
+    const decision = await options.hostDecisionProvider({
+      requestedPermissions: [...request.requestedPermissions],
+      requestedPermissionCount: request.requestedPermissions.length
+    });
+
+    if (decision === "approve" || decision === "deny") {
+      return decision;
+    }
+
+    options.logger?.log("[winbridge-agent] interactive host consent returned no accepted decision");
+    return "none";
+  } catch (error) {
+    reportRuntimeError(options, error);
+    options.logger?.log("[winbridge-agent] interactive host consent failed closed");
+    return "none";
+  }
 }
 
 function setHostAuthorizationSnapshot(
@@ -1260,6 +1328,21 @@ function assertValidHostDecision(value: unknown): asserts value is HostDecision 
   throw new Error(HOST_DECISION_ERROR_MESSAGE);
 }
 
+function assertRuntimeHostDecisionProvider(options: AgentShellRuntimeOptions): void {
+  if (options.hostDecisionProvider === undefined) {
+    return;
+  }
+
+  if (
+    typeof options.hostDecisionProvider !== "function" ||
+    options.role !== "host" ||
+    options.hostDecision === "approve" ||
+    options.hostDecision === "deny"
+  ) {
+    throw new Error(HOST_DECISION_PROVIDER_ERROR_MESSAGE);
+  }
+}
+
 function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
   const relayUrl = parseRuntimeRelayUrl(options.relayUrl);
 
@@ -1271,6 +1354,7 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
   assertRuntimeRevokePermission(options.hostRevokePermission);
   assertRuntimeVisibleToHost(options.visibleToHost);
   assertValidHostDecision(options.hostDecision);
+  assertRuntimeHostDecisionProvider(options);
   assertRuntimeAuthorizationTtl(options.authorizationTtlMs);
   assertRuntimeWorkflowTimers([
     options.hostRevokeAfterMs,
