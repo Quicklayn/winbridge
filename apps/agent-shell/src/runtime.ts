@@ -129,6 +129,8 @@ const AGENT_SHELL_SIGNAL_ROUTING_ERROR_MESSAGE =
   "Agent shell signal sender and target must match runtime peer routing";
 const AGENT_SHELL_SESSION_ROUTING_ERROR_MESSAGE =
   "Agent shell message must match runtime session";
+const AGENT_SHELL_PUBLIC_SEND_AUTHORITY_ERROR_MESSAGE =
+  "Agent shell public send message authority is invalid";
 const AGENT_SHELL_WORKFLOW_AUTHORITY_SEND_ERROR_MESSAGE =
   "Agent shell workflow authority messages require internal consent workflow";
 const REDACTED_EVENT_VALUE = "[REDACTED]";
@@ -268,6 +270,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       }
 
       assertPublicSendSession(message, options);
+      assertPublicSendAuthority(message, options);
       assertPublicWorkflowAuthoritySendAllowed(message);
       assertSignalPeerRouting(message, options);
       assertSignalSendAuthorized(message, options, sessionState);
@@ -681,6 +684,28 @@ function removeViewerAuthorizationPermission(
 function assertPublicSendSession(message: ProtocolEnvelope, options: AgentShellRuntimeOptions): void {
   if (message.sessionId !== options.sessionId) {
     throw new Error(AGENT_SHELL_SESSION_ROUTING_ERROR_MESSAGE);
+  }
+}
+
+function assertPublicSendAuthority(message: ProtocolEnvelope, options: AgentShellRuntimeOptions): void {
+  switch (message.type) {
+    case "join-session":
+    case "relay-ready":
+    case "peer-disconnected":
+      throw new Error(AGENT_SHELL_PUBLIC_SEND_AUTHORITY_ERROR_MESSAGE);
+    case "hello":
+      if (message.peerId !== options.peerId || message.role !== options.role) {
+        throw new Error(AGENT_SHELL_PUBLIC_SEND_AUTHORITY_ERROR_MESSAGE);
+      }
+      return;
+    case "host-consent-required":
+    case "session-authorization-request":
+      if (options.role !== "viewer" || message.viewerPeerId !== options.peerId) {
+        throw new Error(AGENT_SHELL_PUBLIC_SEND_AUTHORITY_ERROR_MESSAGE);
+      }
+      return;
+    default:
+      return;
   }
 }
 

@@ -2305,6 +2305,195 @@ describe("agent shell consent workflow", () => {
     expect(hostLogs.join("\n")).not.toContain(privateMarker);
   });
 
+  it("blocks public join, relay lifecycle, spoofed hello, and role-mismatched request sends", async () => {
+    const hostLogs: string[] = [];
+    const viewerLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostLogger: captureLogger(hostLogs)
+    });
+    const viewer = await startViewer(
+      relay.url(),
+      [],
+      viewerEvents,
+      captureLogger(viewerLogs)
+    );
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
+    );
+
+    const blockedMessages: Array<{
+      name: string;
+      privateMarker?: string;
+      message: ProtocolEnvelope;
+    }> = [
+      {
+        name: "join replay",
+        privateMarker: "public-join-private-marker",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "join-session",
+          peerId: "host-1",
+          role: "host",
+          pairingCode: "123-456",
+          deviceIdentity: {
+            deviceId: "dev_host_public_join",
+            displayName: "public-join-private-marker",
+            platform: "windows"
+          }
+        }
+      },
+      {
+        name: "relay ready",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "relay-ready",
+          peerId: "host-1",
+          roomSize: 2
+        }
+      },
+      {
+        name: "peer disconnect",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "peer-disconnected",
+          peerId: "host-1",
+          role: "host",
+          reasonCode: "peer-closed"
+        }
+      },
+      {
+        name: "spoofed hello peer",
+        privateMarker: "public-hello-private-marker",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "hello",
+          peerId: "viewer-1",
+          role: "host",
+          displayName: "public-hello-private-marker",
+          capabilities: ["agent-shell:test"]
+        }
+      },
+      {
+        name: "spoofed hello role",
+        privateMarker: "public-hello-role-private-marker",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "hello",
+          peerId: "host-1",
+          role: "viewer",
+          displayName: "public-hello-role-private-marker",
+          capabilities: ["agent-shell:test"]
+        }
+      },
+      {
+        name: "role mismatched authorization request",
+        privateMarker: "public-request-private-marker",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-request",
+          viewerPeerId: "viewer-1",
+          requestedPermissions: ["screen:view"],
+          reason: "public-request-private-marker"
+        }
+      },
+      {
+        name: "role mismatched legacy request",
+        privateMarker: "public-legacy-request-private-marker",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "host-consent-required",
+          viewerPeerId: "viewer-1",
+          viewerDisplayName: "public-legacy-request-private-marker",
+          requestedPermissions: ["screen:view"]
+        }
+      }
+    ];
+
+    for (const { message, name, privateMarker } of blockedMessages) {
+      const sentCountBefore = hostEvents.filter((event) => event.direction === "sent").length;
+      const receivedCountBefore = viewerEvents.filter((event) => event.direction === "received").length;
+
+      let thrown: unknown;
+      try {
+        host.send(message);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown, name).toBeInstanceOf(Error);
+      expect(thrown instanceof Error ? thrown.message : "", name).toBe(
+        "Agent shell public send message authority is invalid"
+      );
+      expect(thrown instanceof Error ? thrown.message : "", name).not.toContain("host-1");
+      expect(thrown instanceof Error ? thrown.message : "", name).not.toContain("viewer-1");
+      await delay(50);
+
+      expect(hostEvents.filter((event) => event.direction === "sent"), name).toHaveLength(sentCountBefore);
+      expect(viewerEvents.filter((event) => event.direction === "received"), name).toHaveLength(receivedCountBefore);
+      if (privateMarker) {
+        expect(JSON.stringify(hostEvents), name).not.toContain(privateMarker);
+        expect(JSON.stringify(viewerEvents), name).not.toContain(privateMarker);
+        expect(hostLogs.join("\n"), name).not.toContain(privateMarker);
+      }
+    }
+
+    const blockedViewerMessages: Array<{
+      name: string;
+      privateMarker: string;
+      message: ProtocolEnvelope;
+    }> = [
+      {
+        name: "spoofed viewer authorization request",
+        privateMarker: "viewer-spoofed-request-private-marker",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-request",
+          viewerPeerId: "viewer-2",
+          requestedPermissions: ["screen:view"],
+          reason: "viewer-spoofed-request-private-marker"
+        }
+      },
+      {
+        name: "spoofed viewer legacy request",
+        privateMarker: "viewer-spoofed-legacy-request-private-marker",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "host-consent-required",
+          viewerPeerId: "viewer-2",
+          viewerDisplayName: "viewer-spoofed-legacy-request-private-marker",
+          requestedPermissions: ["screen:view"]
+        }
+      }
+    ];
+
+    for (const { message, name, privateMarker } of blockedViewerMessages) {
+      const sentCountBefore = viewerEvents.filter((event) => event.direction === "sent").length;
+      const receivedCountBefore = hostEvents.filter((event) => event.direction === "received").length;
+
+      let thrown: unknown;
+      try {
+        viewer.send(message);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown, name).toBeInstanceOf(Error);
+      expect(thrown instanceof Error ? thrown.message : "", name).toBe(
+        "Agent shell public send message authority is invalid"
+      );
+      expect(thrown instanceof Error ? thrown.message : "", name).not.toContain("viewer-2");
+      await delay(50);
+
+      expect(viewerEvents.filter((event) => event.direction === "sent"), name).toHaveLength(sentCountBefore);
+      expect(hostEvents.filter((event) => event.direction === "received"), name).toHaveLength(receivedCountBefore);
+      expect(JSON.stringify(viewerEvents), name).not.toContain(privateMarker);
+      expect(JSON.stringify(hostEvents), name).not.toContain(privateMarker);
+      expect(viewerLogs.join("\n"), name).not.toContain(privateMarker);
+    }
+  });
+
   it("keeps public legacy host consent requests non-granting", async () => {
     const viewerLogs: string[] = [];
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
