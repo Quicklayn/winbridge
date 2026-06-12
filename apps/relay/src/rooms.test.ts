@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_RELAY_PAIRING_TICKET_TTL_MS,
   RoomRegistry,
+  SAME_ROLE_RELAY_PEER_JOIN_REASON,
   normalizeRelayPairingConfig,
   type RelayPairingConfig,
   type RelayPeer
@@ -63,7 +64,7 @@ describe("RoomRegistry", () => {
     rooms.join(joinPeer({ peerId: "host-1", role: "host" }));
 
     expect(() => rooms.join(joinPeer({ peerId: "host-2", role: "host" }))).toThrow(
-      "already connected"
+      SAME_ROLE_RELAY_PEER_JOIN_REASON
     );
   });
 

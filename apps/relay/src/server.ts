@@ -30,6 +30,7 @@ import {
   MAX_RELAY_PAIRING_TICKET_MAX_USES,
   MAX_RELAY_PAIRING_TICKET_TTL_MS,
   DUPLICATE_RELAY_PEER_JOIN_REASON,
+  SAME_ROLE_RELAY_PEER_JOIN_REASON,
   normalizeRelayPairingConfig,
   RoomRegistry,
   type RelayJoinResult,
@@ -52,6 +53,7 @@ const SAFE_RELAY_REJECTION_REASONS = new Set([
   "Pairing ticket is expired",
   "Pairing ticket has no remaining uses",
   DUPLICATE_RELAY_PEER_JOIN_REASON,
+  SAME_ROLE_RELAY_PEER_JOIN_REASON,
   "Registered peers cannot send join-session messages",
   "Relay-ready messages are relay-originated",
   "Message session does not match registered peer",
@@ -815,7 +817,8 @@ function pairingDeniedAuditDetail(reason: string) {
     credentialMismatch: reason === "Pairing code mismatch",
     ticketExpired: reason === "Pairing ticket is expired",
     ticketConsumed: reason === "Pairing ticket has no remaining uses",
-    duplicatePeer: reason === DUPLICATE_RELAY_PEER_JOIN_REASON
+    duplicatePeer: reason === DUPLICATE_RELAY_PEER_JOIN_REASON,
+    roleConflict: reason === SAME_ROLE_RELAY_PEER_JOIN_REASON
   };
 }
 

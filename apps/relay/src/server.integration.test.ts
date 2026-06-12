@@ -17,6 +17,7 @@ import {
   type RelayRuntime,
   type RelayRuntimeOptions
 } from "./server.js";
+import { SAME_ROLE_RELAY_PEER_JOIN_REASON } from "./rooms.js";
 
 const runtimes: RelayRuntime[] = [];
 const silentLogger = {
@@ -490,13 +491,15 @@ describe("relay runtime integration", () => {
     secondHost.send(joinMessage("session-demo", "host-2", "host", "999-000"));
     expect(await secondHostResponse).toEqual({
       type: "relay-error",
-      reason: "Invalid relay message"
+      reason: SAME_ROLE_RELAY_PEER_JOIN_REASON
     });
     await expectNoProtocolMessage(secondHost, (message) => message.type === "relay-ready");
 
     const denied = await waitForAuditRecord(
       auditSink,
-      (record) => record.action === "relay.peer.join.denied" && record.reason === "Invalid relay message"
+      (record) =>
+        record.action === "relay.peer.join.denied" &&
+        record.reason === SAME_ROLE_RELAY_PEER_JOIN_REASON
     );
     expectNoAcceptedJoinAudit(auditSink, "host-2");
     expect(denied).toMatchObject({
@@ -505,10 +508,12 @@ describe("relay runtime integration", () => {
       detail: {
         messageType: "join-session",
         pairing: {
-          duplicatePeer: false
+          duplicatePeer: false,
+          roleConflict: true
         }
       }
     });
+    expect(denied.detail).not.toHaveProperty("payload");
     expect(JSON.stringify(denied)).not.toContain("999-000");
     expect(JSON.stringify(denied)).not.toContain("123-456");
 
@@ -590,13 +595,15 @@ describe("relay runtime integration", () => {
     secondViewer.send(joinMessage("session-demo", "viewer-2", "viewer", "999-000"));
     expect(await secondViewerResponse).toEqual({
       type: "relay-error",
-      reason: "Invalid relay message"
+      reason: SAME_ROLE_RELAY_PEER_JOIN_REASON
     });
     await expectNoProtocolMessage(secondViewer, (message) => message.type === "relay-ready");
 
     const denied = await waitForAuditRecord(
       auditSink,
-      (record) => record.action === "relay.peer.join.denied" && record.reason === "Invalid relay message"
+      (record) =>
+        record.action === "relay.peer.join.denied" &&
+        record.reason === SAME_ROLE_RELAY_PEER_JOIN_REASON
     );
     expectNoAcceptedJoinAudit(auditSink, "viewer-2");
     expect(denied).toMatchObject({
@@ -605,10 +612,12 @@ describe("relay runtime integration", () => {
       detail: {
         messageType: "join-session",
         pairing: {
-          duplicatePeer: false
+          duplicatePeer: false,
+          roleConflict: true
         }
       }
     });
+    expect(denied.detail).not.toHaveProperty("payload");
     expect(JSON.stringify(denied)).not.toContain("999-000");
     expect(JSON.stringify(denied)).not.toContain("123-456");
 

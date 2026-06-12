@@ -23,13 +23,17 @@ The relay SHALL limit each development session room to one host peer and one vie
 
 #### Scenario: Second host attempts to join
 - **WHEN** a session room already contains a live host and another socket attempts to join the same session as a host with a different `peerId`
-- **THEN** the relay rejects the second host before registration
+- **THEN** the relay rejects the second host before registration with a bounded same-role denial reason
 - **AND** the original host remains the registered host
 
 #### Scenario: Second viewer attempts to join
 - **WHEN** a session room already contains a live viewer and another socket attempts to join the same session as a viewer with a different `peerId`
-- **THEN** the relay rejects the second viewer before registration
+- **THEN** the relay rejects the second viewer before registration with a bounded same-role denial reason
 - **AND** the original viewer remains the registered viewer
+
+#### Scenario: Same-role join denial is secret-safe
+- **WHEN** the relay rejects a same-role live peer join
+- **THEN** the peer-facing relay error and audit reason MUST use bounded metadata-only text and MUST NOT include raw pairing codes, tokens, credentials, protocol payloads, private reasons, keystrokes, screenshots, screen contents, or full secrets
 
 ### Requirement: Live peer identity exclusivity
 The relay SHALL reject a join attempt before registration when the target session already has a live registered peer with the same `peerId`, and SHALL NOT replace the existing peer connection or treat the duplicate join as an authorized reconnect.

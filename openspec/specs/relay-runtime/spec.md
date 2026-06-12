@@ -238,21 +238,21 @@ The relay runtime SHALL expose integration-test coverage proving duplicate live 
 - **THEN** the audit record identifies the rejection without raw pairing codes, tokens, credentials, protocol payloads, private reasons, keystrokes, screenshots, screen contents, or full secrets
 
 ### Requirement: Testable same-role join rejection
-The relay runtime SHALL expose integration-test coverage proving a second live host or second live viewer with a different `peerId` is rejected before registration, while the original same-role peer remains active.
+The relay runtime SHALL expose integration-test coverage proving a second live host or second live viewer with a different `peerId` is rejected before registration with a bounded same-role denial reason, while the original same-role peer remains active.
 
 #### Scenario: Runtime rejects second host role
 - **WHEN** integration tests register a host and a second socket attempts to join the same session as another host with a different `peerId`
-- **THEN** the second host socket receives a bounded relay error
+- **THEN** the second host socket receives a bounded same-role relay error
 - **AND** the original host remains registered and can receive forwarded peer messages
 
 #### Scenario: Runtime rejects second viewer role
 - **WHEN** integration tests register a host and viewer and a second socket attempts to join the same session as another viewer with a different `peerId`
-- **THEN** the second viewer socket receives a bounded relay error
+- **THEN** the second viewer socket receives a bounded same-role relay error
 - **AND** the original viewer remains registered and can receive forwarded peer messages
 
 #### Scenario: Runtime same-role rejection audit remains secret-safe
 - **WHEN** the runtime audits a same-role join rejection
-- **THEN** the audit record identifies the bounded rejection without raw pairing codes, tokens, credentials, protocol payloads, private reasons, keystrokes, screenshots, screen contents, or full secrets
+- **THEN** the audit record identifies the bounded same-role denial and role-conflict classification without raw pairing codes, tokens, credentials, protocol payloads, private reasons, keystrokes, screenshots, screen contents, or full secrets
 
 ### Requirement: Testable peer disconnect notification
 The relay runtime SHALL expose peer disconnect notification behavior through integration tests and secret-safe audit metadata.
@@ -392,6 +392,7 @@ The relay runtime SHALL include secret-safe recipient routing metadata in accept
 #### Scenario: Forwarded message audit remains payload-safe
 - **WHEN** the relay audits an accepted forwarded message
 - **THEN** the audit record detail MUST NOT include raw protocol payloads, display names, private reasons, SDP, ICE candidates, payload markers, tokens, pairing codes, credentials, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents/data/bytes, diagnostics content/dumps, or full secrets
+
 ### Requirement: Forwarded message identifier audit metadata
 The relay runtime SHALL include the parsed protocol `messageId` in accepted `relay.message.forwarded` audit detail after protocol validation and before audit persistence, and MUST NOT include raw protocol payload contents or user display metadata in that accepted forward audit record.
 
