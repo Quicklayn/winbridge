@@ -52,13 +52,20 @@ const ProtocolAuditActionSchema = z
   .min(1)
   .max(120)
   .refine((action) => action.trim().length > 0, "Audit event action must not be blank");
+const ProtocolCapabilitySchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .refine((capability) => capability.trim().length > 0, "Capability must not be blank");
 
 export const HelloMessageSchema = BaseMessageSchema.extend({
   type: z.literal("hello"),
   peerId: PeerIdSchema,
   role: SessionRoleSchema,
   displayName: DeviceDisplayNameSchema,
-  capabilities: z.array(z.string().min(1).max(80)).max(32)
+  capabilities: z.array(ProtocolCapabilitySchema).max(32)
+}).superRefine((message, context) => {
+  rejectDuplicateCapabilities(message.capabilities, context);
 });
 
 export const JoinSessionMessageSchema = BaseMessageSchema.extend({
@@ -365,6 +372,18 @@ function rejectDuplicatePermissions(
     code: z.ZodIssueCode.custom,
     message: `${path} must be unique`,
     path: [path]
+  });
+}
+
+function rejectDuplicateCapabilities(capabilities: unknown[], context: z.RefinementCtx): void {
+  if (new Set(capabilities).size === capabilities.length) {
+    return;
+  }
+
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "capabilities must be unique",
+    path: ["capabilities"]
   });
 }
 

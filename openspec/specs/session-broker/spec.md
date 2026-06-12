@@ -22,7 +22,7 @@ The relay SHALL limit each development session room to one host peer and one vie
 - **THEN** the relay rejects additional peers for that room
 
 ### Requirement: Message schema validation
-The relay and agents SHALL validate protocol envelopes before accepting or forwarding messages, protocol display-name metadata SHALL be non-blank after trimming whitespace, and relay rejection errors for malformed protocol input SHALL use bounded secret-safe reasons.
+The relay and agents SHALL validate protocol envelopes before accepting or forwarding messages, protocol display-name metadata SHALL be non-blank after trimming whitespace, `hello` capability metadata SHALL be non-blank and unique, and relay rejection errors for malformed protocol input SHALL use bounded secret-safe reasons.
 
 #### Scenario: Invalid protocol message
 - **WHEN** a peer sends malformed JSON or an unknown protocol message
@@ -31,6 +31,14 @@ The relay and agents SHALL validate protocol envelopes before accepting or forwa
 #### Scenario: Blank hello display name
 - **WHEN** a peer sends a `hello` protocol message with an empty or whitespace-only display name
 - **THEN** the receiver rejects the message before accepting or forwarding it as trusted peer metadata
+
+#### Scenario: Blank hello capability
+- **WHEN** a peer sends a `hello` protocol message with an empty or whitespace-only capability entry
+- **THEN** the receiver rejects the message before accepting or forwarding it as trusted peer metadata
+
+#### Scenario: Duplicate hello capability
+- **WHEN** a peer sends a `hello` protocol message with duplicate capability entries
+- **THEN** the receiver rejects the message before accepting or forwarding ambiguous peer metadata
 
 #### Scenario: Malformed protocol rejection reason is bounded
 - **WHEN** the relay rejects malformed JSON or schema-invalid protocol input

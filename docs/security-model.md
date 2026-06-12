@@ -114,7 +114,7 @@ The non-native agent shell can simulate consent messages for development:
 - Workflow timer values are exact integer milliseconds bounded to the safe JavaScript timer delay range before runtime startup.
 
 The shell never captures the screen, injects input, syncs clipboard, transfers files, installs services, or enables unattended access.
-Agent-shell `hello` is presence metadata only. It must not authorize a session, activate host visibility, grant permissions, start capture, send input, reconnect a peer, suppress visibility, or bypass consent workflows.
+Agent-shell `hello` is presence metadata only. Its capability hints must be bounded, non-blank, and unique before use as peer metadata. They must not authorize a session, activate host visibility, grant permissions, start capture, send input, reconnect a peer, suppress visibility, or bypass consent workflows.
 
 When the shell receives `peer-disconnected`, it records remote peer disconnected state for the current development session. Host-side delayed workflow simulations and direct managed runtime sends for that peer fail closed after this state and do not send later revoke, pause, resume, termination, expiration, authorization-state, session-control, permission-revoked, workflow audit-event, or direct public runtime messages.
 

@@ -43,6 +43,32 @@ describe("protocol envelopes", () => {
     ).toThrow("Display name must not be blank");
   });
 
+  it("rejects blank hello capabilities", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "Host",
+        capabilities: ["session:visible", "   "]
+      })
+    ).toThrow("Capability must not be blank");
+  });
+
+  it("rejects duplicate hello capabilities", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "Host",
+        capabilities: ["session:visible", "session:visible"]
+      })
+    ).toThrow("capabilities must be unique");
+  });
+
   it("encodes only schema-valid envelopes", () => {
     const encoded = encodeProtocolEnvelope({
       ...createMessageBase("session-demo"),
