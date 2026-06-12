@@ -257,6 +257,13 @@ function handleMessage(
     return;
   }
 
+  if (envelope.sessionId !== options.sessionId) {
+    const byteLength = Buffer.byteLength(text);
+    options.onEvent?.({ direction: "raw", text: REDACTED_EVENT_VALUE, byteLength });
+    options.logger?.log(`[winbridge-agent] ignored cross-session protocol message bytes=${byteLength}`);
+    return;
+  }
+
   options.onEvent?.({ direction: "received", message: redactReceivedEventMessage(envelope) });
   options.logger?.log(`[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 

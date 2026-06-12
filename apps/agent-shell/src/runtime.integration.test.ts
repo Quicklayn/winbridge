@@ -338,6 +338,57 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("ignores cross-session authorization requests before host workflow handling", async () => {
+    const crossSessionServer = await startCrossSessionAuthorizationRequestServer();
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: crossSessionServer.url,
+        hostDecision: "approve",
+        visibleToHost: true,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(hostEvents.some((event) => event.direction === "received")).toBe(false);
+      expect(
+        hostEvents.some(
+          (event) =>
+            event.direction === "sent" &&
+            (event.message.type === "session-authorization-decision" ||
+              event.message.type === "session-authorization-state" ||
+              event.message.type === "audit-event")
+        )
+      ).toBe(false);
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("ignored cross-session protocol message bytes=");
+      expect(logOutput).not.toContain("session-authorization-request");
+      expect(logOutput).not.toContain("other-session");
+      expect(logOutput).not.toContain("private cross-session reason");
+      expect(serializedEvents).not.toContain("other-session");
+      expect(serializedEvents).not.toContain("private cross-session reason");
+      expect(serializedEvents).not.toContain("raw-token");
+    } finally {
+      await host?.stop();
+      await crossSessionServer.stop();
+    }
+  });
+
   it("sends approved decision and active visible state when host explicitly approves visibly", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
@@ -2141,6 +2192,45 @@ async function startOnePeerReadyServer(): Promise<{
   const address = wss.address() as AddressInfo | string | null;
   if (!address || typeof address === "string") {
     throw new Error("One-peer ready test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startCrossSessionAuthorizationRequestServer(): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    socket.once("message", () => {
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("other-session"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        reason: "private cross-session reason token raw-token"
+      }));
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Cross-session request test server did not expose a TCP port");
   }
 
   return {
