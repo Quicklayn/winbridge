@@ -249,7 +249,7 @@ The host shell MUST NOT emit active session state unless visible session state i
 - **THEN** it sends no active state update
 
 ### Requirement: Host permission revoke simulation
-The host shell SHALL send permission revocation messages only when revocation is explicitly configured and the host has already emitted an active visible session state for the same authorization.
+The host shell SHALL send permission revocation messages only when revocation is explicitly configured, the host has already emitted an active visible session state for the same authorization, and the authorization is still unexpired when the revoke delay fires.
 
 #### Scenario: Host revokes granted permission after visible activation
 - **WHEN** the host shell is explicitly configured to approve, visible session state is true, and a revoke delay and permission are configured
@@ -262,6 +262,10 @@ The host shell SHALL send permission revocation messages only when revocation is
 #### Scenario: Revoke configured without visible activation
 - **WHEN** the host shell is configured to approve but visible session state is false
 - **THEN** it does not send `permission-revoked` and does not send an active or revoked state update
+
+#### Scenario: Expiration suppresses delayed revoke
+- **WHEN** a revoke delay is configured but the authorization reaches its expiration time before the revoke timer can send
+- **THEN** the host shell sends the expired state and expiration audit, and does not send `permission-revoked`, revoked state, or revocation audit for that expired authorization
 
 #### Scenario: Revoke simulation safety boundary
 - **WHEN** the host shell sends revoke simulation messages
@@ -295,7 +299,7 @@ The host shell SHALL emit secret-safe development `audit-event` protocol message
 - **THEN** audit details MUST NOT contain raw tokens, raw pairing codes, credentials, display names, signal payloads, keystrokes, screenshots, screen contents, or raw denial/revocation reason text
 
 ### Requirement: Host session terminate simulation
-The host shell SHALL send session termination simulation messages only when termination is explicitly configured and the host has already emitted an active visible session state for the same authorization.
+The host shell SHALL send session termination simulation messages only when termination is explicitly configured, the host has already emitted an active visible session state for the same authorization, and the authorization is still unexpired when the terminate delay fires.
 
 #### Scenario: Host terminates after visible activation
 - **WHEN** the host shell is explicitly configured to approve, visible session state is true, and a terminate delay is configured
@@ -308,6 +312,10 @@ The host shell SHALL send session termination simulation messages only when term
 #### Scenario: Termination suppresses later revoke simulation
 - **WHEN** termination and permission revocation are both configured and termination is sent first
 - **THEN** the host shell does not send later revocation messages for the terminated authorization
+
+#### Scenario: Expiration suppresses delayed termination
+- **WHEN** a terminate delay is configured but the authorization reaches its expiration time before the terminate timer can send
+- **THEN** the host shell sends the expired state and expiration audit, and does not send terminate `session-control`, terminated state, or termination audit for that expired authorization
 
 #### Scenario: Terminate simulation safety boundary
 - **WHEN** the host shell sends termination simulation messages

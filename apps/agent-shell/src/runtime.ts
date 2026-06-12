@@ -655,6 +655,11 @@ function scheduleHostRevoke(
       return;
     }
 
+    if (hasAuthorizationExpired(expiresAt)) {
+      options.logger?.log("[winbridge-agent] revoke skipped because authorization is expired");
+      return;
+    }
+
     const remainingPermissions = workflowState.permissions.filter(
       (permission) => permission !== revokedPermission
     );
@@ -864,6 +869,11 @@ function scheduleHostTerminate(
     }
 
     if (!canSendDelayedHostWorkflow(socket, options, sessionState, "terminate")) {
+      return;
+    }
+
+    if (hasAuthorizationExpired(expiresAt)) {
+      options.logger?.log("[winbridge-agent] terminate skipped because authorization is expired");
       return;
     }
 

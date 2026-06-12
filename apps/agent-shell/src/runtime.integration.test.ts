@@ -660,6 +660,53 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("does not send revoke when authorization reaches the ttl boundary first", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 0,
+      hostDecision: "approve",
+      hostRevokeAfterMs: 0,
+      hostRevokePermission: "screen:view",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "expired"
+    );
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.expired"
+    );
+    await delay(40);
+
+    expect(
+      viewerEvents.some(
+        (event) => event.direction === "received" && event.message.type === "permission-revoked"
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "revoked"
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "audit-event" &&
+          event.message.action === "agent-shell.permission.revoked"
+      )
+    ).toBe(false);
+  });
+
   it("sends terminated state and audit after host terminates visible session", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
@@ -734,6 +781,55 @@ describe("agent shell consent workflow", () => {
           event.direction === "received" &&
           event.message.type === "session-authorization-state" &&
           event.message.status === "terminated"
+      )
+    ).toBe(false);
+  });
+
+  it("does not send terminate when authorization reaches the ttl boundary first", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 0,
+      hostDecision: "approve",
+      hostTerminateAfterMs: 0,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "expired"
+    );
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.expired"
+    );
+    await delay(40);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-control" &&
+          event.message.action === "terminate"
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "terminated"
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "audit-event" &&
+          event.message.action === "agent-shell.authorization.terminated"
       )
     ).toBe(false);
   });
