@@ -292,25 +292,51 @@ describe("session authorization state machine", () => {
     ).toThrow("visible to host");
   });
 
-  it("rejects pending or approved authorization records with pre-active host visibility", () => {
+  it("rejects pending, approved, or denied authorization records with non-active host visibility", () => {
     const pendingAuthorization = pending();
     const approved = approveSessionAuthorization(pendingAuthorization, {
       grantedPermissions: ["screen:view"],
       now: baseTime
     });
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
 
-    expect(() =>
-      SessionAuthorizationSchema.parse({
-        ...pendingAuthorization,
-        visibleToHost: true
-      })
-    ).toThrow("cannot be visible before activation");
-    expect(() =>
-      SessionAuthorizationSchema.parse({
-        ...approved,
-        visibleToHost: true
-      })
-    ).toThrow("cannot be visible before activation");
+    for (const authorization of [pendingAuthorization, approved, denied]) {
+      expect(() =>
+        SessionAuthorizationSchema.parse({
+          ...authorization,
+          visibleToHost: true
+        })
+      ).toThrow("cannot be visible before activation");
+    }
+  });
+
+  it("preserves visible terminal history after active sessions fail closed", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+    const revoked = revokeSessionPermission(active, {
+      permission: "screen:view",
+      now: baseTime
+    });
+    const terminated = terminateSessionAuthorization(active, {
+      reason: "Host disconnected",
+      now: baseTime
+    });
+    const expired = expireSessionAuthorization(active, new Date("2026-06-11T00:31:00.000Z"));
+
+    for (const authorization of [revoked, terminated, expired]) {
+      expect(SessionAuthorizationSchema.parse(authorization)).toMatchObject({
+        visibleToHost: true,
+        permissions: []
+      });
+    }
   });
 
   it("requires lifecycle timestamps for parsed authorization records", () => {

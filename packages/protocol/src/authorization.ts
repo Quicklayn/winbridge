@@ -78,7 +78,12 @@ export const SessionAuthorizationSchema = SessionAuthorizationBaseSchema.superRe
     });
   }
 
-  if ((authorization.status === "pending" || authorization.status === "approved") && authorization.visibleToHost) {
+  if (
+    (authorization.status === "pending" ||
+      authorization.status === "approved" ||
+      authorization.status === "denied") &&
+    authorization.visibleToHost
+  ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `${authorization.status} session authorization cannot be visible before activation`,

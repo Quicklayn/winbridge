@@ -22,7 +22,7 @@ The protocol SHALL provide a host decision message that explicitly approves or d
 - **THEN** the decision message includes denied status, empty granted permissions, host peer id, and reason
 
 ### Requirement: Authorization state update message
-The protocol SHALL provide a state update message that carries the current authorization status, visible host state, granted permissions, and expiration. Pre-active `pending` or `approved` state updates MUST NOT report `visibleToHost: true`.
+The protocol SHALL provide a state update message that carries the current authorization status, visible host state, granted permissions, and expiration. Pre-active `pending` or `approved` state updates and denied state updates MUST NOT report `visibleToHost: true`.
 
 #### Scenario: Session becomes active
 - **WHEN** a session authorization becomes active
@@ -35,6 +35,10 @@ The protocol SHALL provide a state update message that carries the current autho
 #### Scenario: Pending state is not visible
 - **WHEN** a state update reports status `pending`
 - **THEN** `visibleToHost` MUST be false because the host has not activated a visible session
+
+#### Scenario: Denied state is not visible
+- **WHEN** a state update reports status `denied`
+- **THEN** `visibleToHost` MUST be false because denied requests never become active visible sessions
 
 ### Requirement: Permission revoke message
 The protocol SHALL provide a permission revoke message that names the revoked permission, actor, and reason.
@@ -59,7 +63,7 @@ The protocol SHALL represent host pause and resume as explicit session control m
 - **THEN** they do not authorize screen capture, input, clipboard, file transfer, diagnostics, or any other sensitive action unless the resulting authorization state is active, visible, unexpired, and scoped to the requested permission
 
 ### Requirement: Authorization protocol permission-scope invariants
-The protocol SHALL reject malformed authorization request, decision, and state update messages that carry empty, duplicate, or fail-open permission scopes, approval-only metadata on fail-closed decisions, or host-visible state before activation.
+The protocol SHALL reject malformed authorization request, decision, and state update messages that carry empty, duplicate, or fail-open permission scopes, approval-only metadata on fail-closed decisions, or host-visible state before activation or after denial.
 
 #### Scenario: Authorization request includes duplicate permissions
 - **WHEN** a viewer sends a `session-authorization-request` with duplicate requested permissions
@@ -96,6 +100,10 @@ The protocol SHALL reject malformed authorization request, decision, and state u
 #### Scenario: Pre-active state reports visible host session
 - **WHEN** a `session-authorization-state` update has status `pending` or `approved` and reports `visibleToHost` as true
 - **THEN** the protocol schema rejects the message so pre-active consent cannot be confused with an active visible session
+
+#### Scenario: Denied state reports visible host session
+- **WHEN** a `session-authorization-state` update has status `denied` and reports `visibleToHost` as true
+- **THEN** the protocol schema rejects the message so denied consent cannot be confused with an active visible session
 
 ### Requirement: Legacy host consent message permission-scope invariants
 The protocol SHALL reject malformed legacy `host-consent-required` and `host-consent-decision` messages that carry empty, duplicate, or fail-open permission scopes.
