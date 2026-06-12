@@ -5555,6 +5555,41 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("uses websocket payload bytes for binary non-protocol messages", async () => {
+    const binaryPayload = Buffer.concat([
+      Buffer.from([0xff, 0xfe, 0xfd]),
+      Buffer.from("raw-binary-token", "utf8")
+    ]);
+    const nonProtocolServer = await startNonProtocolMessageServer(binaryPayload);
+    const hostLogs: string[] = [];
+    const hostEvents: AgentShellEvent[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: nonProtocolServer.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      const logOutput = hostLogs.join("\n");
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: binaryPayload.byteLength
+      });
+      expect(logOutput).toContain(`received non-protocol message bytes=${binaryPayload.byteLength}`);
+      expect(JSON.stringify(rawEvent)).not.toContain("raw-binary-token");
+      expect(logOutput).not.toContain("raw-binary-token");
+    } finally {
+      await host?.stop();
+      await nonProtocolServer.stop();
+    }
+  });
+
   it("emits closed events without raw websocket close reason text", async () => {
     const privateCloseReason = "private close token raw-close-token строка";
     const closeServer = await startCloseReasonServer(privateCloseReason);
@@ -6249,14 +6284,14 @@ async function startHostSocketCloseAfterActiveServer(): Promise<{
   };
 }
 
-async function startNonProtocolMessageServer(text: string): Promise<{
+async function startNonProtocolMessageServer(message: string | Buffer): Promise<{
   url: string;
   stop(): Promise<void>;
 }> {
   const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   wss.on("connection", (socket) => {
     socket.once("message", () => {
-      socket.send(text);
+      socket.send(message);
     });
   });
   await once(wss, "listening");

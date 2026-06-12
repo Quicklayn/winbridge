@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import WebSocket from "ws";
+import WebSocket, { type RawData } from "ws";
 import type { AuditSink } from "@winbridge/audit-log";
 import {
   createDeviceIdentity,
@@ -243,7 +243,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       socket = new WebSocket(relayUrl);
 
       socket.on("message", (data) => {
-        handleMessage(data.toString(), socket, options, sessionState, scheduleTimer);
+        handleMessage(rawDataToInboundMessage(data), socket, options, sessionState, scheduleTimer);
       });
 
       socket.on("close", (code, reason) => {
@@ -338,6 +338,38 @@ function closeReasonByteLength(reason: Buffer | string): number {
   return reason.byteLength;
 }
 
+type AgentShellInboundMessage = {
+  byteLength: number;
+  text: string;
+};
+
+function rawDataToInboundMessage(data: RawData): AgentShellInboundMessage {
+  return {
+    byteLength: rawDataByteLength(data),
+    text: rawDataToString(data)
+  };
+}
+
+function rawDataByteLength(data: RawData): number {
+  if (Array.isArray(data)) {
+    return data.reduce((total, chunk) => total + chunk.byteLength, 0);
+  }
+
+  return data.byteLength;
+}
+
+function rawDataToString(data: RawData): string {
+  if (Array.isArray(data)) {
+    return Buffer.concat(data).toString("utf8");
+  }
+
+  if (Buffer.isBuffer(data)) {
+    return data.toString("utf8");
+  }
+
+  return Buffer.from(data).toString("utf8");
+}
+
 function resetConnectionScopedSessionState(sessionState: AgentShellSessionState): void {
   sessionState.localPeerDisconnected = false;
   sessionState.remotePeerDisconnected = false;
@@ -351,7 +383,7 @@ function resetConnectionScopedSessionState(sessionState: AgentShellSessionState)
 }
 
 function handleMessage(
-  text: string,
+  inboundMessage: AgentShellInboundMessage,
   socket: WebSocket | undefined,
   options: AgentShellRuntimeOptions,
   sessionState: AgentShellSessionState,
@@ -360,71 +392,71 @@ function handleMessage(
   let envelope: ProtocolEnvelope;
 
   try {
-    envelope = decodeProtocolEnvelope(text);
+    envelope = decodeProtocolEnvelope(inboundMessage.text);
   } catch {
-    const byteLength = Buffer.byteLength(text);
+    const byteLength = inboundMessage.byteLength;
     options.onEvent?.({ direction: "raw", text: REDACTED_EVENT_VALUE, byteLength });
     options.logger?.log(`[winbridge-agent] received non-protocol message bytes=${byteLength}`);
     return;
   }
 
   if (envelope.sessionId !== options.sessionId) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isSelfReferentialAuthorizationRequest(envelope, options)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isForeignRelayReady(envelope, options)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isSelfDisconnectNotice(envelope, options)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isSelfHelloMessage(envelope, options)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isSameRoleHelloMessage(envelope, options)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isMisdirectedSignal(envelope, options)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isSelfAuthorityWorkflowMessage(envelope, options)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isInboundLegacyHostConsentDecision(envelope)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isUntrustedViewerAuthorizationLifecycleMessage(envelope, options, sessionState)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isUnboundHostAuthorizationRequest(envelope, options, sessionState)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
   if (isUnauthorizedInboundSignal(envelope, options, sessionState)) {
-    reportIgnoredUnsafeProtocolMessage(text, options);
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
 
@@ -655,10 +687,9 @@ function isTerminalAuthorizationStatus(status: SessionAuthorizationStatus): bool
 }
 
 function reportIgnoredUnsafeProtocolMessage(
-  text: string,
+  byteLength: number,
   options: AgentShellRuntimeOptions
 ): void {
-  const byteLength = Buffer.byteLength(text);
   options.onEvent?.({ direction: "raw", text: REDACTED_EVENT_VALUE, byteLength });
   options.logger?.log(`[winbridge-agent] ignored unsafe inbound protocol message bytes=${byteLength}`);
 }
