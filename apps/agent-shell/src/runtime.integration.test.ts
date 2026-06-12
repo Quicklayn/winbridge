@@ -356,15 +356,10 @@ describe("agent shell consent workflow", () => {
       visibleToHost: true
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
-    await waitForSentMessage(
-      hostEvents,
-      (message) =>
-        message.type === "session-authorization-state" &&
-        message.status === "active" &&
-        message.visibleToHost
-    );
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
 
     const signalPayload = {
+      authorizationId,
       kind: "offer",
       sdp: "outbound-offer-data",
       nested: { candidate: "outbound-candidate" }
@@ -2343,14 +2338,9 @@ describe("agent shell consent workflow", () => {
     const viewerLogs: string[] = [];
     await startViewer(relay.url(), ["screen:view"], viewerEvents, captureLogger(viewerLogs));
 
-    await waitForSentMessage(
-      hostEvents,
-      (message) =>
-        message.type === "session-authorization-state" &&
-        message.status === "active" &&
-        message.visibleToHost
-    );
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
     const signalPayload = {
+      authorizationId,
       kind: "offer",
       sdp: "safe-offer-data",
       nested: { candidate: "safe-candidate" }
@@ -2991,10 +2981,7 @@ describe("agent shell consent workflow", () => {
   it("allows reentrant host signal sends during active lifecycle sent event", async () => {
     let hostRuntime: AgentShellRuntime | undefined;
     const reentrantErrors: string[] = [];
-    const signalPayload = {
-      kind: "host-offer",
-      safeMarker: "active-reentrant-host-signal-payload"
-    };
+    let signalPayload: Record<string, unknown> | undefined;
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
       visibleToHost: true,
@@ -3009,6 +2996,11 @@ describe("agent shell consent workflow", () => {
         }
 
         try {
+          signalPayload = {
+            authorizationId: event.message.authorizationId,
+            kind: "host-offer",
+            safeMarker: "active-reentrant-host-signal-payload"
+          };
           hostRuntime.send({
             ...createMessageBase("session-demo"),
             type: "signal",
@@ -3034,6 +3026,10 @@ describe("agent shell consent workflow", () => {
     );
 
     expect(reentrantErrors).toEqual([]);
+    expect(signalPayload).toBeDefined();
+    if (!signalPayload) {
+      throw new Error("Expected reentrant signal payload");
+    }
     expect(sentSignal).toMatchObject({
       type: "signal",
       fromPeerId: "host-1",
@@ -3354,6 +3350,7 @@ describe("agent shell consent workflow", () => {
       ).toBe(false);
 
       const signalPayload = {
+        authorizationId: "authz_control_bound",
         kind: "offer",
         safeMarker: "allowed-after-mismatched-control-id"
       };
@@ -3845,15 +3842,10 @@ describe("agent shell consent workflow", () => {
     });
     const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
 
-    await waitForMessage(
-      viewerEvents,
-      (message) =>
-        message.type === "session-authorization-state" &&
-        message.status === "active" &&
-        message.visibleToHost
-    );
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
 
     const signalPayload = {
+      authorizationId,
       kind: "viewer-offer",
       safeMarker: "authorized-viewer-signal-payload"
     };
@@ -3894,6 +3886,135 @@ describe("agent shell consent workflow", () => {
     });
     expect(JSON.stringify(sentSignal)).not.toContain("authorized-viewer-signal-payload");
     expect(JSON.stringify(receivedSignal)).not.toContain("authorized-viewer-signal-payload");
+  });
+
+  it("blocks host and viewer signal sends with missing or mismatched authorization ids", async () => {
+    const hostLogs: string[] = [];
+    const viewerLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    const viewer = await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      captureLogger(viewerLogs)
+    );
+
+    const hostAuthorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    const viewerAuthorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    expect(viewerAuthorizationId).toBe(hostAuthorizationId);
+
+    const blockedSends: Array<{
+      name: string;
+      runtime: AgentShellRuntime;
+      localEvents: AgentShellEvent[];
+      remoteEvents: AgentShellEvent[];
+      localLogs: string[];
+      fromPeerId: string;
+      toPeerId: string;
+      kind: string;
+      payload: Record<string, unknown>;
+      marker: string;
+    }> = [
+      {
+        name: "host missing authorization id",
+        runtime: host,
+        localEvents: hostEvents,
+        remoteEvents: viewerEvents,
+        localLogs: hostLogs,
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        kind: "host-offer",
+        payload: {
+          kind: "host-offer",
+          safeMarker: "host-missing-signal-auth-id"
+        },
+        marker: "host-missing-signal-auth-id"
+      },
+      {
+        name: "host mismatched authorization id",
+        runtime: host,
+        localEvents: hostEvents,
+        remoteEvents: viewerEvents,
+        localLogs: hostLogs,
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        kind: "host-offer",
+        payload: {
+          authorizationId: "authz_other_signal",
+          kind: "host-offer",
+          safeMarker: "host-mismatch-signal-auth-id"
+        },
+        marker: "host-mismatch-signal-auth-id"
+      },
+      {
+        name: "viewer missing authorization id",
+        runtime: viewer,
+        localEvents: viewerEvents,
+        remoteEvents: hostEvents,
+        localLogs: viewerLogs,
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        kind: "viewer-offer",
+        payload: {
+          kind: "viewer-offer",
+          safeMarker: "viewer-missing-signal-auth-id"
+        },
+        marker: "viewer-missing-signal-auth-id"
+      },
+      {
+        name: "viewer mismatched authorization id",
+        runtime: viewer,
+        localEvents: viewerEvents,
+        remoteEvents: hostEvents,
+        localLogs: viewerLogs,
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        kind: "viewer-offer",
+        payload: {
+          authorizationId: "authz_other_signal",
+          kind: "viewer-offer",
+          safeMarker: "viewer-mismatch-signal-auth-id"
+        },
+        marker: "viewer-mismatch-signal-auth-id"
+      }
+    ];
+
+    for (const blocked of blockedSends) {
+      const sentSignalCountBefore = blocked.localEvents.filter(
+        (event) => event.direction === "sent" && event.message.type === "signal"
+      ).length;
+      const receivedSignalCountBefore = blocked.remoteEvents.filter(
+        (event) => event.direction === "received" && event.message.type === "signal"
+      ).length;
+
+      expect(() =>
+        blocked.runtime.send({
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: blocked.fromPeerId,
+          toPeerId: blocked.toPeerId,
+          payload: blocked.payload
+        })
+      , blocked.name).toThrow("Agent shell signal requires active visible screen authorization");
+      await delay(50);
+
+      expect(
+        blocked.localEvents.filter((event) => event.direction === "sent" && event.message.type === "signal"),
+        blocked.name
+      ).toHaveLength(sentSignalCountBefore);
+      expect(
+        blocked.remoteEvents.filter((event) => event.direction === "received" && event.message.type === "signal"),
+        blocked.name
+      ).toHaveLength(receivedSignalCountBefore);
+      expect(JSON.stringify(blocked.localEvents), blocked.name).not.toContain(blocked.marker);
+      expect(JSON.stringify(blocked.remoteEvents), blocked.name).not.toContain(blocked.marker);
+      expect(blocked.localLogs.join("\n"), blocked.name).not.toContain(blocked.marker);
+      expect(blocked.localLogs.join("\n"), blocked.name).not.toContain("authz_other_signal");
+    }
   });
 
   it("fails closed for viewer signal sends after a bound revoke control", async () => {
@@ -4117,17 +4238,11 @@ describe("agent shell consent workflow", () => {
 
     try {
       sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
-      await waitForSentMessage(
-        hostEvents,
-        (message) =>
-          message.type === "session-authorization-state" &&
-          message.status === "active" &&
-          message.visibleToHost
-      );
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
 
       const signalPayloadMarker = "host-accepted-after-active-payload";
-      const signalPayload = createRawViewerSignalPayload(signalPayloadMarker);
-      sendRawViewerSignal(rawViewer, signalPayloadMarker);
+      const signalPayload = createRawViewerSignalPayload(signalPayloadMarker, authorizationId);
+      sendRawViewerSignal(rawViewer, signalPayloadMarker, authorizationId);
 
       const receivedSignal = await waitForMessage(
         hostEvents,
@@ -4146,6 +4261,180 @@ describe("agent shell consent workflow", () => {
       expect(JSON.stringify(receivedSignal)).not.toContain(signalPayloadMarker);
     } finally {
       await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("ignores inbound viewer signals with missing or mismatched authorization ids after host active authorization", async () => {
+    const hostLogs: string[] = [];
+    const { relay, hostEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+      const rawCountBefore = hostEvents.filter((event) => event.direction === "raw").length;
+      const receivedSignalCountBefore = hostEvents.filter(
+        (event) => event.direction === "received" && event.message.type === "signal"
+      ).length;
+
+      sendRawViewerSignal(rawViewer, "host-missing-inbound-signal-auth-id");
+      sendRawViewerSignal(rawViewer, "host-mismatch-inbound-signal-auth-id", "authz_other_signal");
+      await waitForRawEventCount(hostEvents, rawCountBefore + 2);
+      await delay(100);
+
+      expect(
+        hostEvents.filter((event) => event.direction === "received" && event.message.type === "signal")
+      ).toHaveLength(receivedSignalCountBefore);
+      expect(hostLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(hostLogs.join("\n")).not.toContain("host-missing-inbound-signal-auth-id");
+      expect(hostLogs.join("\n")).not.toContain("host-mismatch-inbound-signal-auth-id");
+      expect(hostLogs.join("\n")).not.toContain("authz_other_signal");
+      expect(JSON.stringify(hostEvents)).not.toContain("host-missing-inbound-signal-auth-id");
+      expect(JSON.stringify(hostEvents)).not.toContain("host-mismatch-inbound-signal-auth-id");
+
+      const allowedPayloadMarker = "host-matching-inbound-signal-auth-id";
+      sendRawViewerSignal(rawViewer, allowedPayloadMarker, authorizationId);
+      const receivedSignal = await waitForMessage(
+        hostEvents,
+        (message) => message.type === "signal" && message.fromPeerId === "viewer-1"
+      );
+
+      expect(receivedSignal).toMatchObject({
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(
+            JSON.stringify(createRawViewerSignalPayload(allowedPayloadMarker, authorizationId))
+          )
+        }
+      });
+      expect(JSON.stringify(receivedSignal)).not.toContain(allowedPayloadMarker);
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("ignores inbound host signals with missing or mismatched authorization ids before viewer received events", async () => {
+    const viewerLogs: string[] = [];
+    const authorizationId = "authz_viewer_signal_binding";
+    const missingMarker = "viewer-missing-inbound-signal-auth-id";
+    const mismatchedMarker = "viewer-mismatch-inbound-signal-auth-id";
+    const allowedMarker = "viewer-matching-inbound-signal-auth-id";
+    const lifecycleServer = await startViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "relay-ready",
+          peerId: "viewer-1",
+          roomSize: 2
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId,
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId,
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: {
+            kind: "host-offer",
+            safeMarker: missingMarker
+          }
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: {
+            authorizationId: "authz_other_signal",
+            kind: "host-offer",
+            safeMarker: mismatchedMarker
+          }
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: {
+            authorizationId,
+            kind: "host-offer",
+            safeMarker: allowedMarker
+          }
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        lifecycleServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForReceivedActiveAuthorizationId(viewerEvents);
+      await waitForRawEventCount(viewerEvents, 2);
+      const receivedSignal = await waitForMessage(
+        viewerEvents,
+        (message) => message.type === "signal" && message.fromPeerId === "host-1"
+      );
+
+      expect(receivedSignal).toMatchObject({
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(
+            JSON.stringify({
+              authorizationId,
+              kind: "host-offer",
+              safeMarker: allowedMarker
+            })
+          )
+        }
+      });
+      expect(viewerEvents.filter((event) => event.direction === "raw")).toHaveLength(2);
+      expect(viewerEvents.filter((event) => event.direction === "received" && event.message.type === "signal")).toHaveLength(1);
+      expect(viewerLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(viewerLogs.join("\n")).not.toContain(missingMarker);
+      expect(viewerLogs.join("\n")).not.toContain(mismatchedMarker);
+      expect(viewerLogs.join("\n")).not.toContain("authz_other_signal");
+      expect(JSON.stringify(viewerEvents)).not.toContain(missingMarker);
+      expect(JSON.stringify(viewerEvents)).not.toContain(mismatchedMarker);
+      expect(JSON.stringify(receivedSignal)).not.toContain(allowedMarker);
+    } finally {
+      await viewer?.stop();
+      await lifecycleServer.stop();
     }
   });
 
@@ -4207,13 +4496,7 @@ describe("agent shell consent workflow", () => {
 
       try {
         sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
-        await waitForSentMessage(
-          hostEvents,
-          (message) =>
-            message.type === "session-authorization-state" &&
-            message.status === "active" &&
-            message.visibleToHost
-        );
+        const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
         await waitForSentMessage(hostEvents, scenario.waitForClosedState);
 
         const rawCountBefore = hostEvents.filter((event) => event.direction === "raw").length;
@@ -4222,7 +4505,7 @@ describe("agent shell consent workflow", () => {
         ).length;
         const blockedPayloadMarker = `host-blocked-after-${scenario.name}-payload`;
 
-        sendRawViewerSignal(rawViewer, blockedPayloadMarker);
+        sendRawViewerSignal(rawViewer, blockedPayloadMarker, authorizationId);
         await waitForRawEventCount(hostEvents, rawCountBefore + 1);
         await delay(100);
 
@@ -4250,13 +4533,7 @@ describe("agent shell consent workflow", () => {
 
     try {
       sendRawViewerAuthorizationRequest(rawViewerBeforeRestart, ["screen:view"]);
-      await waitForSentMessage(
-        hostEvents,
-        (message) =>
-          message.type === "session-authorization-state" &&
-          message.status === "active" &&
-          message.visibleToHost
-      );
+      await waitForSentActiveAuthorizationId(hostEvents);
     } finally {
       await closeRawSocket(rawViewerBeforeRestart);
     }
@@ -4668,19 +4945,14 @@ describe("agent shell consent workflow", () => {
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents, silentLogger, viewerAuditSink);
 
-    await waitForSentMessage(
-      hostEvents,
-      (message) =>
-        message.type === "session-authorization-state" &&
-        message.status === "active" &&
-        message.visibleToHost
-    );
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
     host.send({
       ...createMessageBase("session-demo"),
       type: "signal",
       fromPeerId: "host-1",
       toPeerId: "viewer-1",
       payload: {
+        authorizationId,
         kind: "offer",
         sdp: "safe-offer-data",
         nested: { candidate: "safe-candidate" }
@@ -5313,18 +5585,26 @@ function sendRawViewerAuthorizationRequest(
   }));
 }
 
-function sendRawViewerSignal(socket: WebSocket, payloadMarker: string): void {
+function sendRawViewerSignal(
+  socket: WebSocket,
+  payloadMarker: string,
+  authorizationId?: string
+): void {
   socket.send(encodeProtocolEnvelope({
     ...createMessageBase("session-demo"),
     type: "signal",
     fromPeerId: "viewer-1",
     toPeerId: "host-1",
-    payload: createRawViewerSignalPayload(payloadMarker)
+    payload: createRawViewerSignalPayload(payloadMarker, authorizationId)
   }));
 }
 
-function createRawViewerSignalPayload(payloadMarker: string): Record<string, unknown> {
+function createRawViewerSignalPayload(
+  payloadMarker: string,
+  authorizationId?: string
+): Record<string, unknown> {
   return {
+    ...(authorizationId ? { authorizationId } : {}),
     kind: "viewer-offer",
     safeMarker: payloadMarker
   };
@@ -5407,6 +5687,38 @@ function waitForSentMessage(
       }, 5);
     })
   );
+}
+
+async function waitForSentActiveAuthorizationId(events: AgentShellEvent[]): Promise<string> {
+  const message = await waitForSentMessage(
+    events,
+    (candidate) =>
+      candidate.type === "session-authorization-state" &&
+      candidate.status === "active" &&
+      candidate.visibleToHost
+  );
+
+  if (message.type !== "session-authorization-state") {
+    throw new Error("Expected sent active authorization state");
+  }
+
+  return message.authorizationId;
+}
+
+async function waitForReceivedActiveAuthorizationId(events: AgentShellEvent[]): Promise<string> {
+  const message = await waitForMessage(
+    events,
+    (candidate) =>
+      candidate.type === "session-authorization-state" &&
+      candidate.status === "active" &&
+      candidate.visibleToHost
+  );
+
+  if (message.type !== "session-authorization-state") {
+    throw new Error("Expected received active authorization state");
+  }
+
+  return message.authorizationId;
 }
 
 function waitForIndicatorEvent(

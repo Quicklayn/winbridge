@@ -413,7 +413,7 @@ function handleMessage(
     return;
   }
 
-  if (isUnauthorizedHostInboundSignal(envelope, options, sessionState)) {
+  if (isUnauthorizedInboundSignal(envelope, options, sessionState)) {
     reportIgnoredUnsafeProtocolMessage(text, options);
     return;
   }
@@ -653,15 +653,20 @@ function reportIgnoredUnsafeProtocolMessage(
   options.logger?.log(`[winbridge-agent] ignored unsafe inbound protocol message bytes=${byteLength}`);
 }
 
-function isUnauthorizedHostInboundSignal(
+function isUnauthorizedInboundSignal(
   envelope: ProtocolEnvelope,
   options: AgentShellRuntimeOptions,
   sessionState: AgentShellSessionState
 ): boolean {
+  if (envelope.type !== "signal") {
+    return false;
+  }
+
+  const snapshot = options.role === "host" ? sessionState.hostAuthorization : sessionState.viewerAuthorization;
+
   return (
-    options.role === "host" &&
-    envelope.type === "signal" &&
-    !hasActiveSignalAuthorization(sessionState.hostAuthorization)
+    !hasActiveSignalAuthorization(snapshot) ||
+    signalPayloadAuthorizationId(envelope) !== snapshot.authorizationId
   );
 }
 
@@ -844,6 +849,10 @@ function assertSignalSendAuthorized(
   if (message.toPeerId && message.toPeerId !== snapshot?.remotePeerId) {
     throw new Error(AGENT_SHELL_SIGNAL_ROUTING_ERROR_MESSAGE);
   }
+
+  if (signalPayloadAuthorizationId(message) !== snapshot.authorizationId) {
+    throw new Error(AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE);
+  }
 }
 
 function assertPublicWorkflowAuthoritySendAllowed(message: ProtocolEnvelope): void {
@@ -881,7 +890,9 @@ function isPeerRecipientMessage(message: ProtocolEnvelope): boolean {
   );
 }
 
-function hasActiveSignalAuthorization(snapshot: RuntimeAuthorizationSnapshot | undefined): boolean {
+function hasActiveSignalAuthorization(
+  snapshot: RuntimeAuthorizationSnapshot | undefined
+): snapshot is RuntimeAuthorizationSnapshot {
   return Boolean(
     snapshot &&
       snapshot.status === "active" &&
@@ -890,6 +901,13 @@ function hasActiveSignalAuthorization(snapshot: RuntimeAuthorizationSnapshot | u
       !hasAuthorizationExpired(snapshot.expiresAt) &&
       snapshot.permissions.includes(SIGNAL_REQUIRED_PERMISSION)
   );
+}
+
+function signalPayloadAuthorizationId(
+  message: Extract<ProtocolEnvelope, { type: "signal" }>
+): string | undefined {
+  const value = message.payload.authorizationId;
+  return typeof value === "string" ? value : undefined;
 }
 
 function sendHelloOnce(
