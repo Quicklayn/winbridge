@@ -88,7 +88,7 @@ Consent-bound session grant records must carry a non-empty unique permission sco
 
 Terminal authorization records clear permission scope on denial, final revocation, termination, and expiration so fail-closed states cannot be reused as grant-bearing data by future adapters. Later expiration checks preserve existing terminal status, timestamp, and reason instead of rewriting denial, revocation, or termination history.
 
-Pending authorization TTL inputs are bounded exact integer milliseconds before a session authorization record is created, preventing invalid or timer-unsafe consent windows.
+Pending authorization TTL inputs are bounded exact positive integer milliseconds before a session authorization record is created, preventing invalid or timer-unsafe consent windows.
 
 ## Development Shell Consent Simulation
 

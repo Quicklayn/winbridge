@@ -158,7 +158,8 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-decision appro
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
-Workflow timer values must be exact integer milliseconds from `0` through `2147483647`.
+Authorization TTL values must be exact positive integer milliseconds from `1` through `2147483647`.
+Lifecycle workflow timer values such as pause, resume, revoke, terminate, and disconnect delays must be exact integer milliseconds from `0` through `2147483647`.
 
 Expiration simulation sends protocol state, local host indicator, and audit messages only.
 
