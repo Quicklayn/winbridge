@@ -80,6 +80,8 @@ Session termination is also a host-visible live-session transition. The shared a
 
 Host approval can narrow the viewer's requested permission scope, but it must not expand it. The shared authorization state machine rejects empty approval grants, duplicate grants, and grants for permissions that were not present in the pending viewer request.
 
+Consent-bound session grant records must carry a non-empty unique permission scope before any remote action authorization check can use them.
+
 Terminal authorization records clear permission scope on denial, final revocation, termination, and expiration so fail-closed states cannot be reused as grant-bearing data by future adapters. Later expiration checks preserve existing terminal status, timestamp, and reason instead of rewriting denial, revocation, or termination history.
 
 Pending authorization TTL inputs are bounded exact integer milliseconds before a session authorization record is created, preventing invalid or timer-unsafe consent windows.

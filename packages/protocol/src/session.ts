@@ -28,11 +28,26 @@ export const PermissionSchema = z.enum([
 ]);
 export type Permission = z.infer<typeof PermissionSchema>;
 
+const SessionGrantPermissionsSchema = z
+  .array(PermissionSchema)
+  .min(1, "Session grant requires at least one permission")
+  .max(16)
+  .superRefine((permissions, context) => {
+    if (new Set(permissions).size === permissions.length) {
+      return;
+    }
+
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Session grant permissions must be unique"
+    });
+  });
+
 export const SessionGrantSchema = z.object({
   sessionId: SessionIdSchema,
   hostPeerId: PeerIdSchema,
   viewerPeerId: PeerIdSchema,
-  permissions: z.array(PermissionSchema).max(16),
+  permissions: SessionGrantPermissionsSchema,
   requiresHostApproval: z.literal(true),
   visibleSessionRequired: z.literal(true),
   expiresAt: z.string().datetime(),

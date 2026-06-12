@@ -1182,6 +1182,36 @@ describe("session grants", () => {
     ).toThrow("expired");
   });
 
+  it("rejects session grants without permissions", () => {
+    expect(() =>
+      assertConsentBoundGrant({
+        sessionId: "session-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        permissions: [],
+        requiresHostApproval: true,
+        visibleSessionRequired: true,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        auditId: "audit-demo"
+      })
+    ).toThrow("Session grant requires at least one permission");
+  });
+
+  it("rejects session grants with duplicate permissions", () => {
+    expect(() =>
+      assertConsentBoundGrant({
+        sessionId: "session-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        permissions: ["screen:view", "screen:view"],
+        requiresHostApproval: true,
+        visibleSessionRequired: true,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        auditId: "audit-demo"
+      })
+    ).toThrow("Session grant permissions must be unique");
+  });
+
   it("rejects session grants with malformed identifiers", () => {
     expect(() =>
       assertConsentBoundGrant({
