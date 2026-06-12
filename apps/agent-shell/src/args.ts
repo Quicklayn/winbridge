@@ -39,10 +39,11 @@ export type AgentShellArgs = {
   hostResumeReason?: string;
   hostTerminateAfterMs?: number;
   hostTerminateReason?: string;
+  hostDisconnectAfterMs?: number;
 };
 
 export const AGENT_SHELL_USAGE =
-  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason]";
+  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--host-decision none|approve|deny] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000]";
 
 const knownOptions = new Set([
   "relay",
@@ -65,7 +66,8 @@ const knownOptions = new Set([
   "resume-after-ms",
   "resume-reason",
   "terminate-after-ms",
-  "terminate-reason"
+  "terminate-reason",
+  "disconnect-after-ms"
 ]);
 export class AgentShellUsageError extends Error {
   constructor() {
@@ -114,7 +116,8 @@ export function parseArgs(
     hostResumeAfterMs: parseOptionalTimerDelayMs(options.get("resume-after-ms")),
     hostResumeReason: parseOptionalReason(options.get("resume-reason")),
     hostTerminateAfterMs: parseOptionalTimerDelayMs(options.get("terminate-after-ms")),
-    hostTerminateReason: parseOptionalReason(options.get("terminate-reason"))
+    hostTerminateReason: parseOptionalReason(options.get("terminate-reason")),
+    hostDisconnectAfterMs: parseOptionalTimerDelayMs(options.get("disconnect-after-ms"))
   };
 }
 

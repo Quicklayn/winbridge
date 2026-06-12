@@ -108,7 +108,8 @@ The non-native agent shell can simulate consent messages for development:
 - Pause/resume simulation requires explicit visible approval plus `--pause-after-ms` and optional `--resume-after-ms`.
 - Permission revocation simulation requires explicit visible approval plus `--revoke-after-ms` and `--revoke-permission`.
 - Session termination simulation requires explicit visible approval plus `--terminate-after-ms`.
-- Delayed revocation, termination, pause, and resume simulations are suppressed if authorization expiration wins before their timers send.
+- Host local disconnect simulation requires explicit visible approval plus `--disconnect-after-ms`. It closes the host relay connection and relies on the relay to emit `peer-disconnected`; the host shell must not send forged disconnect notices.
+- Delayed revocation, termination, pause, resume, and disconnect simulations are suppressed if authorization expiration wins before their timers send.
 - Development `audit-event` messages are emitted for host decisions, visible activation, revocation, termination, expiration, pause, and resume using secret-safe metadata only.
 - Host workflow audit records can be persisted locally with `--audit-log` or `WINBRIDGE_AGENT_AUDIT_LOG_PATH`.
 - Local runtime `sent` events expose a schema-validated event-safe protocol view; audit-event details and raw pairing codes are redacted from the local event surface.
@@ -133,6 +134,8 @@ The shell never captures the screen, injects input, syncs clipboard, transfers f
 Agent-shell `hello` is presence metadata only. Its capability hints must be bounded, non-blank, and unique before use as peer metadata. They must not authorize a session, activate host visibility, grant permissions, start capture, send input, reconnect a peer, suppress visibility, or bypass consent workflows.
 
 When the shell receives `peer-disconnected`, it records remote peer disconnected state for the current development session. Host-side delayed workflow simulations and direct managed runtime sends for that peer fail closed after this state and do not send later revoke, pause, resume, termination, expiration, authorization-state, session-control, permission-revoked, workflow audit-event, or direct public runtime messages.
+
+When host local disconnect simulation closes the host relay connection, later delayed host workflow simulations for that connection fail closed and do not send authorization-state, session-control, permission-revoked, or workflow audit-event messages. This disconnect path does not grant permissions, start capture, send input, reconnect peers, suppress host visibility, or bypass consent workflows.
 
 Inbound `peer-disconnected` messages that identify the local runtime peer are ignored before local `received` protocol events or remote peer disconnected state handling; ignored self-disconnect input is logged only as redacted summary metadata.
 

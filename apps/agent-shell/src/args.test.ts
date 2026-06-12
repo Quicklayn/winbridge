@@ -7,7 +7,8 @@ describe("agent shell arguments", () => {
     ["revoke-after-ms", "hostRevokeAfterMs"],
     ["pause-after-ms", "hostPauseAfterMs"],
     ["resume-after-ms", "hostResumeAfterMs"],
-    ["terminate-after-ms", "hostTerminateAfterMs"]
+    ["terminate-after-ms", "hostTerminateAfterMs"],
+    ["disconnect-after-ms", "hostDisconnectAfterMs"]
   ] as const;
 
   it("uses fail-closed defaults when optional consent flags are omitted", () => {
@@ -228,7 +229,9 @@ describe("agent shell arguments", () => {
         "--resume-reason",
         "Host resumed",
         "--terminate-reason",
-        "Host terminated"
+        "Host terminated",
+        "--disconnect-after-ms",
+        "1500"
       ],
       { WINBRIDGE_AGENT_AUDIT_LOG_PATH: "logs/audit.jsonl" },
       42
@@ -244,7 +247,8 @@ describe("agent shell arguments", () => {
       hostRevokeReason: "Host revoked pointer",
       hostPauseReason: "Host paused",
       hostResumeReason: "Host resumed",
-      hostTerminateReason: "Host terminated"
+      hostTerminateReason: "Host terminated",
+      hostDisconnectAfterMs: 1500
     });
   });
 });

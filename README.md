@@ -188,6 +188,15 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 Termination simulation only sends protocol messages; it does not capture the screen, send input, or install any background service.
 
+Simulate host local disconnect during development:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --disconnect-after-ms 5000
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+Disconnect simulation closes the host relay connection after visible activation. It does not send forged disconnect notices; the relay observes the close and sends `peer-disconnected` to the viewer.
+
 ## OpenSpec
 
 Use OpenSpec for behavior changes:

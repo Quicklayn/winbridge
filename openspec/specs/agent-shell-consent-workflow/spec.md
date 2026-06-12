@@ -68,47 +68,21 @@ The agent shell SHALL ignore decoded inbound `relay-ready` messages whose `peerI
 - **AND** they MUST NOT expose raw protocol payloads, session ids, peer ids, tokens, pairing codes, private reasons, signal payloads, keystrokes, screenshots, screen contents, or input contents
 
 ### Requirement: Managed runtime option validation
-The managed agent shell runtime SHALL reject malformed direct runtime options before opening a relay connection, sending protocol messages, scheduling workflow timers, or emitting authorization decisions. Relay URLs MUST NOT contain embedded credentials/userinfo, and relay shared-token values MUST be supplied through the dedicated token field rather than embedded in the relay URL query string. Runtime token values MUST be non-blank, 1024 UTF-8 bytes or less, and contain no ASCII control characters.
+The managed agent shell runtime SHALL validate direct runtime options before opening a relay connection or sending any protocol message. Invalid role, relay URL, relay token, identifiers, display name, requested permissions, revoke permission, visible session flag, host decision, workflow timer delays, or workflow reason options MUST fail closed before relay startup. Relay URLs MUST NOT carry embedded credentials or token query parameters; relay shared tokens MUST use the dedicated runtime token path.
 
-#### Scenario: Runtime relay URL is not WebSocket
-- **WHEN** the managed runtime is configured with a malformed, relative, or non-WebSocket relay URL
-- **THEN** it fails before connecting to the relay or sending any protocol message
+#### Scenario: Malformed runtime options fail before relay startup
+- **WHEN** caller code creates a managed runtime with an invalid relay URL, session id, pairing code, peer id, device id, display name, requested permission, revoke permission, visible session flag, host decision, workflow timer delay, or workflow reason
+- **THEN** runtime creation fails before opening a relay connection
+- **AND** it MUST NOT send join, authorization, lifecycle, signal, or audit messages
 
-#### Scenario: Runtime relay URL carries credentials
-- **WHEN** the managed runtime is configured with a relay URL containing username or password/userinfo credentials
-- **THEN** it fails before connecting to the relay or sending any protocol message
+#### Scenario: Relay URL credentials are rejected
+- **WHEN** caller code creates a managed runtime with a relay URL containing a username, password, empty userinfo marker, or `token` query parameter
+- **THEN** runtime creation fails before opening a relay connection
+- **AND** the runtime requires relay shared tokens to be provided through the dedicated token option instead of the URL
 
-#### Scenario: Runtime relay URL carries token query
-- **WHEN** the managed runtime is configured with a relay URL containing a `token` query parameter
-- **THEN** it fails before connecting to the relay or sending any protocol message
-
-#### Scenario: Runtime identity fields are malformed
-- **WHEN** the managed runtime is configured with a malformed role, session id, pairing code, peer id, device id, or display name
-- **THEN** it fails before connecting to the relay or sending any protocol message
-
-#### Scenario: Runtime requested permissions are malformed
-- **WHEN** the managed runtime is configured with invalid, duplicate, or oversized requested permissions
-- **THEN** it fails before connecting to the relay or sending a session authorization request
-
-#### Scenario: Runtime token is malformed
-- **WHEN** the managed runtime is configured with an empty, whitespace-only, non-string, control-character, or oversized token
-- **THEN** it fails before connecting to the relay or adding the token to a relay URL
-
-#### Scenario: Runtime workflow timer is unsafe
-- **WHEN** the managed runtime is configured with a non-integer, negative, or oversized workflow timer delay
-- **THEN** it fails before connecting to the relay or scheduling workflow timers
-
-#### Scenario: Runtime visible-session flag is malformed
-- **WHEN** the managed runtime is configured with a non-boolean visible-session flag
-- **THEN** it fails before connecting to the relay or sending any authorization decision
-
-#### Scenario: Runtime decision or lifecycle reason is malformed
-- **WHEN** the managed runtime is configured with a blank or oversized decision or lifecycle reason
-- **THEN** it fails before connecting to the relay or sending any protocol message
-
-#### Scenario: Runtime revoke permission is malformed
-- **WHEN** the managed runtime is configured with an invalid revocation permission
-- **THEN** it fails before connecting to the relay or scheduling permission revocation
+#### Scenario: Malformed runtime token is rejected
+- **WHEN** caller code creates a managed runtime with an empty, whitespace-only, control-character, oversized, or non-string relay token
+- **THEN** runtime creation fails before opening a relay connection
 
 ### Requirement: Sent runtime events are secret-safe
 The agent shell SHALL emit local `sent` runtime events using a validated and redacted protocol event view that does not expose raw secrets.
@@ -554,7 +528,7 @@ The agent shell CLI SHALL report unexpected startup and shutdown failures withou
 - **AND** stderr output MUST NOT include raw user-provided argument values
 
 ### Requirement: Agent shell CLI argument validation
-The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime, including duplicate requested permissions. Relay URLs MUST NOT contain embedded credentials/userinfo, and relay shared-token values MUST be supplied through `--token` rather than embedded in `--relay` URLs. CLI token values MUST be non-blank, 1024 UTF-8 bytes or less, and contain no ASCII control characters.
+The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime, including duplicate requested permissions. Relay URLs MUST NOT contain embedded credentials/userinfo, and relay shared-token values MUST be supplied through `--token` rather than embedded in `--relay` URLs. CLI token values MUST be non-blank, 1024 UTF-8 bytes or less, and contain no ASCII control characters. Workflow timer validation SHALL include `--disconnect-after-ms`.
 
 #### Scenario: Unknown CLI option is rejected
 - **WHEN** the agent shell is started with an option name that is not part of the documented CLI
@@ -597,7 +571,7 @@ The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments befo
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
 #### Scenario: Oversized workflow timer option is rejected
-- **WHEN** the agent shell is started with `--authorization-ttl-ms`, `--revoke-after-ms`, `--pause-after-ms`, `--resume-after-ms`, or `--terminate-after-ms` above the safe timer delay bound
+- **WHEN** the agent shell is started with `--authorization-ttl-ms`, `--revoke-after-ms`, `--pause-after-ms`, `--resume-after-ms`, `--terminate-after-ms`, or `--disconnect-after-ms` above the safe timer delay bound
 - **THEN** it exits through bounded usage handling before connecting to the relay or scheduling workflow timers
 
 #### Scenario: Invalid lifecycle reason option is rejected
@@ -611,6 +585,10 @@ The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments befo
 #### Scenario: Valid omitted options keep safe defaults
 - **WHEN** the agent shell is started with only a valid role
 - **THEN** omitted consent-sensitive options keep fail-closed defaults such as no requested permissions, no host decision, and no visible session
+
+#### Scenario: CLI parses disconnect simulation delay
+- **WHEN** the agent shell is started with a valid `--disconnect-after-ms` value
+- **THEN** it constructs a matching bounded runtime disconnect delay option
 
 ### Requirement: Viewer authorization request
 The viewer shell SHALL send a session authorization request only when requested permissions are explicitly configured and the relay has indicated a paired two-peer room.
@@ -872,3 +850,22 @@ The agent shell SHALL treat a received `peer-disconnected` message as remote pee
 #### Scenario: Disconnect state is not authorization
 - **WHEN** the agent shell records remote peer disconnect state
 - **THEN** the state MUST NOT approve authorization, activate a visible session, grant permissions, start capture, send input, reconnect the peer, suppress host visibility, or bypass consent workflows
+
+### Requirement: Host disconnect simulation
+The host shell SHALL close its local relay connection after visible activation only when disconnect simulation is explicitly configured. The disconnect simulation MUST NOT send peer-originated `peer-disconnected` protocol messages; disconnect notices remain relay-originated.
+
+#### Scenario: Host disconnects after visible activation
+- **WHEN** the host shell is explicitly configured to approve, visible session state is true, and a disconnect delay is configured
+- **THEN** it sends an approved decision, sends active visible state, closes the host WebSocket after the delay, and the viewer receives a relay-originated `peer-disconnected` notice
+
+#### Scenario: Disconnect configured without visible activation
+- **WHEN** the host shell is configured to approve but visible session state is false
+- **THEN** it does not close the host WebSocket because of disconnect simulation
+
+#### Scenario: Disconnect suppresses later host workflow
+- **WHEN** disconnect simulation fires before delayed revoke, pause, resume, termination, or expiration simulation
+- **THEN** the host shell MUST NOT send later authorization state, session control, permission revoke, or workflow audit-event messages for that disconnected connection
+
+#### Scenario: Disconnect simulation safety boundary
+- **WHEN** the host shell runs disconnect simulation
+- **THEN** it MUST NOT start screen capture, send input, sync clipboard, transfer files, install services, configure startup persistence, collect credentials, hide the session, send forged disconnect notices, or bypass consent workflows

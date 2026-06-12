@@ -3933,6 +3933,85 @@ describe("agent shell consent workflow", () => {
     expect(logOutput).not.toContain("payload");
   });
 
+  it("closes the host connection after visible disconnect simulation", async () => {
+    const hostLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostDisconnectAfterMs: 10,
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    const closed = await waitForClosedEvent(hostEvents);
+    const disconnect = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "peer-disconnected"
+    );
+    const sentCountAtDisconnect = hostEvents.filter((event) => event.direction === "sent").length;
+
+    expect(closed).toMatchObject({
+      direction: "closed",
+      code: 1000,
+      reason: "[REDACTED]",
+      reasonBytes: Buffer.byteLength("Host disconnect simulation")
+    });
+    expect(disconnect).toMatchObject({
+      type: "peer-disconnected",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+    expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "peer-disconnected")).toBe(
+      false
+    );
+    expect(hostLogs.join("\n")).toContain("disconnect simulation closing local relay connection");
+    expect(() =>
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "offer",
+          sdp: "post-local-disconnect-offer"
+        }
+      })
+    ).toThrow("Agent shell local peer is disconnected");
+    expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountAtDisconnect);
+    expect(JSON.stringify(hostEvents)).not.toContain("post-local-disconnect-offer");
+  });
+
+  it("does not run disconnect simulation without visible activation", async () => {
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostDisconnectAfterMs: 10,
+      visibleToHost: false
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-decision" &&
+        message.decision === "approved"
+    );
+    await delay(80);
+
+    expect(hostEvents.some((event) => event.direction === "closed")).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) => event.direction === "received" && event.message.type === "peer-disconnected"
+      )
+    ).toBe(false);
+  });
+
   it("ignores peer-disconnected notices that identify the local peer", async () => {
     const selfDisconnectServer = await startSelfDisconnectNoticeServer();
     const hostEvents: AgentShellEvent[] = [];
@@ -4021,6 +4100,56 @@ describe("agent shell consent workflow", () => {
 
     expect(sentAfterDisconnect).toHaveLength(0);
     expect(hostLogs.join("\n")).toContain("skipped because peer disconnected");
+  });
+
+  it("suppresses delayed host workflow messages after local disconnect simulation", async () => {
+    const hostLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 70,
+      hostDecision: "approve",
+      hostDisconnectAfterMs: 10,
+      hostLogger: captureLogger(hostLogs),
+      hostPauseAfterMs: 50,
+      hostRevokeAfterMs: 40,
+      hostRevokePermission: "screen:view",
+      hostTerminateAfterMs: 60,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    await waitForMessage(viewerEvents, (message) => message.type === "peer-disconnected");
+    const eventCountAtDisconnect = hostEvents.length;
+    await delay(100);
+
+    const sentAfterDisconnect = hostEvents
+      .slice(eventCountAtDisconnect)
+      .filter((event) => event.direction === "sent");
+
+    expect(sentAfterDisconnect).toHaveLength(0);
+    expect(hostLogs.join("\n")).toContain("skipped because local peer disconnected");
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          (event.direction === "sent" || event.direction === "received") &&
+          (event.message.type === "permission-revoked" ||
+            event.message.type === "session-control" ||
+            (event.message.type === "session-authorization-state" &&
+              event.message.status !== "active") ||
+            (event.message.type === "audit-event" &&
+              [
+                "agent-shell.permission.revoked",
+                "agent-shell.authorization.paused",
+                "agent-shell.authorization.terminated",
+                "agent-shell.authorization.expired"
+              ].includes(event.message.action)))
+      )
+    ).toBe(false);
   });
 
   it("blocks direct runtime sends after the peer disconnects", async () => {
@@ -4578,6 +4707,7 @@ async function startRelayAndHost(options: {
   decisionReason?: string;
   hostAuditSink?: AuditSink;
   hostDecision?: "none" | "approve" | "deny";
+  hostDisconnectAfterMs?: number;
   hostDisplayName?: string;
   hostLogger?: TestLogger;
   hostOnEvent?: (event: AgentShellEvent) => void;
@@ -4617,6 +4747,7 @@ async function startRelayAndHost(options: {
     token: options.hostToken,
     auditSink: options.hostAuditSink,
     hostDecision: options.hostDecision ?? "none",
+    hostDisconnectAfterMs: options.hostDisconnectAfterMs,
     decisionReason: options.decisionReason,
     authorizationTtlMs: options.authorizationTtlMs,
     hostPauseAfterMs: options.hostPauseAfterMs,

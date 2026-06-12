@@ -53,6 +53,7 @@ export type AgentShellRuntimeOptions = {
   hostResumeReason?: string;
   hostTerminateAfterMs?: number;
   hostTerminateReason?: string;
+  hostDisconnectAfterMs?: number;
   auditSink?: AuditSink;
   logger?: {
     log(message: string): void;
@@ -130,6 +131,7 @@ const RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE =
 const RUNTIME_WORKFLOW_TIMER_ERROR_MESSAGE =
   "Runtime workflow timer delays must be integers from 0 through 2147483647";
 const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
+const AGENT_SHELL_LOCAL_PEER_DISCONNECTED_ERROR_MESSAGE = "Agent shell local peer is disconnected";
 const AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE = "Agent shell peer is disconnected";
 const AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE =
   "Agent shell signal requires active visible screen authorization";
@@ -160,6 +162,7 @@ type HostWorkflowState = {
 };
 
 type AgentShellSessionState = {
+  localPeerDisconnected: boolean;
   remotePeerDisconnected: boolean;
   recipientAvailable: boolean;
   observedPeerId?: string;
@@ -186,6 +189,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
   let socket: WebSocket | undefined;
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const sessionState: AgentShellSessionState = {
+    localPeerDisconnected: false,
     remotePeerDisconnected: false,
     recipientAvailable: false,
     helloSent: false
@@ -283,6 +287,10 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         throw new Error(AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE);
       }
 
+      if (sessionState.localPeerDisconnected) {
+        throw new Error(AGENT_SHELL_LOCAL_PEER_DISCONNECTED_ERROR_MESSAGE);
+      }
+
       assertPublicSendSession(message, options);
       assertPublicSendAuthority(message, options);
       assertPublicWorkflowAuthoritySendAllowed(message);
@@ -295,6 +303,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
 }
 
 function resetConnectionScopedSessionState(sessionState: AgentShellSessionState): void {
+  sessionState.localPeerDisconnected = false;
   sessionState.remotePeerDisconnected = false;
   sessionState.recipientAvailable = false;
   sessionState.observedPeerId = undefined;
@@ -1022,6 +1031,7 @@ function handleHostAuthorizationRequest(
   scheduleHostTerminate(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostPause(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostExpiration(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
+  scheduleHostDisconnect(socket, options, expiresAt, workflowState, sessionState, scheduleTimer);
 }
 
 function setHostAuthorizationSnapshot(
@@ -1063,7 +1073,8 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
     options.hostRevokeAfterMs,
     options.hostPauseAfterMs,
     options.hostResumeAfterMs,
-    options.hostTerminateAfterMs
+    options.hostTerminateAfterMs,
+    options.hostDisconnectAfterMs
   ]);
   assertRuntimeWorkflowReasons([
     options.decisionReason,
@@ -1630,12 +1641,50 @@ function scheduleHostExpiration(
   }, ttlMs);
 }
 
+function scheduleHostDisconnect(
+  socket: WebSocket | undefined,
+  options: AgentShellRuntimeOptions,
+  expiresAt: string,
+  workflowState: HostWorkflowState,
+  sessionState: AgentShellSessionState,
+  scheduleTimer: (callback: () => void, delayMs: number) => void
+): void {
+  if (options.hostDisconnectAfterMs === undefined) {
+    return;
+  }
+
+  scheduleTimer(() => {
+    if (workflowState.terminalStatus) {
+      options.logger?.log(`[winbridge-agent] disconnect skipped because authorization is ${workflowState.terminalStatus}`);
+      return;
+    }
+
+    if (!canSendDelayedHostWorkflow(socket, options, sessionState, "disconnect")) {
+      return;
+    }
+
+    if (hasAuthorizationExpired(expiresAt)) {
+      options.logger?.log("[winbridge-agent] disconnect skipped because authorization is expired");
+      return;
+    }
+
+    sessionState.localPeerDisconnected = true;
+    options.logger?.log("[winbridge-agent] disconnect simulation closing local relay connection");
+    socket?.close(1000, "Host disconnect simulation");
+  }, options.hostDisconnectAfterMs);
+}
+
 function canSendDelayedHostWorkflow(
   socket: WebSocket | undefined,
   options: AgentShellRuntimeOptions,
   sessionState: AgentShellSessionState,
   action: string
 ): boolean {
+  if (sessionState.localPeerDisconnected) {
+    options.logger?.log(`[winbridge-agent] ${action} skipped because local peer disconnected`);
+    return false;
+  }
+
   if (sessionState.remotePeerDisconnected) {
     options.logger?.log(`[winbridge-agent] ${action} skipped because peer disconnected`);
     return false;
