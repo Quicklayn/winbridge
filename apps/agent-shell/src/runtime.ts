@@ -127,6 +127,8 @@ const AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE =
   "Agent shell signal requires active visible screen authorization";
 const AGENT_SHELL_SIGNAL_ROUTING_ERROR_MESSAGE =
   "Agent shell signal sender and target must match runtime peer routing";
+const AGENT_SHELL_SESSION_ROUTING_ERROR_MESSAGE =
+  "Agent shell message must match runtime session";
 const AGENT_SHELL_WORKFLOW_AUTHORITY_SEND_ERROR_MESSAGE =
   "Agent shell workflow authority messages require internal consent workflow";
 const REDACTED_EVENT_VALUE = "[REDACTED]";
@@ -265,6 +267,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         throw new Error(AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE);
       }
 
+      assertPublicSendSession(message, options);
       assertPublicWorkflowAuthoritySendAllowed(message);
       assertSignalPeerRouting(message, options);
       assertSignalSendAuthorized(message, options, sessionState);
@@ -673,6 +676,12 @@ function removeViewerAuthorizationPermission(
     permissions,
     status: permissions.length === 0 ? "revoked" : snapshot.status
   };
+}
+
+function assertPublicSendSession(message: ProtocolEnvelope, options: AgentShellRuntimeOptions): void {
+  if (message.sessionId !== options.sessionId) {
+    throw new Error(AGENT_SHELL_SESSION_ROUTING_ERROR_MESSAGE);
+  }
 }
 
 function assertSignalPeerRouting(message: ProtocolEnvelope, options: AgentShellRuntimeOptions): void {

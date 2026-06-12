@@ -2214,6 +2214,97 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("blocks public cross-session sends before socket write or sent events", async () => {
+    const viewerLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
+    const viewer = await startViewer(
+      relay.url(),
+      [],
+      viewerEvents,
+      captureLogger(viewerLogs)
+    );
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
+    );
+
+    const sentCountBefore = viewerEvents.filter((event) => event.direction === "sent").length;
+    const receivedRequestCountBefore = hostEvents.filter(
+      (event) => event.direction === "received" && event.message.type === "host-consent-required"
+    ).length;
+    const privateMarker = "cross-session-public-request-private-marker";
+
+    expect(() =>
+      viewer.send({
+        ...createMessageBase("other-session"),
+        type: "host-consent-required",
+        viewerPeerId: "viewer-1",
+        viewerDisplayName: `Viewer ${privateMarker}`,
+        requestedPermissions: ["screen:view"]
+      })
+    ).toThrow("Agent shell message must match runtime session");
+    await delay(50);
+
+    expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBefore);
+    expect(
+      hostEvents.filter((event) => event.direction === "received" && event.message.type === "host-consent-required")
+    ).toHaveLength(receivedRequestCountBefore);
+    expect(JSON.stringify(viewerEvents)).not.toContain(privateMarker);
+    expect(JSON.stringify(hostEvents)).not.toContain(privateMarker);
+    expect(viewerLogs.join("\n")).not.toContain(privateMarker);
+  });
+
+  it("blocks public cross-session signal sends after active authorization", async () => {
+    const hostLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForSentMessage(
+      hostEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active" &&
+        message.visibleToHost
+    );
+
+    const sentSignalCountBefore = hostEvents.filter(
+      (event) => event.direction === "sent" && event.message.type === "signal"
+    ).length;
+    const receivedSignalCountBefore = viewerEvents.filter(
+      (event) => event.direction === "received" && event.message.type === "signal"
+    ).length;
+    const privateMarker = "cross-session-public-signal-private-marker";
+
+    expect(() =>
+      host.send({
+        ...createMessageBase("other-session"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "host-offer",
+          safeMarker: privateMarker
+        }
+      })
+    ).toThrow("Agent shell message must match runtime session");
+    await delay(50);
+
+    expect(
+      hostEvents.filter((event) => event.direction === "sent" && event.message.type === "signal")
+    ).toHaveLength(sentSignalCountBefore);
+    expect(
+      viewerEvents.filter((event) => event.direction === "received" && event.message.type === "signal")
+    ).toHaveLength(receivedSignalCountBefore);
+    expect(JSON.stringify(hostEvents)).not.toContain(privateMarker);
+    expect(JSON.stringify(viewerEvents)).not.toContain(privateMarker);
+    expect(hostLogs.join("\n")).not.toContain(privateMarker);
+  });
+
   it("keeps public legacy host consent requests non-granting", async () => {
     const viewerLogs: string[] = [];
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
@@ -3711,39 +3802,41 @@ describe("agent shell consent workflow", () => {
   });
 
   it("logs non-protocol message summaries without raw text", async () => {
-    const hostLogs: string[] = [];
-    const { host, hostEvents } = await startRelayAndHost({
-      hostLogger: captureLogger(hostLogs)
-    });
-
-    await waitForMessage(
-      hostEvents,
-      (message) => message.type === "relay-ready" && message.peerId === "host-1"
+    const nonProtocolServer = await startNonProtocolMessageServer(
+      "relay-error do-not-log Message session does not match registered peer"
     );
-    host.send({
-      ...createMessageBase("different-session"),
-      type: "hello",
-      peerId: "host-1",
-      role: "host",
-      displayName: "Host",
-      capabilities: ["agent-shell:test"]
-    });
-    const rawEvent = await waitForRawEvent(hostEvents);
+    const hostLogs: string[] = [];
+    const hostEvents: AgentShellEvent[] = [];
+    let host: AgentShellRuntime | undefined;
 
-    const logOutput = hostLogs.join("\n");
-    expect(logOutput).toContain("received non-protocol message bytes=");
-    expect(logOutput).not.toContain("do-not-log");
-    expect(logOutput).not.toContain("relay-error");
-    expect(logOutput).not.toContain("Message session does not match registered peer");
-    expect(rawEvent).toMatchObject({
-      direction: "raw",
-      text: "[REDACTED]",
-      byteLength: expect.any(Number)
-    });
-    expect(rawEvent.byteLength).toBeGreaterThan(0);
-    expect(JSON.stringify(rawEvent)).not.toContain("do-not-log");
-    expect(JSON.stringify(rawEvent)).not.toContain("relay-error");
-    expect(JSON.stringify(rawEvent)).not.toContain("Message session does not match registered peer");
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: nonProtocolServer.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("received non-protocol message bytes=");
+      expect(logOutput).not.toContain("do-not-log");
+      expect(logOutput).not.toContain("relay-error");
+      expect(logOutput).not.toContain("Message session does not match registered peer");
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(JSON.stringify(rawEvent)).not.toContain("do-not-log");
+      expect(JSON.stringify(rawEvent)).not.toContain("relay-error");
+      expect(JSON.stringify(rawEvent)).not.toContain("Message session does not match registered peer");
+    } finally {
+      await host?.stop();
+      await nonProtocolServer.stop();
+    }
   });
 
   it("emits closed events without raw websocket close reason text", async () => {
@@ -4173,6 +4266,39 @@ async function startCloseReasonServer(closeReason: string): Promise<{
   const address = wss.address() as AddressInfo | string | null;
   if (!address || typeof address === "string") {
     throw new Error("Close reason test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startNonProtocolMessageServer(text: string): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    socket.once("message", () => {
+      socket.send(text);
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Non-protocol test server did not expose a TCP port");
   }
 
   return {
