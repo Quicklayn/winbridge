@@ -125,6 +125,8 @@ const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
 const AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE = "Agent shell peer is disconnected";
 const AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE =
   "Agent shell signal requires active visible screen authorization";
+const AGENT_SHELL_SIGNAL_ROUTING_ERROR_MESSAGE =
+  "Agent shell signal sender and target must match runtime peer routing";
 const AGENT_SHELL_WORKFLOW_AUTHORITY_SEND_ERROR_MESSAGE =
   "Agent shell workflow authority messages require internal consent workflow";
 const REDACTED_EVENT_VALUE = "[REDACTED]";
@@ -153,6 +155,7 @@ type AgentShellSessionState = {
 type RuntimeAuthorizationSnapshot = {
   authorizationId: string;
   authorityPeerId?: string;
+  remotePeerId?: string;
   status: SessionAuthorizationStatus;
   visibleToHost: boolean;
   permissions: Permission[];
@@ -263,6 +266,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       }
 
       assertPublicWorkflowAuthoritySendAllowed(message);
+      assertSignalPeerRouting(message, options);
       assertSignalSendAuthorized(message, options, sessionState);
       sendProtocol(socket, options, message);
     }
@@ -565,6 +569,7 @@ function updateViewerAuthorizationState(
       sessionState.viewerAuthorization = {
         authorizationId: envelope.authorizationId,
         authorityPeerId: envelope.hostPeerId,
+        remotePeerId: envelope.hostPeerId,
         status: envelope.decision === "approved" ? "approved" : "denied",
         visibleToHost: false,
         permissions: [...envelope.grantedPermissions],
@@ -586,6 +591,7 @@ function updateViewerAuthorizationState(
       sessionState.viewerAuthorization = {
         authorizationId: envelope.authorizationId,
         authorityPeerId: envelope.actorPeerId,
+        remotePeerId: envelope.actorPeerId,
         status: envelope.status,
         visibleToHost: envelope.visibleToHost,
         permissions: [...envelope.permissions],
@@ -669,6 +675,16 @@ function removeViewerAuthorizationPermission(
   };
 }
 
+function assertSignalPeerRouting(message: ProtocolEnvelope, options: AgentShellRuntimeOptions): void {
+  if (message.type !== "signal") {
+    return;
+  }
+
+  if (message.fromPeerId !== options.peerId || message.toPeerId === options.peerId) {
+    throw new Error(AGENT_SHELL_SIGNAL_ROUTING_ERROR_MESSAGE);
+  }
+}
+
 function assertSignalSendAuthorized(
   message: ProtocolEnvelope,
   options: AgentShellRuntimeOptions,
@@ -681,6 +697,10 @@ function assertSignalSendAuthorized(
   const snapshot = options.role === "host" ? sessionState.hostAuthorization : sessionState.viewerAuthorization;
   if (!hasActiveSignalAuthorization(snapshot)) {
     throw new Error(AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE);
+  }
+
+  if (message.toPeerId && message.toPeerId !== snapshot?.remotePeerId) {
+    throw new Error(AGENT_SHELL_SIGNAL_ROUTING_ERROR_MESSAGE);
   }
 }
 
@@ -796,6 +816,7 @@ function handleHostAuthorizationRequest(
       const authorizationId = `authz_${randomUUID()}`;
       setHostAuthorizationSnapshot(sessionState, {
         authorizationId,
+        remotePeerId: request.viewerPeerId,
         status: "denied",
         visibleToHost: false,
         permissions: []
@@ -831,6 +852,7 @@ function handleHostAuthorizationRequest(
 
   setHostAuthorizationSnapshot(sessionState, {
     authorizationId,
+    remotePeerId: request.viewerPeerId,
     status: "approved",
     visibleToHost: false,
     permissions: request.requestedPermissions,
@@ -862,6 +884,7 @@ function handleHostAuthorizationRequest(
 
   setHostAuthorizationSnapshot(sessionState, {
     authorizationId,
+    remotePeerId: request.viewerPeerId,
     status: "active",
     visibleToHost: true,
     permissions: request.requestedPermissions,
@@ -898,6 +921,7 @@ function setHostAuthorizationSnapshot(
 ): void {
   sessionState.hostAuthorization = {
     ...input,
+    remotePeerId: input.remotePeerId ?? sessionState.hostAuthorization?.remotePeerId,
     permissions: [...input.permissions]
   };
 }

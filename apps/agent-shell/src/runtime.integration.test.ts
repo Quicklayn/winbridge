@@ -345,6 +345,162 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(receivedSignal)).not.toContain("outbound-candidate");
   });
 
+  it("blocks public signal sends with spoofed sender, explicit self target, or third-peer target", async () => {
+    const hostLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForSentMessage(
+      hostEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active" &&
+        message.visibleToHost
+    );
+
+    const blockedMessages: Array<{
+      name: string;
+      privateMarker: string;
+      message: ProtocolEnvelope;
+    }> = [
+      {
+        name: "spoofed sender",
+        privateMarker: "spoofed-outbound-signal-payload",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "viewer-1",
+          toPeerId: "viewer-1",
+          payload: {
+            kind: "host-offer",
+            safeMarker: "spoofed-outbound-signal-payload"
+          }
+        }
+      },
+      {
+        name: "self target",
+        privateMarker: "self-target-outbound-signal-payload",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "host-1",
+          payload: {
+            kind: "host-offer",
+            safeMarker: "self-target-outbound-signal-payload"
+          }
+        }
+      },
+      {
+        name: "third peer target",
+        privateMarker: "third-peer-outbound-signal-payload",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "other-peer",
+          payload: {
+            kind: "host-offer",
+            safeMarker: "third-peer-outbound-signal-payload"
+          }
+        }
+      }
+    ];
+
+    for (const { message, name, privateMarker } of blockedMessages) {
+      const sentSignalCountBefore = hostEvents.filter(
+        (event) => event.direction === "sent" && event.message.type === "signal"
+      ).length;
+      const receivedSignalCountBefore = viewerEvents.filter(
+        (event) => event.direction === "received" && event.message.type === "signal"
+      ).length;
+
+      let thrown: unknown;
+      try {
+        host.send(message);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown, name).toBeInstanceOf(Error);
+      expect(thrown instanceof Error ? thrown.message : "", name).toBe(
+        "Agent shell signal sender and target must match runtime peer routing"
+      );
+      expect(thrown instanceof Error ? thrown.message : "", name).not.toContain("host-1");
+      expect(thrown instanceof Error ? thrown.message : "", name).not.toContain("viewer-1");
+      await delay(50);
+
+      expect(
+        hostEvents.filter((event) => event.direction === "sent" && event.message.type === "signal"),
+        name
+      ).toHaveLength(sentSignalCountBefore);
+      expect(
+        viewerEvents.filter((event) => event.direction === "received" && event.message.type === "signal"),
+        name
+      ).toHaveLength(receivedSignalCountBefore);
+      expect(JSON.stringify(hostEvents), name).not.toContain(privateMarker);
+      expect(JSON.stringify(viewerEvents), name).not.toContain(privateMarker);
+      expect(hostLogs.join("\n"), name).not.toContain(privateMarker);
+    }
+  });
+
+  it("blocks viewer signal sends to explicit non-authorized targets after active authorization", async () => {
+    const viewerLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    const viewer = await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      captureLogger(viewerLogs)
+    );
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active" &&
+        message.visibleToHost
+    );
+
+    const sentSignalCountBefore = viewerEvents.filter(
+      (event) => event.direction === "sent" && event.message.type === "signal"
+    ).length;
+    const receivedSignalCountBefore = hostEvents.filter(
+      (event) => event.direction === "received" && event.message.type === "signal"
+    ).length;
+    const privateMarker = "viewer-third-peer-outbound-signal-payload";
+
+    expect(() =>
+      viewer.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "other-peer",
+        payload: {
+          kind: "viewer-offer",
+          safeMarker: privateMarker
+        }
+      })
+    ).toThrow("Agent shell signal sender and target must match runtime peer routing");
+    await delay(50);
+
+    expect(
+      viewerEvents.filter((event) => event.direction === "sent" && event.message.type === "signal")
+    ).toHaveLength(sentSignalCountBefore);
+    expect(
+      hostEvents.filter((event) => event.direction === "received" && event.message.type === "signal")
+    ).toHaveLength(receivedSignalCountBefore);
+    expect(JSON.stringify(viewerEvents)).not.toContain(privateMarker);
+    expect(JSON.stringify(hostEvents)).not.toContain(privateMarker);
+    expect(viewerLogs.join("\n")).not.toContain(privateMarker);
+  });
+
   it("ignores signal messages that are not addressed to the local peer or originate locally", async () => {
     const signalServer = await startMisdirectedSignalServer();
     const hostEvents: AgentShellEvent[] = [];
