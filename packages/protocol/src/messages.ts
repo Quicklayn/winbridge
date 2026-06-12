@@ -29,6 +29,7 @@ const SENSITIVE_SIGNAL_PAYLOAD_KEY_INDICATORS = [
   "pairingcode",
   "keystroke",
   "keylog",
+  "keylogger",
   "screenshot",
   "screendata",
   "screencontent",

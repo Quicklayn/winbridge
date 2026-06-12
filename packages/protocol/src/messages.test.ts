@@ -443,6 +443,32 @@ describe("protocol envelopes", () => {
     }
   });
 
+  it("rejects signal payloads with keylogging content keys", () => {
+    const unsafePayloads: Array<Record<string, unknown>> = [
+      { keylog: "raw-keylog" },
+      { rawKeylog: "raw-keylog-marker" },
+      { keylogger: "raw-keylogger" },
+      { keyloggerOutput: "raw-keylogger-output" },
+      { nested: { keylogData: "nested-keylog-data" } },
+      { attempts: [{ keyLoggerTrace: "array-keylogger-trace" }] }
+    ];
+
+    for (const payload of unsafePayloads) {
+      expect(() =>
+        parseProtocolEnvelope({
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: {
+            authorizationId: "authz-demo",
+            ...payload
+          }
+        })
+      ).toThrow("must not contain sensitive remote-assistance data");
+    }
+  });
+
   it("accepts signal payloads with non-secret lifecycle authorization identifiers", () => {
     const parsed = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),

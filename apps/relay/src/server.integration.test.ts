@@ -384,6 +384,53 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(rejected)).not.toContain("raw-diagnostic-dump");
   });
 
+  it("rejects keylogging signal payloads before forwarding", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    host.send(
+      JSON.stringify({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          kind: "offer",
+          authorizationId: "authz-demo",
+          nested: {
+            rawKeylog: "raw-keylog-marker",
+            keyloggerOutput: "raw-keylogger-output"
+          },
+          attempts: [{ keyLoggerTrace: "array-keylogger-trace" }]
+        }
+      })
+    );
+
+    const relayError = await waitForJsonMessage(host, (message) => message.type === "relay-error");
+    expect(String(relayError.reason)).toContain("Signal payload must not contain sensitive");
+    await expectNoProtocolMessage(viewer, (message) => message.type === "signal");
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.rejected" &&
+        typeof record.reason === "string" &&
+        record.reason.includes("Signal payload must not contain sensitive")
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      detail: {
+        registered: true
+      }
+    });
+    expect(JSON.stringify(rejected)).not.toContain("raw-keylog-marker");
+    expect(JSON.stringify(rejected)).not.toContain("raw-keylogger-output");
+    expect(JSON.stringify(rejected)).not.toContain("array-keylogger-trace");
+  });
+
   it("rejects non-JSON signal payloads before forwarding", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
