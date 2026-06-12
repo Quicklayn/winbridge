@@ -125,6 +125,8 @@ const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
 const AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE = "Agent shell peer is disconnected";
 const AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE =
   "Agent shell signal requires active visible screen authorization";
+const AGENT_SHELL_WORKFLOW_AUTHORITY_SEND_ERROR_MESSAGE =
+  "Agent shell workflow authority messages require internal consent workflow";
 const REDACTED_EVENT_VALUE = "[REDACTED]";
 const VALID_HOST_DECISIONS = new Set(["none", "approve", "deny"]);
 const SIGNAL_REQUIRED_PERMISSION: Permission = "screen:view";
@@ -260,6 +262,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         throw new Error(AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE);
       }
 
+      assertPublicWorkflowAuthoritySendAllowed(message);
       assertSignalSendAuthorized(message, options, sessionState);
       sendProtocol(socket, options, message);
     }
@@ -666,6 +669,22 @@ function assertSignalSendAuthorized(
   if (!hasActiveSignalAuthorization(snapshot)) {
     throw new Error(AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE);
   }
+}
+
+function assertPublicWorkflowAuthoritySendAllowed(message: ProtocolEnvelope): void {
+  if (isWorkflowAuthorityMessage(message)) {
+    throw new Error(AGENT_SHELL_WORKFLOW_AUTHORITY_SEND_ERROR_MESSAGE);
+  }
+}
+
+function isWorkflowAuthorityMessage(message: ProtocolEnvelope): boolean {
+  return (
+    message.type === "session-authorization-decision" ||
+    message.type === "session-authorization-state" ||
+    message.type === "permission-revoked" ||
+    message.type === "session-control" ||
+    message.type === "audit-event"
+  );
 }
 
 function hasActiveSignalAuthorization(snapshot: RuntimeAuthorizationSnapshot | undefined): boolean {

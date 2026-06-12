@@ -1923,6 +1923,122 @@ describe("agent shell consent workflow", () => {
     ).toHaveLength(viewerSignalCountBefore);
   });
 
+  it("blocks public workflow-authority sends before socket write or sent events", async () => {
+    const hostLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostLogger: captureLogger(hostLogs)
+    });
+    await startViewer(relay.url(), [], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
+    );
+    await delay(100);
+
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const blockedMessages: Array<{
+      name: string;
+      privateMarker: string;
+      message: ProtocolEnvelope;
+    }> = [
+      {
+        name: "authorization decision",
+        privateMarker: "public-decision-private-reason",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_public_decision",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "denied",
+          grantedPermissions: [],
+          reason: "public-decision-private-reason"
+        }
+      },
+      {
+        name: "authorization state",
+        privateMarker: "public-state-private-reason",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_public_state",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt,
+          reason: "public-state-private-reason"
+        }
+      },
+      {
+        name: "permission revoked",
+        privateMarker: "public-revoke-private-reason",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "permission-revoked",
+          authorizationId: "authz_public_revoke",
+          actorPeerId: "host-1",
+          revokedPermission: "screen:view",
+          reason: "public-revoke-private-reason"
+        }
+      },
+      {
+        name: "session control",
+        privateMarker: "public-control-private-reason",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          actorPeerId: "host-1",
+          action: "pause",
+          reason: "public-control-private-reason"
+        }
+      },
+      {
+        name: "workflow audit",
+        privateMarker: "public-audit-private-marker",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "audit-event",
+          eventId: "audit_public_workflow",
+          actorPeerId: "host-1",
+          action: "agent-shell.authorization.active",
+          outcome: "accepted",
+          detail: {
+            token: "public-audit-private-marker"
+          }
+        }
+      }
+    ];
+
+    for (const { message, name, privateMarker } of blockedMessages) {
+      const sentCountBefore = hostEvents.filter(
+        (event) => event.direction === "sent" && event.message.type === message.type
+      ).length;
+      const receivedCountBefore = viewerEvents.filter(
+        (event) => event.direction === "received" && event.message.type === message.type
+      ).length;
+
+      expect(() => host.send(message), name).toThrow(
+        "Agent shell workflow authority messages require internal consent workflow"
+      );
+
+      await delay(50);
+
+      expect(
+        hostEvents.filter((event) => event.direction === "sent" && event.message.type === message.type),
+        name
+      ).toHaveLength(sentCountBefore);
+      expect(
+        viewerEvents.filter((event) => event.direction === "received" && event.message.type === message.type),
+        name
+      ).toHaveLength(receivedCountBefore);
+      expect(JSON.stringify(hostEvents), name).not.toContain(privateMarker);
+      expect(JSON.stringify(viewerEvents), name).not.toContain(privateMarker);
+      expect(hostLogs.join("\n"), name).not.toContain(privateMarker);
+    }
+  });
+
   it("allows reentrant host signal sends during active lifecycle sent event", async () => {
     let hostRuntime: AgentShellRuntime | undefined;
     const reentrantErrors: string[] = [];
@@ -3008,16 +3124,20 @@ describe("agent shell consent workflow", () => {
       expect(() =>
         host.send({
           ...createMessageBase("session-demo"),
-          type: "audit-event",
-          eventId: "audit_after_self_disconnect",
-          actorPeerId: "host-1",
-          action: "agent-shell.test.self-disconnect",
-          outcome: "accepted",
-          detail: {}
+          type: "hello",
+          peerId: "host-1",
+          role: "host",
+          displayName: "Host",
+          capabilities: ["agent-shell:test"]
         })
       ).not.toThrow();
       expect(
-        hostEvents.some((event) => event.direction === "sent" && event.message.type === "audit-event")
+        hostEvents.some(
+          (event) =>
+            event.direction === "sent" &&
+            event.message.type === "hello" &&
+            event.message.capabilities.includes("agent-shell:test")
+        )
       ).toBe(true);
 
       const serializedRawEvents = JSON.stringify(hostEvents.filter((event) => event.direction === "raw"));
@@ -3129,48 +3249,42 @@ describe("agent shell consent workflow", () => {
     expect(viewerAuditSink.records()).toHaveLength(0);
   });
 
-  it("emits sent events with redacted audit-event details", async () => {
+  it("blocks public workflow audit-event sends without leaking details", async () => {
     const { host, hostEvents } = await startRelayAndHost();
     await waitForMessage(
       hostEvents,
       (message) => message.type === "relay-ready" && message.peerId === "host-1"
     );
 
-    host.send({
-      ...createMessageBase("session-demo"),
-      type: "audit-event",
-      eventId: "audit_sent_redacted",
-      actorPeerId: "host-1",
-      action: "agent-shell.test.sent-redaction",
-      outcome: "accepted",
-      detail: {
-        token: "raw-token-value",
-        nested: {
-          credential: "raw-credential-value"
-        },
-        safeCount: 1
-      }
-    });
+    const sentAuditCountBefore = hostEvents.filter(
+      (event) => event.direction === "sent" && event.message.type === "audit-event"
+    ).length;
 
-    const sentAudit = hostEvents.find(
-      (event) =>
-        event.direction === "sent" &&
-        event.message.type === "audit-event" &&
-        event.message.action === "agent-shell.test.sent-redaction"
-    );
+    expect(() =>
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "audit-event",
+        eventId: "audit_sent_blocked",
+        actorPeerId: "host-1",
+        action: "agent-shell.test.sent-redaction",
+        outcome: "accepted",
+        detail: {
+          token: "raw-token-value",
+          nested: {
+            credential: "raw-credential-value"
+          },
+          safeCount: 1
+        }
+      })
+    ).toThrow("Agent shell workflow authority messages require internal consent workflow");
 
-    expect(sentAudit).toBeDefined();
-    expect(sentAudit?.direction === "sent" && sentAudit.message.type === "audit-event"
-      ? sentAudit.message.detail
-      : {}).toEqual({
-      token: "[REDACTED]",
-      nested: {
-        credential: "[REDACTED]"
-      },
-      safeCount: 1
-    });
-    expect(JSON.stringify(sentAudit)).not.toContain("raw-token-value");
-    expect(JSON.stringify(sentAudit)).not.toContain("raw-credential-value");
+    await delay(50);
+
+    expect(
+      hostEvents.filter((event) => event.direction === "sent" && event.message.type === "audit-event")
+    ).toHaveLength(sentAuditCountBefore);
+    expect(JSON.stringify(hostEvents)).not.toContain("raw-token-value");
+    expect(JSON.stringify(hostEvents)).not.toContain("raw-credential-value");
   });
 
   it("does not emit sent events for invalid outbound messages", async () => {
@@ -3185,12 +3299,11 @@ describe("agent shell consent workflow", () => {
     expect(() =>
       host.send({
         ...createMessageBase("session-demo"),
-        type: "audit-event",
-        eventId: "audit_invalid",
-        actorPeerId: "host-1",
-        action: "",
-        outcome: "accepted",
-        detail: {}
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "",
+        capabilities: ["agent-shell:test"]
       } as ProtocolEnvelope)
     ).toThrow();
 
@@ -3313,12 +3426,11 @@ describe("agent shell consent workflow", () => {
     );
     host.send({
       ...createMessageBase("different-session"),
-      type: "audit-event",
-      eventId: "audit_wrong_session",
-      actorPeerId: "host-1",
-      action: "agent-shell.test.wrong-session",
-      outcome: "accepted",
-      detail: { token: "do-not-log" }
+      type: "hello",
+      peerId: "host-1",
+      role: "host",
+      displayName: "Host",
+      capabilities: ["agent-shell:test"]
     });
     const rawEvent = await waitForRawEvent(hostEvents);
 
