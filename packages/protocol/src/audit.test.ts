@@ -72,7 +72,8 @@ describe("audit records", () => {
       "Authorization: Bearer raw-token-secret",
       "Authorization: raw-token-secret",
       "Proxy-Authorization: raw-proxy-token",
-      "private close token raw-close-token"
+      "private close token raw-close-token",
+      "token raw-token-secret"
     ]) {
       const record = createAuditRecord({
         actor: { type: "relay", id: "relay-dev" },
@@ -87,14 +88,20 @@ describe("audit records", () => {
   });
 
   it("preserves safe bounded top-level audit reasons", () => {
-    const record = createAuditRecord({
-      actor: { type: "relay", id: "relay-dev" },
-      action: "relay.peer.join.denied",
-      outcome: "denied",
-      reason: "Pairing code mismatch"
-    });
+    for (const reason of [
+      "Pairing code mismatch",
+      "Invalid relay token",
+      "Relay token rate limit exceeded"
+    ]) {
+      const record = createAuditRecord({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay.peer.join.denied",
+        outcome: "denied",
+        reason
+      });
 
-    expect(record.reason).toBe("Pairing code mismatch");
+      expect(record.reason).toBe(reason);
+    }
   });
 
   it("redacts sensitive audit detail fields", () => {

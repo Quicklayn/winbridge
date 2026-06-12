@@ -54,7 +54,11 @@ const sensitiveKeySubstrings = [
 const sensitiveKeyExactMatches = new Set(["authorization"]);
 const nonSensitiveKeyExactMatches = new Set(["authorizationid"]);
 const REDACTED_AUDIT_VALUE = "[REDACTED]";
-const safeAuditReasons = new Set(["Pairing code mismatch"]);
+const safeAuditReasons = new Set([
+  "Invalid relay token",
+  "Pairing code mismatch",
+  "Relay token rate limit exceeded"
+]);
 const sensitiveReasonMarkerPattern =
   /\b(?:token|credential|password|secret|pairing[\s_-]*code|api[\s_-]*key|authorization|proxy[\s_-]*authorization|authorization[\s_-]*header|auth[\s_-]*header|cookie|private[\s_-]*key|keystroke|screenshot|screen[\s_-]*data|screen[\s_-]*content)\b\s*(?::|=|\s+)\s*\S+/i;
 const sensitiveReasonCredentialPattern = /\b(?:bearer|basic)\s+[a-z0-9._~+/=-]+/i;
