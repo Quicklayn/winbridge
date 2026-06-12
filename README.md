@@ -212,4 +212,4 @@ Important specs live in `openspec/specs/` after completed changes are archived.
 
 ## GitHub
 
-This repo includes GitHub Actions and templates. See `docs/github-setup.md` for remote setup commands and project bootstrap steps.
+This repo includes GitHub Actions and templates. CI runs verification on Windows with Node `20.19.0` and Node `24`. See `docs/github-setup.md` for remote setup commands and project bootstrap steps.

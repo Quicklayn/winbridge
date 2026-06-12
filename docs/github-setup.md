@@ -12,6 +12,10 @@ Local verification before pushing:
 npm run verify
 ```
 
+GitHub Actions runs the same verification stages on Windows with Node `20.19.0`
+and Node `24`, covering both the minimum supported runtime and the current
+project runtime.
+
 ## Initial GitHub Project Setup
 
 - Confirm Actions are enabled.
