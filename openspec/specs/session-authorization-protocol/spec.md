@@ -155,6 +155,10 @@ The protocol SHALL reject malformed legacy `host-consent-required` and `host-con
 - **WHEN** a `host-consent-decision` message is denied with a whitespace-only reason
 - **THEN** the protocol schema rejects the message so denial remains explicit and auditable
 
+#### Scenario: Legacy consent denial has untrimmed reason
+- **WHEN** a `host-consent-decision` message is denied with a reason containing leading or trailing whitespace
+- **THEN** the protocol schema rejects the message before it can be forwarded or processed
+
 ### Requirement: Session control action payload invariants
 The protocol SHALL reject malformed `session-control` messages whose action-specific payload or authorization binding is ambiguous, unauditable, or fail-open.
 
@@ -167,7 +171,7 @@ The protocol SHALL reject malformed `session-control` messages whose action-spec
 - **THEN** the protocol schema rejects the message before peers can process ambiguous lifecycle intent
 
 #### Scenario: Revoke-permission control includes permission and reason
-- **WHEN** a `session-control` message has action `revoke-permission`, includes `authorizationId`, includes a permission, and includes a non-blank reason
+- **WHEN** a `session-control` message has action `revoke-permission`, includes `authorizationId`, includes a permission, and includes a non-blank already trimmed reason
 - **THEN** the protocol schema accepts the message as permission-revocation intent for that authorization
 
 #### Scenario: Revoke-permission control lacks permission
@@ -194,24 +198,44 @@ The protocol SHALL reject malformed `session-control` messages whose action-spec
 - **WHEN** a `session-control` message includes a whitespace-only reason
 - **THEN** the protocol schema rejects the message so optional reasons remain explicit and auditable
 
-### Requirement: Non-blank authorization protocol reasons
-The protocol SHALL reject authorization-related messages that include blank or whitespace-only reason text.
+#### Scenario: Control reason is untrimmed
+- **WHEN** a `session-control` message includes a reason containing leading or trailing whitespace
+- **THEN** the protocol schema rejects the message before peers can process ambiguous lifecycle metadata
+
+### Requirement: Canonical authorization protocol reasons
+The protocol SHALL reject authorization-related messages that include blank, whitespace-only, oversized, or untrimmed reason text.
 
 #### Scenario: Authorization request reason is blank
 - **WHEN** a `session-authorization-request` includes a whitespace-only reason
+- **THEN** the protocol schema rejects the message before it can be forwarded or processed
+
+#### Scenario: Authorization request reason is untrimmed
+- **WHEN** a `session-authorization-request` includes a reason containing leading or trailing whitespace
 - **THEN** the protocol schema rejects the message before it can be forwarded or processed
 
 #### Scenario: Authorization denial reason is blank
 - **WHEN** a denied `session-authorization-decision` includes a whitespace-only reason
 - **THEN** the protocol schema rejects the message so denial remains explicit and auditable
 
+#### Scenario: Authorization denial reason is untrimmed
+- **WHEN** a denied `session-authorization-decision` includes a reason containing leading or trailing whitespace
+- **THEN** the protocol schema rejects the message so denial metadata remains canonical
+
 #### Scenario: Authorization state reason is blank
 - **WHEN** a `session-authorization-state` includes a whitespace-only reason
 - **THEN** the protocol schema rejects the message before peers can record meaningless lifecycle metadata
 
+#### Scenario: Authorization state reason is untrimmed
+- **WHEN** a `session-authorization-state` includes a reason containing leading or trailing whitespace
+- **THEN** the protocol schema rejects the message before peers can record ambiguous lifecycle metadata
+
 #### Scenario: Permission revoked reason is blank
 - **WHEN** a `permission-revoked` message includes a whitespace-only reason
 - **THEN** the protocol schema rejects the message so revocation remains explicit and auditable
+
+#### Scenario: Permission revoked reason is untrimmed
+- **WHEN** a `permission-revoked` message includes a reason containing leading or trailing whitespace
+- **THEN** the protocol schema rejects the message so revocation metadata remains canonical
 
 #### Scenario: Optional authorization reason is omitted
 - **WHEN** an authorization-related protocol message omits an optional reason

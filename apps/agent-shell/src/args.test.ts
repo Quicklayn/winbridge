@@ -142,6 +142,12 @@ describe("agent shell arguments", () => {
       expect(() => parseArgs(["host", `--${option}`, "   "], {}, 42)).toThrow(
         AgentShellUsageError
       );
+      expect(() => parseArgs(["host", `--${option}`, " Host reason"], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+      expect(() => parseArgs(["host", `--${option}`, "Host reason "], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
       expect(() => parseArgs(["host", `--${option}`, "x".repeat(241)], {}, 42)).toThrow(
         AgentShellUsageError
       );

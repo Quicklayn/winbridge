@@ -985,6 +985,72 @@ describe("protocol envelopes", () => {
     ).toThrow("must not be blank");
   });
 
+  it("rejects untrimmed workflow reasons", () => {
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const messages = [
+      {
+        ...createMessageBase("session-demo"),
+        type: "host-consent-decision",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        approved: false,
+        grantedPermissions: [],
+        reason: " Host denied"
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        reason: "Support request "
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-decision",
+        authorizationId: "authz-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        decision: "denied",
+        grantedPermissions: [],
+        reason: " Host denied "
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        status: "revoked",
+        visibleToHost: true,
+        permissions: [],
+        expiresAt,
+        reason: "Host revoked "
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "permission-revoked",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        revokedPermission: "input:keyboard",
+        reason: " Host revoked keyboard"
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-control",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        action: "pause",
+        reason: "Host paused "
+      }
+    ];
+
+    for (const message of messages) {
+      expect(() => parseProtocolEnvelope(message)).toThrow("Reason must be trimmed");
+      expect(() =>
+        encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+      ).toThrow("Reason must be trimmed");
+    }
+  });
+
   it("accepts authorization request messages that omit optional reason", () => {
     const parsed = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),

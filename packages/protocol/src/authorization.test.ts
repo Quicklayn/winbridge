@@ -756,6 +756,49 @@ describe("session authorization state machine", () => {
     ).toThrow("reason must not be blank");
   });
 
+  it("rejects untrimmed lifecycle reasons in state-machine transitions", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+    const paused = pauseSessionAuthorization(active, { now: baseTime });
+
+    expect(() =>
+      denySessionAuthorization(pending(), {
+        reason: " Host denied",
+        now: baseTime
+      })
+    ).toThrow("reason must be trimmed");
+    expect(() =>
+      revokeSessionPermission(active, {
+        permission: "screen:view",
+        reason: "Host revoked ",
+        now: baseTime
+      })
+    ).toThrow("reason must be trimmed");
+    expect(() =>
+      pauseSessionAuthorization(active, {
+        reason: " Host paused ",
+        now: baseTime
+      })
+    ).toThrow("reason must be trimmed");
+    expect(() =>
+      resumeSessionAuthorization(paused, {
+        reason: "Host resumed ",
+        now: baseTime
+      })
+    ).toThrow("reason must be trimmed");
+    expect(() =>
+      terminateSessionAuthorization(active, {
+        reason: " Host disconnected",
+        now: baseTime
+      })
+    ).toThrow("reason must be trimmed");
+  });
+
   it("rejects parsed authorization records with blank reasons", () => {
     const denied = denySessionAuthorization(pending(), {
       reason: "Host denied",
@@ -768,6 +811,20 @@ describe("session authorization state machine", () => {
         reason: "   "
       })
     ).toThrow("reason must not be blank");
+  });
+
+  it("rejects parsed authorization records with untrimmed reasons", () => {
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+
+    expect(() =>
+      SessionAuthorizationSchema.parse({
+        ...denied,
+        reason: " Host denied "
+      })
+    ).toThrow("reason must be trimmed");
   });
 
   it("authorizes granted actions only when active and visible", () => {

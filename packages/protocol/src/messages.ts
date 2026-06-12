@@ -54,7 +54,8 @@ const ProtocolReasonSchema = z
   .string()
   .min(1)
   .max(240)
-  .refine((reason) => reason.trim().length > 0, "Reason must not be blank");
+  .refine((reason) => reason.trim().length > 0, "Reason must not be blank")
+  .refine((reason) => reason === reason.trim(), "Reason must be trimmed");
 const ProtocolAuditActionSchema = z
   .string()
   .min(1)

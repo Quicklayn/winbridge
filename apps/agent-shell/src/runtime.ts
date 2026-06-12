@@ -152,7 +152,7 @@ const RUNTIME_TOKEN_ERROR_MESSAGE =
   "Runtime token must be non-blank, 1024 UTF-8 bytes or less, and contain no ASCII control characters";
 const RUNTIME_VISIBLE_SESSION_ERROR_MESSAGE = "Runtime visibleToHost must be a boolean when provided";
 const RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE =
-  "Runtime workflow reasons must be non-blank and 240 characters or less";
+  "Runtime workflow reasons must be non-blank, already trimmed, and 240 characters or less";
 const RUNTIME_WORKFLOW_TIMER_ERROR_MESSAGE =
   "Runtime workflow timer delays must be integers from 0 through 2147483647";
 const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
@@ -1453,6 +1453,7 @@ function assertRuntimeWorkflowReasons(values: unknown[]): void {
     if (
       typeof value !== "string" ||
       value.trim().length === 0 ||
+      value !== value.trim() ||
       value.length > MAX_AGENT_SHELL_REASON_LENGTH
     ) {
       throw new Error(RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE);

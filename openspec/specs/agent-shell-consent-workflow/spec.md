@@ -112,12 +112,16 @@ The agent shell SHALL ignore decoded inbound `relay-ready` messages whose `peerI
 - **AND** they MUST NOT expose raw protocol payloads, session ids, peer ids, tokens, pairing codes, private reasons, signal payloads, keystrokes, screenshots, screen contents, or input contents
 
 ### Requirement: Managed runtime option validation
-The managed agent shell runtime SHALL validate direct runtime options before opening a relay connection or sending any protocol message. Invalid role, relay URL, relay token, identifiers, display name, requested permissions, revoke permission, visible session flag, host decision, workflow timer delays, or workflow reason options MUST fail closed before relay startup. Relay URLs MUST NOT carry embedded credentials or token query parameters; relay shared tokens MUST use the dedicated runtime token path.
+The managed agent shell runtime SHALL validate direct runtime options before opening a relay connection or sending any protocol message. Invalid role, relay URL, relay token, identifiers, display name, requested permissions, revoke permission, visible session flag, host decision, workflow timer delays, or blank, untrimmed, or oversized workflow reason options MUST fail closed before relay startup. Relay URLs MUST NOT carry embedded credentials or token query parameters; relay shared tokens MUST use the dedicated runtime token path.
 
 #### Scenario: Malformed runtime options fail before relay startup
 - **WHEN** caller code creates a managed runtime with an invalid relay URL, session id, pairing code, peer id, device id, display name, requested permission, revoke permission, visible session flag, host decision, workflow timer delay, or workflow reason
 - **THEN** runtime creation fails before opening a relay connection
 - **AND** it MUST NOT send join, authorization, lifecycle, signal, or audit messages
+
+#### Scenario: Untrimmed runtime workflow reason fails before relay startup
+- **WHEN** caller code creates a managed runtime with a workflow reason option containing leading or trailing whitespace
+- **THEN** runtime creation fails before opening a relay connection or sending any protocol message
 
 #### Scenario: Untrimmed runtime display name fails before relay startup
 - **WHEN** caller code creates a managed runtime with a display name that has leading or trailing whitespace
@@ -670,7 +674,7 @@ The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments befo
 - **THEN** it exits through bounded usage handling before connecting to the relay or scheduling workflow timers
 
 #### Scenario: Invalid lifecycle reason option is rejected
-- **WHEN** the agent shell is started with a blank or oversized lifecycle reason option
+- **WHEN** the agent shell is started with a blank, untrimmed, or oversized lifecycle reason option
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
 #### Scenario: Blank audit log path option is rejected

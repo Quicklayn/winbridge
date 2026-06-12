@@ -278,7 +278,11 @@ function parseOptionalReason(raw: string | undefined): string | undefined {
     return undefined;
   }
 
-  if (raw.trim().length === 0 || raw.length > MAX_AGENT_SHELL_REASON_LENGTH) {
+  if (
+    raw.trim().length === 0 ||
+    raw !== raw.trim() ||
+    raw.length > MAX_AGENT_SHELL_REASON_LENGTH
+  ) {
     throw new AgentShellUsageError();
   }
 

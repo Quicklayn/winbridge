@@ -256,23 +256,39 @@ The system SHALL reject session authorization records whose lifecycle timestamps
 - **THEN** the schema accepts the record only if the lifecycle timestamps remain ordered and action checks still fail closed for revoked or missing permissions
 - **AND** later pause or resume timestamps for the remaining permission scope MUST NOT make the prior partial `revokedAt` invalid by itself
 
-### Requirement: Non-blank authorization reasons
-The system SHALL reject authorization lifecycle records and transitions that include blank or whitespace-only reason text.
+### Requirement: Canonical authorization reasons
+The system SHALL reject authorization lifecycle records and transitions that include blank, whitespace-only, oversized, or untrimmed reason text.
 
 #### Scenario: Denial reason is blank
 - **WHEN** a host denial transition is attempted with a whitespace-only reason
+- **THEN** the authorization state machine rejects the transition before recording denied state
+
+#### Scenario: Denial reason is untrimmed
+- **WHEN** a host denial transition is attempted with a reason containing leading or trailing whitespace
 - **THEN** the authorization state machine rejects the transition before recording denied state
 
 #### Scenario: Termination reason is blank
 - **WHEN** a session termination transition is attempted with a whitespace-only reason
 - **THEN** the authorization state machine rejects the transition before recording terminated state
 
+#### Scenario: Termination reason is untrimmed
+- **WHEN** a session termination transition is attempted with a reason containing leading or trailing whitespace
+- **THEN** the authorization state machine rejects the transition before recording terminated state
+
 #### Scenario: Optional lifecycle reason is blank
 - **WHEN** a revocation, pause, or resume transition includes a whitespace-only optional reason
 - **THEN** the authorization state machine rejects the transition instead of storing meaningless audit metadata
 
+#### Scenario: Optional lifecycle reason is untrimmed
+- **WHEN** a revocation, pause, or resume transition includes a reason containing leading or trailing whitespace
+- **THEN** the authorization state machine rejects the transition instead of storing ambiguous audit metadata
+
 #### Scenario: Parsed authorization record has blank reason
 - **WHEN** an authorization record includes a whitespace-only reason
+- **THEN** the authorization schema rejects the record before action authorization can use it
+
+#### Scenario: Parsed authorization record has untrimmed reason
+- **WHEN** an authorization record includes a reason containing leading or trailing whitespace
 - **THEN** the authorization schema rejects the record before action authorization can use it
 
 #### Scenario: Optional lifecycle reason is omitted

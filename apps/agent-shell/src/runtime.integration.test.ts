@@ -116,6 +116,15 @@ describe("agent shell consent workflow", () => {
       ],
       ["unsafe workflow timer", { hostPauseAfterMs: 2_147_483_648 }, "Runtime workflow timer"],
       ["blank decision reason", { decisionReason: "   " }, "Runtime workflow reasons"],
+      ["untrimmed decision reason", { decisionReason: " Host denied" }, "Runtime workflow reasons"],
+      ["untrimmed revoke reason", { hostRevokeReason: "Host revoked " }, "Runtime workflow reasons"],
+      ["untrimmed pause reason", { hostPauseReason: " Host paused" }, "Runtime workflow reasons"],
+      ["untrimmed resume reason", { hostResumeReason: "Host resumed " }, "Runtime workflow reasons"],
+      [
+        "untrimmed terminate reason",
+        { hostTerminateReason: " Host terminated " },
+        "Runtime workflow reasons"
+      ],
       [
         "oversized lifecycle reason",
         { hostTerminateReason: "x".repeat(241) },

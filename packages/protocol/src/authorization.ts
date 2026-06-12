@@ -66,7 +66,8 @@ const AuthorizationReasonSchema = z
   .string()
   .min(1)
   .max(240)
-  .refine((reason) => reason.trim().length > 0, "Authorization reason must not be blank");
+  .refine((reason) => reason.trim().length > 0, "Authorization reason must not be blank")
+  .refine((reason) => reason === reason.trim(), "Authorization reason must be trimmed");
 
 const SessionAuthorizationBaseSchema = z.object({
   authorizationId: ProtocolIdentifierSchema.min(8),
