@@ -326,6 +326,102 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(forwarded)).not.toContain("agent-shell:test");
   });
 
+  it("audits forwarded audit-event messages without raw audit details", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const rawToken = "raw-forwarded-audit-token";
+    const rawDisplayName = "Raw Forwarded Audit Host";
+    const rawTerminationReason = "raw forwarded audit termination reason";
+    const rawScreenContent = "raw-forwarded-audit-screen-content";
+    const rawNestedScreenContent = "raw-forwarded-audit-nested-screen";
+    const safeMarker = "forwarded-audit-detail-safe-marker";
+    const auditEvent = {
+      ...createMessageBase("session-demo"),
+      type: "audit-event",
+      eventId: "audit_forwarded_detail",
+      actorPeerId: "host-1",
+      action: "agent-shell.forwarded.audit",
+      outcome: "accepted",
+      detail: {
+        authorizationId: "authz-forwarded-audit",
+        token: rawToken,
+        displayName: rawDisplayName,
+        terminationReason: rawTerminationReason,
+        screenContent: rawScreenContent,
+        safeMarker,
+        nested: {
+          screenContent: rawNestedScreenContent
+        }
+      }
+    } as const;
+
+    host.send(JSON.stringify(auditEvent));
+
+    const received = await waitForProtocolMessage(viewer, (message) => message.type === "audit-event");
+    expect(received).toMatchObject({
+      type: "audit-event",
+      eventId: "audit_forwarded_detail",
+      actorPeerId: "host-1",
+      action: "agent-shell.forwarded.audit",
+      outcome: "accepted",
+      detail: {
+        authorizationId: "authz-forwarded-audit",
+        token: "[REDACTED]",
+        displayName: "[REDACTED]",
+        terminationReason: "[REDACTED]",
+        screenContent: "[REDACTED]",
+        safeMarker,
+        nested: {
+          screenContent: "[REDACTED]"
+        }
+      }
+    });
+    expect(JSON.stringify(received)).not.toContain(rawToken);
+    expect(JSON.stringify(received)).not.toContain(rawDisplayName);
+    expect(JSON.stringify(received)).not.toContain(rawTerminationReason);
+    expect(JSON.stringify(received)).not.toContain(rawScreenContent);
+    expect(JSON.stringify(received)).not.toContain(rawNestedScreenContent);
+
+    const forwarded = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.forwarded" &&
+        record.detail?.messageType === "audit-event" &&
+        record.detail?.messageId === auditEvent.messageId
+    );
+    expect(forwarded).toMatchObject({
+      action: "relay.message.forwarded",
+      actor: {
+        id: "development-relay:host-1"
+      },
+      outcome: "accepted",
+      sessionId: "session-demo",
+      detail: {
+        messageType: "audit-event",
+        messageId: auditEvent.messageId,
+        recipientPeerId: "viewer-1",
+        recipientRole: "viewer"
+      }
+    });
+    expect(forwarded.detail).toEqual({
+      messageType: "audit-event",
+      messageId: auditEvent.messageId,
+      recipientPeerId: "viewer-1",
+      recipientRole: "viewer"
+    });
+    expect(JSON.stringify(forwarded)).not.toContain("audit_forwarded_detail");
+    expect(JSON.stringify(forwarded)).not.toContain("agent-shell.forwarded.audit");
+    expect(JSON.stringify(forwarded)).not.toContain("authz-forwarded-audit");
+    expect(JSON.stringify(forwarded)).not.toContain(rawToken);
+    expect(JSON.stringify(forwarded)).not.toContain(rawDisplayName);
+    expect(JSON.stringify(forwarded)).not.toContain(rawTerminationReason);
+    expect(JSON.stringify(forwarded)).not.toContain(rawScreenContent);
+    expect(JSON.stringify(forwarded)).not.toContain(rawNestedScreenContent);
+    expect(JSON.stringify(forwarded)).not.toContain(safeMarker);
+    expect(JSON.stringify(forwarded)).not.toContain("[REDACTED]");
+  });
+
   it("rejects duplicate live host joins without replacing the original host or refreshing pairing", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
