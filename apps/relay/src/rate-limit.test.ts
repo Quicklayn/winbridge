@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createDevelopmentRateLimiter, SlidingWindowRateLimiter } from "./rate-limit.js";
+import {
+  createDevelopmentRateLimiter,
+  MAX_DEVELOPMENT_RATE_LIMIT,
+  MAX_RATE_LIMIT_WINDOW_MS,
+  SlidingWindowRateLimiter
+} from "./rate-limit.js";
 
 describe("SlidingWindowRateLimiter", () => {
   it("allows attempts until the limit is reached", () => {
@@ -52,8 +57,23 @@ describe("SlidingWindowRateLimiter", () => {
     });
   });
 
+  it("accepts safe maximum environment override values", () => {
+    const limiter = createDevelopmentRateLimiter(
+      {
+        WINBRIDGE_RELAY_TEST_LIMIT: String(MAX_DEVELOPMENT_RATE_LIMIT),
+        WINBRIDGE_RELAY_TEST_WINDOW_MS: String(MAX_RATE_LIMIT_WINDOW_MS)
+      },
+      "WINBRIDGE_RELAY_TEST"
+    );
+
+    const decision = limiter.consume("peer", new Date("2026-06-11T00:00:00.000Z"));
+
+    expect(decision.limit).toBe(MAX_DEVELOPMENT_RATE_LIMIT);
+    expect(decision.resetAt).toBe("2026-07-05T20:31:23.647Z");
+  });
+
   it("rejects malformed environment overrides", () => {
-    for (const limit of ["", "0", "-1", "1.5", "5x", "01", "05"]) {
+    for (const limit of ["", "0", "-1", "1.5", "5x", "01", "05", "1000001"]) {
       expect(() =>
         createDevelopmentRateLimiter(
           { WINBRIDGE_RELAY_TEST_LIMIT: limit },
@@ -62,7 +82,7 @@ describe("SlidingWindowRateLimiter", () => {
       ).toThrow("WINBRIDGE_RELAY_TEST_LIMIT");
     }
 
-    for (const windowMs of ["", "999", "-1", "1000.5", "60000x", "01000", "060000"]) {
+    for (const windowMs of ["", "999", "-1", "1000.5", "60000x", "01000", "060000", "2147483648"]) {
       expect(() =>
         createDevelopmentRateLimiter(
           { WINBRIDGE_RELAY_TEST_WINDOW_MS: windowMs },
@@ -70,5 +90,21 @@ describe("SlidingWindowRateLimiter", () => {
         )
       ).toThrow("WINBRIDGE_RELAY_TEST_WINDOW_MS");
     }
+  });
+
+  it("rejects over-bound direct limiter options", () => {
+    expect(() =>
+      new SlidingWindowRateLimiter({
+        limit: MAX_DEVELOPMENT_RATE_LIMIT + 1,
+        windowMs: 1000
+      })
+    ).toThrow("Rate limit");
+
+    expect(() =>
+      new SlidingWindowRateLimiter({
+        limit: 1,
+        windowMs: MAX_RATE_LIMIT_WINDOW_MS + 1
+      })
+    ).toThrow("Rate limit window");
   });
 });

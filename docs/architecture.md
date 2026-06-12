@@ -81,7 +81,7 @@ Provides a development WebSocket relay:
 - Requires every `signal` payload to be a JSON-compatible object with a valid top-level `authorizationId` before forwarding, then rejects empty, oversized, non-representable, inherited-`toJSON`-mutated, or sensitive-key payloads including auth/session secret key names plus clipboard, file-transfer, and diagnostics content key names.
 - Normalizes malformed-message `relay-error` and invalid-message audit reasons to bounded secret-safe strings.
 - Emits structured development audit records for joins, denials, forwarding, and disconnects; accepted forwarding audit includes the validated `messageId` plus safe recipient peer metadata, and accepted signal-forwarding audit also includes the non-secret `authorizationId` but not raw signal payload contents.
-- Rate-limits repeated invalid token and malformed-message attempts with in-memory development defaults and canonical integer environment overrides.
+- Rate-limits repeated invalid token and malformed-message attempts with in-memory development defaults and bounded canonical integer environment overrides.
 - Sends WebSocket heartbeat pings, closes peers that miss heartbeat timeout, and audits heartbeat timeout failures.
 - Sends schema-valid `peer-disconnected` notices to the remaining peer when a registered host or viewer disconnects.
 - Rejects peer-originated `peer-disconnected` messages before forwarding because disconnect notices are broker-observed relay lifecycle events.

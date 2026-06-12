@@ -101,7 +101,7 @@ npm run dev:relay
 Set `WINBRIDGE_RELAY_HEARTBEAT_ENABLED=false` only for focused development tests that should not start heartbeat timers. The enabled flag must be exactly one of `true`, `false`, `yes`, `no`, `1`, or `0` with no leading or trailing whitespace.
 Heartbeat interval and timeout values must be exact integer milliseconds from `1` through `2147483647`.
 
-Development invalid-token and invalid-message rate limits use canonical exact integer env values with no leading zeros:
+Development invalid-token and invalid-message rate limits use canonical exact integer env values with no leading zeros. Limits must be from `1` through `1000000`; windows must be exact milliseconds from `1000` through `2147483647`:
 
 ```powershell
 $env:WINBRIDGE_RELAY_INVALID_TOKEN_LIMIT = "5"

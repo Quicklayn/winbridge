@@ -6,6 +6,9 @@ export type RateLimitDecision = {
   resetAt: string;
 };
 
+export const MAX_DEVELOPMENT_RATE_LIMIT = 1_000_000;
+export const MAX_RATE_LIMIT_WINDOW_MS = 2_147_483_647;
+
 export class SlidingWindowRateLimiter {
   private readonly attempts = new Map<string, number[]>();
 
@@ -15,12 +18,20 @@ export class SlidingWindowRateLimiter {
       windowMs: number;
     }
   ) {
-    if (!Number.isInteger(options.limit) || options.limit < 1) {
-      throw new Error("Rate limit must be a positive integer");
+    if (
+      !Number.isInteger(options.limit) ||
+      options.limit < 1 ||
+      options.limit > MAX_DEVELOPMENT_RATE_LIMIT
+    ) {
+      throw new Error(`Rate limit must be an integer from 1 through ${MAX_DEVELOPMENT_RATE_LIMIT}`);
     }
 
-    if (!Number.isInteger(options.windowMs) || options.windowMs < 1000) {
-      throw new Error("Rate limit window must be at least 1000ms");
+    if (
+      !Number.isInteger(options.windowMs) ||
+      options.windowMs < 1000 ||
+      options.windowMs > MAX_RATE_LIMIT_WINDOW_MS
+    ) {
+      throw new Error(`Rate limit window must be an integer from 1000 through ${MAX_RATE_LIMIT_WINDOW_MS}`);
     }
   }
 
@@ -55,12 +66,30 @@ export class SlidingWindowRateLimiter {
 }
 
 export function createDevelopmentRateLimiter(env: NodeJS.ProcessEnv, prefix: string): SlidingWindowRateLimiter {
-  const limit = parseExactIntegerEnv(env[`${prefix}_LIMIT`], 5, 1, `${prefix}_LIMIT`);
-  const windowMs = parseExactIntegerEnv(env[`${prefix}_WINDOW_MS`], 60_000, 1000, `${prefix}_WINDOW_MS`);
+  const limit = parseExactIntegerEnv(
+    env[`${prefix}_LIMIT`],
+    5,
+    1,
+    MAX_DEVELOPMENT_RATE_LIMIT,
+    `${prefix}_LIMIT`
+  );
+  const windowMs = parseExactIntegerEnv(
+    env[`${prefix}_WINDOW_MS`],
+    60_000,
+    1000,
+    MAX_RATE_LIMIT_WINDOW_MS,
+    `${prefix}_WINDOW_MS`
+  );
   return new SlidingWindowRateLimiter({ limit, windowMs });
 }
 
-function parseExactIntegerEnv(raw: string | undefined, fallback: number, min: number, name: string): number {
+function parseExactIntegerEnv(
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+  name: string
+): number {
   if (raw === undefined) {
     return fallback;
   }
@@ -72,6 +101,10 @@ function parseExactIntegerEnv(raw: string | undefined, fallback: number, min: nu
   const value = Number.parseInt(raw, 10);
   if (value < min) {
     throw new Error(`${name} must be at least ${min}`);
+  }
+
+  if (value > max) {
+    throw new Error(`${name} must be at most ${max}`);
   }
 
   return value;
