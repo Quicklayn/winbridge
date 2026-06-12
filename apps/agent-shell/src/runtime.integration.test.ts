@@ -1943,6 +1943,19 @@ describe("agent shell consent workflow", () => {
       message: ProtocolEnvelope;
     }> = [
       {
+        name: "legacy host consent decision",
+        privateMarker: "legacy-public-decision-private-reason",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "host-consent-decision",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          approved: true,
+          grantedPermissions: ["screen:view"],
+          reason: "legacy-public-decision-private-reason"
+        }
+      },
+      {
         name: "authorization decision",
         privateMarker: "public-decision-private-reason",
         message: {
@@ -2037,6 +2050,62 @@ describe("agent shell consent workflow", () => {
       expect(JSON.stringify(viewerEvents), name).not.toContain(privateMarker);
       expect(hostLogs.join("\n"), name).not.toContain(privateMarker);
     }
+  });
+
+  it("keeps public legacy host consent requests non-granting", async () => {
+    const viewerLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
+    const viewer = await startViewer(relay.url(), [], viewerEvents, captureLogger(viewerLogs));
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
+    );
+
+    viewer.send({
+      ...createMessageBase("session-demo"),
+      type: "host-consent-required",
+      viewerPeerId: "viewer-1",
+      viewerDisplayName: "Viewer",
+      requestedPermissions: ["screen:view"]
+    });
+
+    const sentRequest = await waitForSentMessage(
+      viewerEvents,
+      (message) => message.type === "host-consent-required"
+    );
+    const receivedRequest = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "host-consent-required"
+    );
+    await delay(100);
+
+    expect(sentRequest).toMatchObject({
+      type: "host-consent-required",
+      viewerPeerId: "viewer-1",
+      requestedPermissions: ["screen:view"]
+    });
+    expect(receivedRequest).toMatchObject({
+      type: "host-consent-required",
+      viewerPeerId: "viewer-1",
+      requestedPermissions: ["screen:view"]
+    });
+    expect(
+      hostEvents.some(
+        (event) =>
+          event.direction === "sent" &&
+          (event.message.type === "host-consent-decision" ||
+            event.message.type === "session-authorization-decision" ||
+            event.message.type === "session-authorization-state")
+      )
+    ).toBe(false);
+
+    await expectViewerSignalSendBlocked(
+      viewer,
+      viewerEvents,
+      "blocked-after-legacy-request-payload",
+      viewerLogs
+    );
   });
 
   it("allows reentrant host signal sends during active lifecycle sent event", async () => {

@@ -679,6 +679,7 @@ function assertPublicWorkflowAuthoritySendAllowed(message: ProtocolEnvelope): vo
 
 function isWorkflowAuthorityMessage(message: ProtocolEnvelope): boolean {
   return (
+    message.type === "host-consent-decision" ||
     message.type === "session-authorization-decision" ||
     message.type === "session-authorization-state" ||
     message.type === "permission-revoked" ||
