@@ -1280,6 +1280,10 @@ describe("agent shell consent workflow", () => {
       viewerEvents,
       (message) => message.type === "session-authorization-state" && message.status === "active"
     );
+    const revokeControl = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-control" && message.action === "revoke-permission"
+    );
     const revoked = await waitForMessage(
       viewerEvents,
       (message) => message.type === "permission-revoked"
@@ -1299,8 +1303,17 @@ describe("agent shell consent workflow", () => {
       type: "permission-revoked",
       revokedPermission: "screen:view"
     });
+    expect(revokeControl).toMatchObject({
+      type: "session-control",
+      authorizationId: revoked.type === "permission-revoked" ? revoked.authorizationId : "",
+      actorPeerId: "host-1",
+      action: "revoke-permission",
+      permission: "screen:view",
+      reason: "[REDACTED]"
+    });
     expect(revokedState).toMatchObject({
       type: "session-authorization-state",
+      authorizationId: revoked.type === "permission-revoked" ? revoked.authorizationId : "",
       status: "revoked",
       visibleToHost: true,
       permissions: []
@@ -1314,7 +1327,10 @@ describe("agent shell consent workflow", () => {
         finalGrantRevoked: true
       }
     });
+    expect(JSON.stringify(revokeControl)).not.toContain("private revoke reason");
     expect(JSON.stringify(revokeAudit)).not.toContain("private revoke reason");
+    expect(messageIndex(viewerEvents, revokeControl)).toBeLessThan(messageIndex(viewerEvents, revoked));
+    expect(messageIndex(viewerEvents, revoked)).toBeLessThan(messageIndex(viewerEvents, revokedState));
   });
 
   it("keeps remaining permissions active after host revokes one granted permission", async () => {
@@ -1326,6 +1342,10 @@ describe("agent shell consent workflow", () => {
     });
     await startViewer(relay.url(), ["screen:view", "input:pointer"], viewerEvents);
 
+    const revokeControl = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-control" && message.action === "revoke-permission"
+    );
     await waitForMessage(
       viewerEvents,
       (message) => message.type === "permission-revoked" && message.revokedPermission === "screen:view"
@@ -1346,9 +1366,18 @@ describe("agent shell consent workflow", () => {
 
     expect(partialState).toMatchObject({
       type: "session-authorization-state",
+      authorizationId:
+        revokeControl.type === "session-control" ? revokeControl.authorizationId : "",
       status: "active",
       visibleToHost: true,
       permissions: ["input:pointer"]
+    });
+    expect(revokeControl).toMatchObject({
+      type: "session-control",
+      authorizationId: partialState.type === "session-authorization-state" ? partialState.authorizationId : "",
+      actorPeerId: "host-1",
+      action: "revoke-permission",
+      permission: "screen:view"
     });
     expect(revokeAudit).toMatchObject({
       type: "audit-event",
@@ -3727,6 +3756,98 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(receivedSignal)).not.toContain("authorized-viewer-signal-payload");
   });
 
+  it("fails closed for viewer signal sends after a bound revoke control", async () => {
+    const revokeControlServer = await startViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "relay-ready",
+          peerId: "viewer-1",
+          roomSize: 2
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_revoke_control",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_revoke_control",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          authorizationId: "authz_revoke_control",
+          actorPeerId: "host-1",
+          action: "revoke-permission",
+          permission: "screen:view",
+          reason: "private revoke control reason raw-token"
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        revokeControlServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForMessage(
+        viewerEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.authorizationId === "authz_revoke_control" &&
+          message.status === "active"
+      );
+      const revokeControl = await waitForMessage(
+        viewerEvents,
+        (message) =>
+          message.type === "session-control" &&
+          message.authorizationId === "authz_revoke_control" &&
+          message.action === "revoke-permission"
+      );
+
+      expect(revokeControl).toMatchObject({
+        type: "session-control",
+        authorizationId: "authz_revoke_control",
+        actorPeerId: "host-1",
+        action: "revoke-permission",
+        permission: "screen:view",
+        reason: "[REDACTED]"
+      });
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-revoke-control-payload",
+        viewerLogs
+      );
+      expect(JSON.stringify(revokeControl)).not.toContain("private revoke control reason");
+      expect(JSON.stringify(revokeControl)).not.toContain("raw-token");
+    } finally {
+      await viewer?.stop();
+      await revokeControlServer.stop();
+    }
+  });
+
   it("fails closed for viewer signal sends after revoke, pause, termination, or expiration", async () => {
     const scenarios: Array<{
       name: string;
@@ -5055,6 +5176,10 @@ function waitForSentMessage(
       }, 5);
     })
   );
+}
+
+function messageIndex(events: AgentShellEvent[], message: AgentShellReceivedProtocolEnvelope): number {
+  return events.findIndex((event) => event.direction === "received" && event.message === message);
 }
 
 function waitForRawEvent(

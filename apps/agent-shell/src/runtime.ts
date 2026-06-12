@@ -518,7 +518,7 @@ function isUntrustedViewerAuthorizationLifecycleMessage(
         envelope.status
       );
     case "permission-revoked":
-      return !hasMutableBoundViewerAuthorizationAuthority(
+      return !hasBoundViewerRevocationAuthority(
         sessionState,
         envelope.authorizationId,
         envelope.actorPeerId
@@ -571,6 +571,19 @@ function hasMutableBoundViewerAuthorizationAuthority(
   return (
     isBoundViewerAuthorizationAuthority(snapshot, authorizationId, actorPeerId) &&
     !isTerminalAuthorizationStatus(snapshot.status)
+  );
+}
+
+function hasBoundViewerRevocationAuthority(
+  sessionState: AgentShellSessionState,
+  authorizationId: string,
+  actorPeerId: string
+): boolean {
+  const snapshot = sessionState.viewerAuthorization;
+
+  return (
+    isBoundViewerAuthorizationAuthority(snapshot, authorizationId, actorPeerId) &&
+    (!isTerminalAuthorizationStatus(snapshot.status) || snapshot.status === "revoked")
   );
 }
 
@@ -1331,6 +1344,16 @@ function scheduleHostRevoke(
       permissions: remainingPermissions,
       expiresAt
     });
+    sendProtocol(socket, options, {
+      ...createMessageBase(options.sessionId),
+      type: "session-control",
+      authorizationId,
+      actorPeerId: options.peerId,
+      action: "revoke-permission",
+      permission: revokedPermission,
+      reason
+    });
+
     sendProtocol(socket, options, {
       ...createMessageBase(options.sessionId),
       type: "permission-revoked",

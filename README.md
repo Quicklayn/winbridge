@@ -177,7 +177,7 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-decision appro
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
-Revocation simulation only sends protocol messages; it does not perform remote actions.
+Revocation simulation sends bound protocol control, notification, state, and audit messages only; it does not perform remote actions.
 
 Simulate host session termination during development:
 
