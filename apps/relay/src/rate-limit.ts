@@ -65,8 +65,8 @@ function parseExactIntegerEnv(raw: string | undefined, fallback: number, min: nu
     return fallback;
   }
 
-  if (!/^\d+$/.test(raw)) {
-    throw new Error(`${name} must be an exact positive integer`);
+  if (!/^(0|[1-9]\d*)$/.test(raw)) {
+    throw new Error(`${name} must be a canonical positive integer`);
   }
 
   const value = Number.parseInt(raw, 10);

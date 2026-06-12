@@ -171,7 +171,7 @@ The development relay includes in-memory rate limiting for repeated invalid or u
 
 Relay startup validates environment-derived and injected local TCP ports before opening a listener. Malformed, partial, negative, fractional, non-finite, or out-of-range port values fail before network binding.
 
-Rate-limit limit and window environment variables are parsed as exact integers. Empty, partial, fractional, negative, zero-limit, or too-small-window values fail before the limiter is used.
+Rate-limit limit and window environment variables are parsed as canonical exact integers with no leading zeros. Empty, partial, fractional, negative, zero-limit, too-small-window, or leading-zero values fail before the limiter is used.
 
 The relay rejects inbound WebSocket messages larger than the development message size bound at the transport boundary or before protocol decoding. Oversized message rejection is audited through the invalid-message path without storing raw bytes or payload contents.
 
