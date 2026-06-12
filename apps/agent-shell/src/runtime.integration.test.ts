@@ -2255,6 +2255,89 @@ describe("agent shell consent workflow", () => {
     expect(viewerLogs.join("\n")).not.toContain(privateMarker);
   });
 
+  it("blocks public peer sends until a recipient is observed", async () => {
+    const onePeerServer = await startOnePeerReadyServer();
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(onePeerServer.url, [], viewerEvents, captureLogger(viewerLogs));
+
+      await waitForMessage(
+        viewerEvents,
+        (message) => message.type === "relay-ready" && message.peerId === "viewer-1" && message.roomSize === 1
+      );
+
+      const blockedMessages: Array<{
+        name: string;
+        privateMarker: string;
+        message: ProtocolEnvelope;
+      }> = [
+        {
+          name: "hello",
+          privateMarker: "unpaired-public-hello-private-marker",
+          message: {
+            ...createMessageBase("session-demo"),
+            type: "hello",
+            peerId: "viewer-1",
+            role: "viewer",
+            displayName: "unpaired-public-hello-private-marker",
+            capabilities: ["agent-shell:test"]
+          }
+        },
+        {
+          name: "authorization request",
+          privateMarker: "unpaired-public-request-private-reason",
+          message: {
+            ...createMessageBase("session-demo"),
+            type: "session-authorization-request",
+            viewerPeerId: "viewer-1",
+            requestedPermissions: ["screen:view"],
+            reason: "unpaired-public-request-private-reason"
+          }
+        },
+        {
+          name: "legacy request",
+          privateMarker: "unpaired-public-legacy-request-private-marker",
+          message: {
+            ...createMessageBase("session-demo"),
+            type: "host-consent-required",
+            viewerPeerId: "viewer-1",
+            viewerDisplayName: "unpaired-public-legacy-request-private-marker",
+            requestedPermissions: ["screen:view"]
+          }
+        }
+      ];
+
+      for (const { message, name, privateMarker } of blockedMessages) {
+        const sentCountBefore = viewerEvents.filter((event) => event.direction === "sent").length;
+
+        let thrown: unknown;
+        try {
+          viewer.send(message);
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown, name).toBeInstanceOf(Error);
+        expect(thrown instanceof Error ? thrown.message : "", name).toBe(
+          "Agent shell public send requires an observed recipient peer"
+        );
+        expect(thrown instanceof Error ? thrown.message : "", name).not.toContain("viewer-1");
+        expect(thrown instanceof Error ? thrown.message : "", name).not.toContain("session-demo");
+        await delay(50);
+
+        expect(viewerEvents.filter((event) => event.direction === "sent"), name).toHaveLength(sentCountBefore);
+        expect(JSON.stringify(viewerEvents), name).not.toContain(privateMarker);
+        expect(viewerLogs.join("\n"), name).not.toContain(privateMarker);
+      }
+    } finally {
+      await viewer?.stop();
+      await onePeerServer.stop();
+    }
+  });
+
   it("blocks public cross-session signal sends after active authorization", async () => {
     const hostLogs: string[] = [];
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -3697,6 +3780,7 @@ describe("agent shell consent workflow", () => {
         throw new Error("Host runtime was not started");
       }
 
+      const sentCountBefore = hostEvents.filter((event) => event.direction === "sent").length;
       expect(() =>
         host.send({
           ...createMessageBase("session-demo"),
@@ -3706,15 +3790,8 @@ describe("agent shell consent workflow", () => {
           displayName: "Host",
           capabilities: ["agent-shell:test"]
         })
-      ).not.toThrow();
-      expect(
-        hostEvents.some(
-          (event) =>
-            event.direction === "sent" &&
-            event.message.type === "hello" &&
-            event.message.capabilities.includes("agent-shell:test")
-        )
-      ).toBe(true);
+      ).toThrow("Agent shell public send requires an observed recipient peer");
+      expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBefore);
 
       const serializedRawEvents = JSON.stringify(hostEvents.filter((event) => event.direction === "raw"));
       const logOutput = hostLogs.join("\n");

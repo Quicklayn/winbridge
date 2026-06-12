@@ -133,6 +133,8 @@ const AGENT_SHELL_PUBLIC_SEND_AUTHORITY_ERROR_MESSAGE =
   "Agent shell public send message authority is invalid";
 const AGENT_SHELL_WORKFLOW_AUTHORITY_SEND_ERROR_MESSAGE =
   "Agent shell workflow authority messages require internal consent workflow";
+const AGENT_SHELL_PUBLIC_SEND_RECIPIENT_ERROR_MESSAGE =
+  "Agent shell public send requires an observed recipient peer";
 const REDACTED_EVENT_VALUE = "[REDACTED]";
 const VALID_HOST_DECISIONS = new Set(["none", "approve", "deny"]);
 const SIGNAL_REQUIRED_PERMISSION: Permission = "screen:view";
@@ -151,6 +153,7 @@ type HostWorkflowState = {
 
 type AgentShellSessionState = {
   remotePeerDisconnected: boolean;
+  recipientAvailable: boolean;
   helloSent: boolean;
   hostAuthorization?: RuntimeAuthorizationSnapshot;
   viewerAuthorization?: RuntimeAuthorizationSnapshot;
@@ -174,6 +177,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const sessionState: AgentShellSessionState = {
     remotePeerDisconnected: false,
+    recipientAvailable: false,
     helloSent: false
   };
 
@@ -274,6 +278,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       assertPublicWorkflowAuthoritySendAllowed(message);
       assertSignalPeerRouting(message, options);
       assertSignalSendAuthorized(message, options, sessionState);
+      assertPublicSendRecipientAvailable(message, sessionState);
       sendProtocol(socket, options, message);
     }
   };
@@ -281,6 +286,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
 
 function resetConnectionScopedSessionState(sessionState: AgentShellSessionState): void {
   sessionState.remotePeerDisconnected = false;
+  sessionState.recipientAvailable = false;
   sessionState.helloSent = false;
   sessionState.hostAuthorization = undefined;
   sessionState.viewerAuthorization = undefined;
@@ -362,9 +368,11 @@ function handleMessage(
 
     if (envelope.type === "peer-disconnected") {
       sessionState.remotePeerDisconnected = true;
+      sessionState.recipientAvailable = false;
     }
 
     if (envelope.type === "relay-ready" && envelope.roomSize >= 2) {
+      sessionState.recipientAvailable = true;
       sendHelloOnce(socket, options, sessionState);
 
       if (options.role === "viewer") {
@@ -373,6 +381,7 @@ function handleMessage(
     }
 
     if (envelope.type === "hello") {
+      sessionState.recipientAvailable = true;
       sendHelloOnce(socket, options, sessionState);
     }
 
@@ -744,6 +753,15 @@ function assertPublicWorkflowAuthoritySendAllowed(message: ProtocolEnvelope): vo
   }
 }
 
+function assertPublicSendRecipientAvailable(
+  message: ProtocolEnvelope,
+  sessionState: AgentShellSessionState
+): void {
+  if (isPeerRecipientMessage(message) && !sessionState.recipientAvailable) {
+    throw new Error(AGENT_SHELL_PUBLIC_SEND_RECIPIENT_ERROR_MESSAGE);
+  }
+}
+
 function isWorkflowAuthorityMessage(message: ProtocolEnvelope): boolean {
   return (
     message.type === "host-consent-decision" ||
@@ -752,6 +770,15 @@ function isWorkflowAuthorityMessage(message: ProtocolEnvelope): boolean {
     message.type === "permission-revoked" ||
     message.type === "session-control" ||
     message.type === "audit-event"
+  );
+}
+
+function isPeerRecipientMessage(message: ProtocolEnvelope): boolean {
+  return (
+    message.type === "hello" ||
+    message.type === "host-consent-required" ||
+    message.type === "session-authorization-request" ||
+    message.type === "signal"
   );
 }
 
