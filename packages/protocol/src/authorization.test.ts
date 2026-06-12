@@ -372,6 +372,71 @@ describe("session authorization state machine", () => {
     expect(() => SessionAuthorizationSchema.parse(withoutField(expired, "expiredAt"))).toThrow("expiredAt");
   });
 
+  it("rejects conflicting lifecycle timestamps for pending, approved, and denied records", () => {
+    const timestamp = baseTime.toISOString();
+    const pendingAuthorization = pending();
+    const approved = approveSessionAuthorization(pendingAuthorization, {
+      grantedPermissions: ["screen:view"],
+      now: baseTime
+    });
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+
+    for (const field of [
+      "deniedAt",
+      "approvedAt",
+      "activatedAt",
+      "pausedAt",
+      "resumedAt",
+      "revokedAt",
+      "terminatedAt",
+      "expiredAt"
+    ] as const) {
+      expect(() =>
+        SessionAuthorizationSchema.parse({
+          ...pendingAuthorization,
+          [field]: timestamp
+        })
+      ).toThrow(`pending session authorization cannot include ${field}`);
+    }
+
+    for (const field of [
+      "deniedAt",
+      "activatedAt",
+      "pausedAt",
+      "resumedAt",
+      "revokedAt",
+      "terminatedAt",
+      "expiredAt"
+    ] as const) {
+      expect(() =>
+        SessionAuthorizationSchema.parse({
+          ...approved,
+          [field]: timestamp
+        })
+      ).toThrow(`approved session authorization cannot include ${field}`);
+    }
+
+    for (const field of [
+      "approvedAt",
+      "activatedAt",
+      "pausedAt",
+      "resumedAt",
+      "revokedAt",
+      "terminatedAt",
+      "expiredAt"
+    ] as const) {
+      expect(() =>
+        SessionAuthorizationSchema.parse({
+          ...denied,
+          [field]: timestamp
+        })
+      ).toThrow(`denied session authorization cannot include ${field}`);
+    }
+  });
+
   it("requires auditable resume history for parsed active authorization records", () => {
     const active = activateSessionAuthorization(
       approveSessionAuthorization(pending(), {

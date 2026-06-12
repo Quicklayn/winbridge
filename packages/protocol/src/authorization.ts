@@ -19,6 +19,34 @@ const terminalStatuses = new Set<SessionAuthorizationStatus>(["denied", "revoked
 const terminableStatuses = new Set<SessionAuthorizationStatus>(["active", "paused"]);
 const DEFAULT_AUTHORIZATION_TTL_MS = 30 * 60_000;
 const MAX_AUTHORIZATION_TTL_MS = 2_147_483_647;
+const pendingForbiddenLifecycleTimestamps = [
+  "deniedAt",
+  "approvedAt",
+  "activatedAt",
+  "pausedAt",
+  "resumedAt",
+  "revokedAt",
+  "terminatedAt",
+  "expiredAt"
+] as const;
+const approvedForbiddenLifecycleTimestamps = [
+  "deniedAt",
+  "activatedAt",
+  "pausedAt",
+  "resumedAt",
+  "revokedAt",
+  "terminatedAt",
+  "expiredAt"
+] as const;
+const deniedForbiddenLifecycleTimestamps = [
+  "approvedAt",
+  "activatedAt",
+  "pausedAt",
+  "resumedAt",
+  "revokedAt",
+  "terminatedAt",
+  "expiredAt"
+] as const;
 const AuthorizationReasonSchema = z
   .string()
   .min(1)
@@ -102,6 +130,18 @@ export const SessionAuthorizationSchema = SessionAuthorizationBaseSchema.superRe
   requireLifecycleTimestamp(authorization.status, "revoked", authorization.revokedAt, "revokedAt", ctx);
   requireLifecycleTimestamp(authorization.status, "terminated", authorization.terminatedAt, "terminatedAt", ctx);
   requireLifecycleTimestamp(authorization.status, "expired", authorization.expiredAt, "expiredAt", ctx);
+
+  if (authorization.status === "pending") {
+    rejectForbiddenLifecycleTimestamps(authorization, pendingForbiddenLifecycleTimestamps, ctx);
+  }
+
+  if (authorization.status === "approved") {
+    rejectForbiddenLifecycleTimestamps(authorization, approvedForbiddenLifecycleTimestamps, ctx);
+  }
+
+  if (authorization.status === "denied") {
+    rejectForbiddenLifecycleTimestamps(authorization, deniedForbiddenLifecycleTimestamps, ctx);
+  }
 
   if (authorization.status === "active" && authorization.pausedAt && !authorization.resumedAt) {
     ctx.addIssue({
@@ -475,4 +515,31 @@ function requireLifecycleTimestamp(
     message: `${actualStatus} session authorization requires ${field}`,
     path: [field]
   });
+}
+
+function rejectForbiddenLifecycleTimestamps(
+  authorization: z.infer<typeof SessionAuthorizationBaseSchema>,
+  fields: ReadonlyArray<
+    | "deniedAt"
+    | "approvedAt"
+    | "activatedAt"
+    | "pausedAt"
+    | "resumedAt"
+    | "revokedAt"
+    | "terminatedAt"
+    | "expiredAt"
+  >,
+  ctx: z.RefinementCtx
+): void {
+  for (const field of fields) {
+    if (authorization[field] === undefined) {
+      continue;
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${authorization.status} session authorization cannot include ${field}`,
+      path: [field]
+    });
+  }
 }
