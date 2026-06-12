@@ -5556,10 +5556,11 @@ describe("agent shell consent workflow", () => {
   });
 
   it("emits closed events without raw websocket close reason text", async () => {
-    const privateCloseReason = "private close token raw-close-token";
+    const privateCloseReason = "private close token raw-close-token строка";
     const closeServer = await startCloseReasonServer(privateCloseReason);
     const closeEvents: AgentShellEvent[] = [];
     const closeLogs: string[] = [];
+    const privateCloseReasonBytes = Buffer.byteLength(privateCloseReason);
 
     try {
       const runtime = createAgentShellRuntime(createRuntimeOptions({
@@ -5577,11 +5578,11 @@ describe("agent shell consent workflow", () => {
         direction: "closed",
         code: 4000,
         reason: "[REDACTED]",
-        reasonBytes: Buffer.byteLength(privateCloseReason)
+        reasonBytes: privateCloseReasonBytes
       });
       expect(JSON.stringify(closedEvent)).not.toContain(privateCloseReason);
       expect(JSON.stringify(closedEvent)).not.toContain("raw-close-token");
-      expect(logOutput).toContain("disconnected code=4000 reasonBytes=");
+      expect(logOutput).toContain(`disconnected code=4000 reasonBytes=${privateCloseReasonBytes}`);
       expect(logOutput).not.toContain(privateCloseReason);
       expect(logOutput).not.toContain("raw-close-token");
     } finally {

@@ -515,6 +515,19 @@ The agent shell SHALL emit local `closed` runtime events without exposing raw We
 - **WHEN** the managed runtime logs a WebSocket disconnect
 - **THEN** the log MUST include only summary metadata and MUST NOT include the raw close reason text
 
+### Requirement: Canonical close reason byte metadata
+The agent shell SHALL calculate redacted WebSocket close event and disconnect log `reasonBytes` metadata as the actual UTF-8 byte length of the close reason, while continuing to redact the raw close reason text.
+
+#### Scenario: Multi-byte close reason metadata is accurate
+- **WHEN** the managed runtime receives a WebSocket close reason containing multi-byte text
+- **THEN** the local `closed` event `reasonBytes` equals the UTF-8 byte length of the close reason
+- **AND** the local disconnect log includes that byte length only as summary metadata
+- **AND** neither the event nor the log exposes the raw close reason text
+
+#### Scenario: Close reason metadata does not grant access
+- **WHEN** the managed runtime emits close reason byte metadata
+- **THEN** that metadata MUST NOT approve authorization, activate a visible session, grant permissions, start capture, send input, reconnect the peer, suppress host visibility, or bypass consent workflows
+
 ### Requirement: Runtime error diagnostics are secret-safe
 The agent shell SHALL surface runtime and socket failures without exposing raw exception messages, tokens, pairing codes, credentials, protocol payload fragments, private reason text, file paths, keystrokes, screenshots, screen contents, or input contents in local runtime events or logs.
 

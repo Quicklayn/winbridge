@@ -247,7 +247,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       });
 
       socket.on("close", (code, reason) => {
-        const reasonBytes = reason.length;
+        const reasonBytes = closeReasonByteLength(reason);
         deactivateHostIndicator(options, sessionState, "socket-closed");
         const event = { direction: "closed", code, reason: REDACTED_EVENT_VALUE, reasonBytes } as const;
         options.onEvent?.(event);
@@ -328,6 +328,14 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       sendProtocol(socket, options, message);
     }
   };
+}
+
+function closeReasonByteLength(reason: Buffer | string): number {
+  if (typeof reason === "string") {
+    return Buffer.byteLength(reason, "utf8");
+  }
+
+  return reason.byteLength;
 }
 
 function resetConnectionScopedSessionState(sessionState: AgentShellSessionState): void {
