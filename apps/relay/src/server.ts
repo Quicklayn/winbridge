@@ -79,7 +79,7 @@ export type RelayRuntime = {
 };
 
 export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRuntime {
-  const port = options.port ?? 8787;
+  const port = normalizeRelayPort(options.port === undefined ? 8787 : options.port);
   const sharedToken = normalizeRelaySharedToken(options.sharedToken);
   const pairingConfig = normalizeRelayPairingConfig({
     ...createRelayPairingConfig(),
@@ -625,6 +625,14 @@ function rateLimitAuditDetail(decision: RateLimitDecision) {
     remaining: decision.remaining,
     resetAt: decision.resetAt
   };
+}
+
+function normalizeRelayPort(port: unknown): number {
+  if (typeof port !== "number" || !Number.isInteger(port) || port < 0 || port > 65_535) {
+    throw new Error("Relay port must be an integer from 0 through 65535");
+  }
+
+  return port;
 }
 
 export function createRelayPairingConfig(

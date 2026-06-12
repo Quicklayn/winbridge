@@ -62,7 +62,7 @@ Audit detail redaction preserves non-secret lifecycle identifiers such as `autho
 Provides a development WebSocket relay:
 
 - Starts through a managed runtime with explicit `start()` and `stop()` lifecycle.
-- Validates the configured local TCP port before opening the listener.
+- Validates environment-derived and injected local TCP ports before opening the listener.
 - Accepts host/viewer peers.
 - Requires session id, peer id, role, and pairing credential.
 - Creates a salted hashed expiring pairing ticket when the host joins, then requires the viewer to consume that ticket before room registration.

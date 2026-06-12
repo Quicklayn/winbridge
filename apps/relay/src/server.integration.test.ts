@@ -34,6 +34,20 @@ describe("relay runtime integration", () => {
     expect(runtime.url()).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
   });
 
+  it("accepts an injected ephemeral port before startup", async () => {
+    const runtime = createRelayRuntime({
+      port: 0,
+      auditSink: new MemoryAuditSink(),
+      heartbeat: false,
+      logger: silentLogger
+    });
+
+    await runtime.start();
+    runtimes.push(runtime);
+
+    expect(runtime.url()).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+  });
+
   it("accepts host and viewer joins and forwards protocol messages", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
@@ -1360,6 +1374,27 @@ describe("relay runtime integration", () => {
       expect(() => createRelayPortConfig({ WINBRIDGE_RELAY_PORT: port })).toThrow(
         "WINBRIDGE_RELAY_PORT"
       );
+    }
+  });
+
+  it("rejects unsafe injected relay runtime ports before startup", () => {
+    for (const port of [
+      -1,
+      1.5,
+      65_536,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      "8787",
+      null
+    ]) {
+      expect(() =>
+        createRelayRuntime({
+          port: port as number,
+          auditSink: new MemoryAuditSink(),
+          heartbeat: false,
+          logger: silentLogger
+        })
+      ).toThrow("Relay port");
     }
   });
 });

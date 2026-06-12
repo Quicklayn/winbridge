@@ -151,7 +151,7 @@ This is not production identity. Production pairing needs durable storage, accou
 
 The development relay includes in-memory rate limiting for repeated invalid shared-token attempts and malformed or rejected protocol messages.
 
-Relay startup validates the configured local TCP port before opening a listener. Malformed, partial, negative, fractional, or out-of-range port values fail before network binding.
+Relay startup validates environment-derived and injected local TCP ports before opening a listener. Malformed, partial, negative, fractional, non-finite, or out-of-range port values fail before network binding.
 
 Rate-limit limit and window environment variables are parsed as exact integers. Empty, partial, fractional, negative, zero-limit, or too-small-window values fail before the limiter is used.
 
