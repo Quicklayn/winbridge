@@ -40,12 +40,51 @@ describe("relay heartbeat", () => {
     });
   });
 
-  it("can be disabled through development environment", () => {
-    expect(
+  it("uses canonical heartbeat enabled flag values", () => {
+    for (const enabledValue of ["true", "yes", "1"]) {
+      expect(
+        createRelayHeartbeatConfig({
+          WINBRIDGE_RELAY_HEARTBEAT_ENABLED: enabledValue
+        })
+      ).toEqual({
+        intervalMs: 30_000,
+        timeoutMs: 10_000
+      });
+    }
+
+    for (const disabledValue of ["false", "no", "0"]) {
+      expect(
+        createRelayHeartbeatConfig({
+          WINBRIDGE_RELAY_HEARTBEAT_ENABLED: disabledValue
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("rejects malformed heartbeat enabled flag values", () => {
+    for (const enabledValue of ["", " ", " false", "false ", "FALSE", "off"]) {
+      expect(() =>
+        createRelayHeartbeatConfig({
+          WINBRIDGE_RELAY_HEARTBEAT_ENABLED: enabledValue
+        })
+      ).toThrow("Heartbeat enabled flag");
+    }
+  });
+
+  it("rejects malformed heartbeat enabled flags without exposing raw flag text", () => {
+    const enabledValue = "private-heartbeat-enabled-marker";
+
+    try {
       createRelayHeartbeatConfig({
-        WINBRIDGE_RELAY_HEARTBEAT_ENABLED: "false"
-      })
-    ).toBe(false);
+        WINBRIDGE_RELAY_HEARTBEAT_ENABLED: enabledValue
+      });
+      throw new Error("Expected malformed heartbeat enabled flag to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain("Heartbeat enabled flag");
+      expect((error as Error).message).not.toContain(enabledValue);
+      expect((error as Error).message).not.toContain("private-heartbeat-enabled-marker");
+    }
   });
 
   it("rejects malformed heartbeat environment values", () => {

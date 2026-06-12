@@ -82,13 +82,11 @@ function parseEnabled(value: string | undefined): boolean {
     return true;
   }
 
-  const normalized = value.trim().toLowerCase();
-
-  if (normalized === "0" || normalized === "false" || normalized === "no") {
+  if (value === "0" || value === "false" || value === "no") {
     return false;
   }
 
-  if (normalized === "1" || normalized === "true" || normalized === "yes") {
+  if (value === "1" || value === "true" || value === "yes") {
     return true;
   }
 

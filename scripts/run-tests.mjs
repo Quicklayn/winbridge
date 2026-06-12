@@ -12,7 +12,7 @@ if (testFiles.length === 0) {
 }
 
 for (const testFile of testFiles) {
-  const pool = testFile === "apps/agent-shell/src/runtime.integration.test.ts" ? "threads" : "forks";
+  const pool = testFile === "apps/agent-shell/src/runtime.integration.test.ts" ? "vmThreads" : "forks";
   const result = spawnSync(
     process.execPath,
     [

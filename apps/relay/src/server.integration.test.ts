@@ -2321,6 +2321,23 @@ describe("relay runtime integration", () => {
     }
   });
 
+  it("rejects malformed heartbeat enabled environment before relay startup", () => {
+    const previousHeartbeatEnabled = process.env.WINBRIDGE_RELAY_HEARTBEAT_ENABLED;
+    process.env.WINBRIDGE_RELAY_HEARTBEAT_ENABLED = " false ";
+
+    try {
+      expect(() =>
+        createRelayRuntime({
+          port: 0,
+          auditSink: new MemoryAuditSink(),
+          logger: silentLogger
+        })
+      ).toThrow("Heartbeat enabled flag");
+    } finally {
+      restoreEnv("WINBRIDGE_RELAY_HEARTBEAT_ENABLED", previousHeartbeatEnabled);
+    }
+  });
+
   it("rejects unsafe injected relay runtime ports before startup", () => {
     for (const port of [
       -1,
