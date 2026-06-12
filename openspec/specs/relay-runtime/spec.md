@@ -265,9 +265,17 @@ The relay runtime SHALL expose peer disconnect notification behavior through int
 - **WHEN** integration tests register a host and viewer, then close the viewer socket
 - **THEN** the host receives a schema-valid `peer-disconnected` protocol message for the viewer
 
+#### Scenario: Remaining peer receives heartbeat timeout reason
+- **WHEN** integration tests register a host and viewer, then the relay terminates one peer because it missed heartbeat response
+- **THEN** the remaining peer receives a schema-valid `peer-disconnected` protocol message with reason code `heartbeat-timeout`
+
 #### Scenario: Disconnect audit includes notification metadata
 - **WHEN** a registered peer disconnects
 - **THEN** the relay audit record includes secret-safe metadata for the peer role, bounded reason code, notification target count, notification sent count, and notification failure count
+
+#### Scenario: Heartbeat timeout disconnect audit is bounded
+- **WHEN** the relay records disconnect cleanup after heartbeat timeout
+- **THEN** the disconnect audit detail includes reason code `heartbeat-timeout` without raw close reasons, pairing codes, tokens, protocol payloads, keystrokes, screenshots, screen contents, or full secrets
 
 #### Scenario: Disconnect audit omits sensitive material
 - **WHEN** a registered peer disconnects after joining with pairing credentials
@@ -384,7 +392,6 @@ The relay runtime SHALL include secret-safe recipient routing metadata in accept
 #### Scenario: Forwarded message audit remains payload-safe
 - **WHEN** the relay audits an accepted forwarded message
 - **THEN** the audit record detail MUST NOT include raw protocol payloads, display names, private reasons, SDP, ICE candidates, payload markers, tokens, pairing codes, credentials, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents/data/bytes, diagnostics content/dumps, or full secrets
-
 ### Requirement: Forwarded message identifier audit metadata
 The relay runtime SHALL include the parsed protocol `messageId` in accepted `relay.message.forwarded` audit detail after protocol validation and before audit persistence, and MUST NOT include raw protocol payload contents or user display metadata in that accepted forward audit record.
 

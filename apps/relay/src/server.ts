@@ -150,11 +150,16 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
     }
 
     let registeredPeer: RelayPeer | undefined;
+    let disconnectReasonCode: Extract<ProtocolEnvelope, { type: "peer-disconnected" }>["reasonCode"] =
+      "peer-closed";
     const stopHeartbeat = heartbeat
       ? startPeerHeartbeat({
           auditSink,
           config: heartbeat,
           getPeer: () => registeredPeer,
+          onTimeout: () => {
+            disconnectReasonCode = "heartbeat-timeout";
+          },
           socket
         })
       : () => undefined;
@@ -300,7 +305,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
       stopHeartbeat();
       if (registeredPeer) {
         const remainingPeers = rooms.peers(registeredPeer.sessionId, registeredPeer.peerId);
-        const reasonCode = "peer-closed";
+        const reasonCode = disconnectReasonCode;
         const notification = encodeProtocolEnvelope({
           ...createMessageBase(registeredPeer.sessionId),
           type: "peer-disconnected",
@@ -444,6 +449,7 @@ function startPeerHeartbeat(options: {
   auditSink: AuditSink;
   config: RelayHeartbeatConfig;
   getPeer: () => RelayPeer | undefined;
+  onTimeout: () => void;
   socket: WebSocket;
 }): () => void {
   let heartbeatState = createRelayHeartbeatState();
@@ -467,6 +473,7 @@ function startPeerHeartbeat(options: {
 
     timedOut = true;
     clearHeartbeatTimeout();
+    options.onTimeout();
 
     const peer = options.getPeer();
     writeRelayAudit(options.auditSink, {

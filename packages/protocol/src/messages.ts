@@ -260,7 +260,7 @@ export const RelayReadyMessageSchema = BaseMessageSchema.extend({
   roomSize: z.number().int().min(1).max(2)
 });
 
-export const PeerDisconnectedReasonCodeSchema = z.enum(["peer-closed"]);
+export const PeerDisconnectedReasonCodeSchema = z.enum(["peer-closed", "heartbeat-timeout"]);
 
 export const PeerDisconnectedMessageSchema = BaseMessageSchema.extend({
   type: z.literal("peer-disconnected"),

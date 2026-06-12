@@ -2558,6 +2558,60 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(timeout)).not.toContain("123-456");
   });
 
+  it("notifies the remaining peer with heartbeat timeout reason", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({
+      auditSink,
+      heartbeat: {
+        intervalMs: 20,
+        timeoutMs: 60
+      }
+    });
+    const host = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url(), { autoPong: false });
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+    await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready");
+
+    const disconnectNotice = await waitForProtocolMessage(
+      host,
+      (message) => message.type === "peer-disconnected"
+    );
+    const disconnectAudit = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.disconnect" &&
+        record.detail.reasonCode === "heartbeat-timeout"
+    );
+
+    expect(disconnectNotice).toMatchObject({
+      type: "peer-disconnected",
+      peerId: "viewer-1",
+      role: "viewer",
+      reasonCode: "heartbeat-timeout"
+    });
+    expect(disconnectAudit).toMatchObject({
+      action: "relay.peer.disconnect",
+      outcome: "accepted",
+      sessionId: "session-demo",
+      actor: {
+        id: "development-relay:viewer-1"
+      },
+      detail: {
+        role: "viewer",
+        reasonCode: "heartbeat-timeout",
+        notificationTargetCount: 1,
+        notificationSentCount: 1,
+        notificationFailedCount: 0
+      }
+    });
+    expect(JSON.stringify(disconnectNotice)).not.toContain("123-456");
+    expect(JSON.stringify(disconnectAudit)).not.toContain("123-456");
+    expect(JSON.stringify(disconnectAudit)).not.toContain("Peer missed relay heartbeat");
+  });
+
   it("parses development pairing ticket environment configuration", () => {
     expect(createRelayPairingConfig({})).toEqual({
       ticketTtlMs: 5 * 60_000,

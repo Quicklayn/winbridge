@@ -42,7 +42,6 @@ The relay SHALL reject a join attempt before registration when the target sessio
 #### Scenario: Duplicate live peer rejection is secret-safe
 - **WHEN** the relay rejects a duplicate live peer join
 - **THEN** the peer-facing relay error and audit reason MUST use bounded metadata-only text and MUST NOT include raw pairing codes, tokens, credentials, protocol payloads, private reasons, keystrokes, screenshots, screen contents, or full secrets
-
 #### Scenario: Peer id can rejoin after disconnect cleanup
 - **WHEN** a registered peer disconnects and the relay removes it from room membership
 - **THEN** a later join using the same `peerId` MAY be accepted through the normal pairing and room constraints
@@ -203,7 +202,7 @@ The relay SHALL require a host-created pairing ticket before registering a viewe
 - **THEN** the relay rejects the join before forwarding any peer message from that viewer
 
 ### Requirement: Peer disconnect notification
-The relay SHALL send a schema-valid peer disconnect notification to remaining peers in a brokered two-party session when a registered peer disconnects.
+The relay SHALL send a schema-valid peer disconnect notification to remaining peers in a brokered two-party session when a registered peer disconnects. Disconnect notifications SHALL use only bounded relay-defined reason codes such as `peer-closed` for ordinary close cleanup and `heartbeat-timeout` for heartbeat timeout cleanup.
 
 #### Scenario: Host disconnects from a paired session
 - **WHEN** a registered host disconnects from a relay room that still contains a viewer
@@ -212,6 +211,10 @@ The relay SHALL send a schema-valid peer disconnect notification to remaining pe
 #### Scenario: Viewer disconnects from a paired session
 - **WHEN** a registered viewer disconnects from a relay room that still contains a host
 - **THEN** the relay sends the host a `peer-disconnected` protocol message identifying the viewer peer id, viewer role, session id, and a bounded reason code
+
+#### Scenario: Heartbeat timeout disconnect is identified
+- **WHEN** a registered peer is disconnected by relay heartbeat timeout
+- **THEN** the remaining peer receives a `peer-disconnected` protocol message with reason code `heartbeat-timeout`
 
 #### Scenario: Disconnect notification does not grant remote action
 - **WHEN** a peer receives a `peer-disconnected` protocol message
