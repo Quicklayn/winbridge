@@ -55,7 +55,10 @@ describe("MemoryAuditSink", () => {
         pairingCode: "123-456",
         password: "secret",
         keystroke: "typed",
-        screenData: "pixels"
+        screenData: "pixels",
+        clipboardText: "copied",
+        fileContent: "file",
+        diagnosticDump: "diagnostics"
       }
     });
 
@@ -64,7 +67,10 @@ describe("MemoryAuditSink", () => {
       pairingCode: "[REDACTED]",
       password: "[REDACTED]",
       keystroke: "[REDACTED]",
-      screenData: "[REDACTED]"
+      screenData: "[REDACTED]",
+      clipboardText: "[REDACTED]",
+      fileContent: "[REDACTED]",
+      diagnosticDump: "[REDACTED]"
     });
   });
 });
@@ -135,7 +141,11 @@ describe("FileAuditSink", () => {
           pairingCode: "123-456",
           credential: "secret-credential",
           keystroke: "typed",
-          screenshot: "raw-screen"
+          screenshot: "raw-screen",
+          clipboardText: "raw-clipboard",
+          fileContent: "raw-file",
+          fileBytes: "raw-file-bytes",
+          diagnosticDump: "raw-diagnostics"
         }
       });
 
@@ -145,12 +155,20 @@ describe("FileAuditSink", () => {
       expect(content).not.toContain("secret-credential");
       expect(content).not.toContain("typed");
       expect(content).not.toContain("raw-screen");
+      expect(content).not.toContain("raw-clipboard");
+      expect(content).not.toContain("raw-file");
+      expect(content).not.toContain("raw-file-bytes");
+      expect(content).not.toContain("raw-diagnostics");
       expect(JSON.parse(content).detail).toMatchObject({
         token: "[REDACTED]",
         pairingCode: "[REDACTED]",
         credential: "[REDACTED]",
         keystroke: "[REDACTED]",
-        screenshot: "[REDACTED]"
+        screenshot: "[REDACTED]",
+        clipboardText: "[REDACTED]",
+        fileContent: "[REDACTED]",
+        fileBytes: "[REDACTED]",
+        diagnosticDump: "[REDACTED]"
       });
     } finally {
       rmSync(root, { force: true, recursive: true });
@@ -167,14 +185,14 @@ describe("FileAuditSink", () => {
         actor: { type: "relay", id: "relay-dev" },
         action: "relay.message.rejected",
         outcome: "failed",
-        reason: "Authorization: raw-token-secret",
+        reason: "diagnostics: raw-diagnostic-dump",
         detail: {
           messageType: "signal"
         }
       });
 
       const content = readFileSync(path, "utf8");
-      expect(content).not.toContain("raw-token-secret");
+      expect(content).not.toContain("raw-diagnostic-dump");
       expect(JSON.parse(content).reason).toBe("[REDACTED]");
     } finally {
       rmSync(root, { force: true, recursive: true });

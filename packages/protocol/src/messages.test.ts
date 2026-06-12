@@ -971,6 +971,10 @@ describe("protocol envelopes", () => {
         screenshot: "image bytes",
         screenData: "screen bytes",
         screenContent: "visible data",
+        clipboardText: "clipboard data",
+        fileContent: "file data",
+        fileBytes: "file bytes",
+        diagnosticDump: "diagnostic data",
         secret: "raw-secret",
         safeCount: 2
       }
@@ -987,12 +991,19 @@ describe("protocol envelopes", () => {
         screenshot: "[REDACTED]",
         screenData: "[REDACTED]",
         screenContent: "[REDACTED]",
+        clipboardText: "[REDACTED]",
+        fileContent: "[REDACTED]",
+        fileBytes: "[REDACTED]",
+        diagnosticDump: "[REDACTED]",
         secret: "[REDACTED]",
         safeCount: 2
       }
     });
     expect(JSON.stringify(parsed)).not.toContain("raw-token");
     expect(JSON.stringify(parsed)).not.toContain("123-456");
+    expect(JSON.stringify(parsed)).not.toContain("clipboard data");
+    expect(JSON.stringify(parsed)).not.toContain("file data");
+    expect(JSON.stringify(parsed)).not.toContain("diagnostic data");
   });
 
   it("redacts nested sensitive audit-event detail fields in objects and arrays", () => {
@@ -1126,6 +1137,9 @@ describe("protocol envelopes", () => {
         rawAuthorizationHeader: "raw-authorization-header",
         cookie: "sid=raw-cookie",
         privateKey: "raw-private-key",
+        clipboardContents: "raw-clipboard",
+        fileData: "raw-file-data",
+        diagnostics: "raw-diagnostics",
         authorizationId: "authz-demo"
       }
     });
@@ -1137,6 +1151,9 @@ describe("protocol envelopes", () => {
       rawAuthorizationHeader: "[REDACTED]",
       cookie: "[REDACTED]",
       privateKey: "[REDACTED]",
+      clipboardContents: "[REDACTED]",
+      fileData: "[REDACTED]",
+      diagnostics: "[REDACTED]",
       authorizationId: "authz-demo"
     });
     expect(encoded).not.toContain("api-key-secret");
@@ -1144,6 +1161,9 @@ describe("protocol envelopes", () => {
     expect(encoded).not.toContain("raw-authorization-header");
     expect(encoded).not.toContain("raw-cookie");
     expect(encoded).not.toContain("raw-private-key");
+    expect(encoded).not.toContain("raw-clipboard");
+    expect(encoded).not.toContain("raw-file-data");
+    expect(encoded).not.toContain("raw-diagnostics");
   });
 
   it("defaults omitted audit-event detail to an empty object", () => {

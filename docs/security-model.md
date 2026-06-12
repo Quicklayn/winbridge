@@ -216,8 +216,8 @@ File audit records use the same schema validation and redaction as memory and co
 
 Audit action, reason, and target type metadata must be non-blank before records or protocol audit events are emitted, forwarded, or persisted.
 
-Development audit files must not contain raw tokens, raw pairing codes, credentials, API keys, authorization headers, auth headers, cookies, private keys, keystrokes, screenshots, screen contents, or full secrets.
-Audit detail redaction preserves non-secret lifecycle identifiers such as `authorizationId` while redacting obvious authentication/session secret keys.
+Development audit files must not contain raw tokens, raw pairing codes, credentials, API keys, authorization headers, auth headers, cookies, private keys, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents/data/bytes, diagnostics content/dumps, or full secrets.
+Audit detail redaction preserves non-secret lifecycle identifiers such as `authorizationId` while redacting obvious authentication/session secret keys and remote-assistance content keys.
 
 Agent shell audit files must not persist arbitrary received protocol payloads, raw display names, signal payloads, raw private reason text, screen contents, or input contents.
 
@@ -243,7 +243,7 @@ Every PR touching remote capability code must verify:
 - Session timeout stops the action.
 - Local disconnect terminates the action.
 - Audit events are emitted.
-- Audit details do not include raw tokens, raw pairing codes, credentials, keystrokes, screenshots, or screen contents.
+- Audit details do not include raw tokens, raw pairing codes, credentials, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents/data/bytes, or diagnostics content/dumps.
 
 ### Release Gate
 

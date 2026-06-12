@@ -102,7 +102,15 @@ describe("audit records", () => {
       "Authorization: raw-token-secret",
       "Proxy-Authorization: raw-proxy-token",
       "private close token raw-close-token",
-      "token raw-token-secret"
+      "token raw-token-secret",
+      "clipboard: raw-clipboard",
+      "clipboardContent: raw-clipboard-text",
+      "fileContent: raw-file-content",
+      "fileBytes: raw-file-bytes",
+      "fileTransfer: raw-file-transfer",
+      "diagnostic: raw-diagnostic",
+      "diagnostics: raw-diagnostics",
+      "diagnosticDump: raw-diagnostic-dump"
     ]) {
       const record = createAuditRecord({
         actor: { type: "relay", id: "relay-dev" },
@@ -120,7 +128,10 @@ describe("audit records", () => {
     for (const reason of [
       "Pairing code mismatch",
       "Invalid relay token",
-      "Relay token rate limit exceeded"
+      "Relay token rate limit exceeded",
+      "clipboard denied",
+      "file transfer denied",
+      "diagnostic denied"
     ]) {
       const record = createAuditRecord({
         actor: { type: "relay", id: "relay-dev" },
@@ -143,6 +154,19 @@ describe("audit records", () => {
         screenshot: "raw-image",
         screenData: "raw-screen"
       },
+      clipboardText: "raw-clipboard",
+      clipboard: "raw-clipboard-exact",
+      fileContent: "raw-file",
+      fileBytes: "raw-file-bytes",
+      fileTransferContent: "raw-file-transfer-content",
+      fileTransfer: "raw-file-transfer-exact",
+      diagnostic: "raw-diagnostic-exact",
+      diagnostics: "raw-diagnostics-exact",
+      diagnosticDump: "raw-diagnostics",
+      fileTransferId: "transfer-demo",
+      diagnosticId: "diagnostic-demo",
+      diagnosticStatus: "collected",
+      fileName: "support.txt",
       safe: "kept"
     });
 
@@ -155,6 +179,19 @@ describe("audit records", () => {
         screenshot: "[REDACTED]",
         screenData: "[REDACTED]"
       },
+      clipboardText: "[REDACTED]",
+      clipboard: "[REDACTED]",
+      fileContent: "[REDACTED]",
+      fileBytes: "[REDACTED]",
+      fileTransferContent: "[REDACTED]",
+      fileTransfer: "[REDACTED]",
+      diagnostic: "[REDACTED]",
+      diagnostics: "[REDACTED]",
+      diagnosticDump: "[REDACTED]",
+      fileTransferId: "transfer-demo",
+      diagnosticId: "diagnostic-demo",
+      diagnosticStatus: "collected",
+      fileName: "support.txt",
       safe: "kept"
     });
   });
@@ -172,10 +209,18 @@ describe("audit records", () => {
       sessionCookie: "raw-session-cookie",
       privateKey: "raw-private-key",
       authorizationId: "authz-demo",
+      fileTransfer: {
+        fileData: "raw-transfer-data"
+      },
+      fileTransferId: "transfer-demo",
+      diagnosticId: "diagnostic-demo",
+      diagnosticStatus: "ready",
       nested: {
         xApiKey: "nested-api-key",
+        diagnostics: "raw-diagnostics",
         request: {
-          authorization_header: "nested-authorization"
+          authorization_header: "nested-authorization",
+          clipboardContents: "nested-clipboard"
         }
       },
       list: [
@@ -200,10 +245,16 @@ describe("audit records", () => {
       sessionCookie: "[REDACTED]",
       privateKey: "[REDACTED]",
       authorizationId: "authz-demo",
+      fileTransfer: "[REDACTED]",
+      fileTransferId: "transfer-demo",
+      diagnosticId: "diagnostic-demo",
+      diagnosticStatus: "ready",
       nested: {
         xApiKey: "[REDACTED]",
+        diagnostics: "[REDACTED]",
         request: {
-          authorization_header: "[REDACTED]"
+          authorization_header: "[REDACTED]",
+          clipboardContents: "[REDACTED]"
         }
       },
       list: [

@@ -49,11 +49,15 @@ The system SHALL validate audit records before storing or emitting them through 
 - **THEN** the audit sink rejects the record before storing ambiguous target metadata
 
 ### Requirement: Audit redaction
-The system MUST NOT store raw credentials, raw tokens, raw pairing codes, keystroke contents, screenshots, screen contents, or full secrets in audit details.
+The system MUST NOT store raw credentials, raw tokens, raw pairing codes, keystroke contents, screenshots, screen contents, clipboard contents, file-transfer contents/data/bytes, diagnostics content/dumps, or full secrets in audit details.
 
 #### Scenario: Audit details contain sensitive field
-- **WHEN** a component writes audit details with a sensitive field name such as token, credential, password, pairingCode, keystroke, screenshot, or screenData
+- **WHEN** a component writes audit details with a sensitive field name such as token, credential, password, pairingCode, keystroke, screenshot, screenData, clipboardText, fileContent, fileBytes, or diagnosticDump
 - **THEN** the audit layer redacts the sensitive value before storage or console output
+
+#### Scenario: Remote content metadata identifiers remain inspectable
+- **WHEN** audit details include non-content metadata fields such as `fileTransferId`, `diagnosticId`, `diagnosticStatus`, `fileName`, or `profileName`
+- **THEN** the audit layer preserves those metadata values unless another sensitive key rule applies
 
 ### Requirement: Audit detail redaction covers common authentication keys
 The system SHALL redact audit detail fields whose key names indicate common authentication or session secret material, including API keys, authorization headers, auth headers, cookies, set-cookie values, session cookies, and private keys.
@@ -74,7 +78,7 @@ The system SHALL redact audit detail fields whose key names indicate common auth
 The system SHALL redact sensitive fields in protocol `audit-event` message details during schema parsing and encoding before the message is emitted, forwarded, or stored by development components. Protocol `audit-event` messages MUST reject blank or whitespace-only action metadata before parsing, forwarding, encoding, or persistence.
 
 #### Scenario: Audit-event detail includes sensitive fields
-- **WHEN** an `audit-event` protocol message detail includes fields named token, credential, password, pairingCode, keystroke, screenshot, screenData, screenContent, secret, apiKey, authorization, authHeader, cookie, setCookie, sessionCookie, or privateKey
+- **WHEN** an `audit-event` protocol message detail includes fields named token, credential, password, pairingCode, keystroke, screenshot, screenData, screenContent, clipboardText, clipboardContents, fileContent, fileData, fileBytes, fileTransfer, diagnosticDump, diagnostics, secret, apiKey, authorization, authHeader, cookie, setCookie, sessionCookie, or privateKey
 - **THEN** the protocol schema replaces those values with a redaction marker before returning or encoding the message
 
 #### Scenario: Audit-event detail has nested sensitive fields

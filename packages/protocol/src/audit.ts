@@ -60,6 +60,19 @@ const sensitiveKeySubstrings = [
   "screenshot",
   "screendata",
   "screencontent",
+  "clipboardtext",
+  "clipboardcontent",
+  "clipboardcontents",
+  "filecontent",
+  "filedata",
+  "filebytes",
+  "filetransfercontent",
+  "filetransferdata",
+  "filetransferbytes",
+  "diagnosticcontent",
+  "diagnosticdump",
+  "diagnosticscontent",
+  "diagnosticsdump",
   "apikey",
   "cookie",
   "privatekey",
@@ -67,7 +80,13 @@ const sensitiveKeySubstrings = [
   "authheader",
   "proxyauthorization"
 ] as const;
-const sensitiveKeyExactMatches = new Set(["authorization"]);
+const sensitiveKeyExactMatches = new Set([
+  "authorization",
+  "clipboard",
+  "filetransfer",
+  "diagnostic",
+  "diagnostics"
+]);
 const nonSensitiveKeyExactMatches = new Set(["authorizationid"]);
 const REDACTED_AUDIT_VALUE = "[REDACTED]";
 const safeAuditReasons = new Set([
@@ -77,6 +96,8 @@ const safeAuditReasons = new Set([
 ]);
 const sensitiveReasonMarkerPattern =
   /\b(?:token|credential|password|secret|pairing[\s_-]*code|api[\s_-]*key|authorization|proxy[\s_-]*authorization|authorization[\s_-]*header|auth[\s_-]*header|cookie|private[\s_-]*key|keystroke|screenshot|screen[\s_-]*data|screen[\s_-]*content)\b\s*(?::|=|\s+)\s*\S+/i;
+const sensitiveRemoteContentReasonPattern =
+  /(?:\b(?:clipboard(?:[\s_-]*(?:text|content|contents))?|file[\s_-]*(?:content|data|bytes|transfer)|diagnostic(?:s)?(?:[\s_-]*(?:content|dump))?)\b\s*(?::|=)\s*\S+)|(?:\b(?:clipboard[\s_-]*(?:text|content|contents)|file[\s_-]*(?:content|data|bytes)|diagnostic(?:s)?[\s_-]*(?:content|dump))\b\s+\S+)/i;
 const sensitiveReasonCredentialPattern = /\b(?:bearer|basic)\s+[a-z0-9._~+/=-]+/i;
 const sensitiveReasonPrivateKeyPattern = /-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
 
@@ -130,6 +151,7 @@ function isSensitiveAuditReason(reason: string): boolean {
 
   return (
     sensitiveReasonMarkerPattern.test(reason) ||
+    sensitiveRemoteContentReasonPattern.test(reason) ||
     sensitiveReasonCredentialPattern.test(reason) ||
     sensitiveReasonPrivateKeyPattern.test(reason)
   );

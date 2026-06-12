@@ -54,7 +54,7 @@ Owns reusable development audit sinks:
 - File JSON-lines sink for local persistent development audit records.
 - Schema validation and redaction through protocol audit contracts.
 
-Audit output must not contain raw tokens, raw pairing codes, credentials, API keys, authorization headers, cookies, private keys, keystrokes, screenshots, or screen contents.
+Audit output must not contain raw tokens, raw pairing codes, credentials, API keys, authorization headers, cookies, private keys, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents/data/bytes, or diagnostics content/dumps.
 Audit detail redaction preserves non-secret lifecycle identifiers such as `authorizationId`.
 
 ### apps/relay
