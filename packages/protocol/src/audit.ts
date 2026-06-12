@@ -83,9 +83,25 @@ const sensitiveKeySubstrings = [
 const sensitiveKeyExactMatches = new Set([
   "authorization",
   "clipboard",
+  "decisionreason",
+  "denialreason",
+  "devicedisplayname",
+  "displayname",
   "filetransfer",
   "diagnostic",
-  "diagnostics"
+  "diagnostics",
+  "hostdisplayname",
+  "lifecyclereason",
+  "pausereason",
+  "privatereason",
+  "rawreason",
+  "reason",
+  "reasontext",
+  "resumereason",
+  "revokereason",
+  "terminatereason",
+  "terminationreason",
+  "viewerdisplayname"
 ]);
 const nonSensitiveKeyExactMatches = new Set(["authorizationid"]);
 const REDACTED_AUDIT_VALUE = "[REDACTED]";

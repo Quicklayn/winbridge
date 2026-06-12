@@ -1163,6 +1163,67 @@ describe("protocol envelopes", () => {
     expect(JSON.stringify(parsed)).not.toContain("raw-private-key");
   });
 
+  it("redacts audit-event display-name and private reason detail fields while preserving safe metadata", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "audit-event",
+      eventId: "audit-demo",
+      actorPeerId: "host-1",
+      action: "agent-shell.test",
+      outcome: "accepted",
+      detail: {
+        displayName: "Raw Host",
+        viewerDisplayName: "Raw Viewer",
+        reason: "private reason",
+        reasonText: "private reason text",
+        rawReason: "raw reason",
+        denialReason: "private denial",
+        reasonCode: "peer-closed",
+        reasonConfigured: true,
+        authorizationId: "authz-demo",
+        nested: {
+          hostDisplayName: "Nested Host",
+          lifecycleReason: "nested reason"
+        },
+        attempts: [
+          {
+            deviceDisplayName: "Array Device",
+            pauseReason: "array pause reason"
+          }
+        ]
+      }
+    });
+
+    expect(parsed).toMatchObject({
+      type: "audit-event",
+      detail: {
+        displayName: "[REDACTED]",
+        viewerDisplayName: "[REDACTED]",
+        reason: "[REDACTED]",
+        reasonText: "[REDACTED]",
+        rawReason: "[REDACTED]",
+        denialReason: "[REDACTED]",
+        reasonCode: "peer-closed",
+        reasonConfigured: true,
+        authorizationId: "authz-demo",
+        nested: {
+          hostDisplayName: "[REDACTED]",
+          lifecycleReason: "[REDACTED]"
+        },
+        attempts: [
+          {
+            deviceDisplayName: "[REDACTED]",
+            pauseReason: "[REDACTED]"
+          }
+        ]
+      }
+    });
+    expect(JSON.stringify(parsed)).not.toContain("Raw Host");
+    expect(JSON.stringify(parsed)).not.toContain("Raw Viewer");
+    expect(JSON.stringify(parsed)).not.toContain("private reason");
+    expect(JSON.stringify(parsed)).not.toContain("nested reason");
+  });
+
   it("redacts audit-event detail fields when encoding protocol messages", () => {
     const encoded = encodeProtocolEnvelope({
       ...createMessageBase("session-demo"),
@@ -1226,6 +1287,35 @@ describe("protocol envelopes", () => {
     expect(encoded).not.toContain("raw-clipboard");
     expect(encoded).not.toContain("raw-file-data");
     expect(encoded).not.toContain("raw-diagnostics");
+  });
+
+  it("redacts audit-event display-name and private reason detail fields when encoding protocol messages", () => {
+    const encoded = encodeProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "audit-event",
+      eventId: "audit-demo",
+      actorPeerId: "host-1",
+      action: "agent-shell.test",
+      outcome: "accepted",
+      detail: {
+        displayName: "Raw Host",
+        terminateReason: "private terminate reason",
+        reasonCode: "peer-closed",
+        reasonConfigured: true,
+        authorizationId: "authz-demo"
+      }
+    });
+    const decoded = JSON.parse(encoded);
+
+    expect(decoded.detail).toEqual({
+      displayName: "[REDACTED]",
+      terminateReason: "[REDACTED]",
+      reasonCode: "peer-closed",
+      reasonConfigured: true,
+      authorizationId: "authz-demo"
+    });
+    expect(encoded).not.toContain("Raw Host");
+    expect(encoded).not.toContain("private terminate reason");
   });
 
   it("defaults omitted audit-event detail to an empty object", () => {

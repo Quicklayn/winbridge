@@ -267,4 +267,62 @@ describe("audit records", () => {
       ]
     });
   });
+
+  it("redacts display-name and private reason detail keys while preserving safe metadata", () => {
+    const redacted = redactAuditDetail({
+      displayName: "Raw Host Name",
+      hostDisplayName: "Raw Host",
+      viewerDisplayName: "Raw Viewer",
+      deviceDisplayName: "Raw Device",
+      reason: "private denial reason",
+      reasonText: "private reason text",
+      rawReason: "raw reason",
+      denialReason: "denial reason",
+      revokeReason: "revoke reason",
+      pauseReason: "pause reason",
+      resumeReason: "resume reason",
+      terminationReason: "termination reason",
+      reasonCode: "peer-closed",
+      reasonConfigured: true,
+      authorizationId: "authz-demo",
+      nested: {
+        displayName: "Nested Name",
+        lifecycleReason: "nested lifecycle reason"
+      },
+      attempts: [
+        {
+          viewerDisplayName: "Array Viewer",
+          decisionReason: "array decision reason"
+        }
+      ]
+    });
+
+    expect(redacted).toEqual({
+      displayName: "[REDACTED]",
+      hostDisplayName: "[REDACTED]",
+      viewerDisplayName: "[REDACTED]",
+      deviceDisplayName: "[REDACTED]",
+      reason: "[REDACTED]",
+      reasonText: "[REDACTED]",
+      rawReason: "[REDACTED]",
+      denialReason: "[REDACTED]",
+      revokeReason: "[REDACTED]",
+      pauseReason: "[REDACTED]",
+      resumeReason: "[REDACTED]",
+      terminationReason: "[REDACTED]",
+      reasonCode: "peer-closed",
+      reasonConfigured: true,
+      authorizationId: "authz-demo",
+      nested: {
+        displayName: "[REDACTED]",
+        lifecycleReason: "[REDACTED]"
+      },
+      attempts: [
+        {
+          viewerDisplayName: "[REDACTED]",
+          decisionReason: "[REDACTED]"
+        }
+      ]
+    });
+  });
 });

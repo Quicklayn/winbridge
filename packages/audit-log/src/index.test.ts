@@ -251,6 +251,49 @@ describe("FileAuditSink", () => {
     }
   });
 
+  it("redacts display-name and private reason detail before writing JSONL records", () => {
+    const root = mkdtempSync(join(tmpdir(), "winbridge-audit-"));
+    const path = join(root, "audit.jsonl");
+    const sink = new FileAuditSink(path);
+
+    try {
+      sink.write({
+        actor: { type: "host", id: "host-1" },
+        action: "agent-shell.authorization.denied",
+        outcome: "denied",
+        detail: {
+          displayName: "Raw Host",
+          viewerDisplayName: "Raw Viewer",
+          reason: "private denial reason",
+          reasonText: "private reason text",
+          rawReason: "raw reason",
+          reasonCode: "host-denied",
+          reasonConfigured: true,
+          authorizationId: "authz-demo"
+        }
+      });
+
+      const content = readFileSync(path, "utf8");
+      expect(content).not.toContain("Raw Host");
+      expect(content).not.toContain("Raw Viewer");
+      expect(content).not.toContain("private denial reason");
+      expect(content).not.toContain("private reason text");
+      expect(content).not.toContain("raw reason");
+      expect(JSON.parse(content).detail).toEqual({
+        displayName: "[REDACTED]",
+        viewerDisplayName: "[REDACTED]",
+        reason: "[REDACTED]",
+        reasonText: "[REDACTED]",
+        rawReason: "[REDACTED]",
+        reasonCode: "host-denied",
+        reasonConfigured: true,
+        authorizationId: "authz-demo"
+      });
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   it("surfaces write failures", () => {
     const root = mkdtempSync(join(tmpdir(), "winbridge-audit-"));
     const path = join(root, "directory-target");
