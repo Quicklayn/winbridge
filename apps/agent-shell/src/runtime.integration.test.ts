@@ -126,6 +126,25 @@ describe("agent shell consent workflow", () => {
     );
   });
 
+  it("keeps relay tokens out of local connection logs and runtime events", async () => {
+    const relayToken = "relay-token-private-marker";
+    const hostLogs: string[] = [];
+    const { hostEvents } = await startRelayAndHost({
+      hostLogger: captureLogger(hostLogs),
+      hostToken: relayToken,
+      relaySharedToken: relayToken
+    });
+
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "host-1"
+    );
+
+    expect(hostLogs.join("\n")).toContain("connected to ws://127.0.0.1");
+    expect(hostLogs.join("\n")).not.toContain(relayToken);
+    expect(JSON.stringify(hostEvents)).not.toContain(relayToken);
+  });
+
   it("defers hello until the relay reports a recipient", async () => {
     const hostLogs: string[] = [];
     const { hostEvents } = await startRelayAndHost({
@@ -1876,12 +1895,15 @@ async function startRelayAndHost(options: {
   hostRevokeReason?: string;
   hostTerminateAfterMs?: number;
   hostTerminateReason?: string;
+  hostToken?: string;
+  relaySharedToken?: string;
   visibleToHost?: boolean;
 } = {}) {
   const relay = createRelayRuntime({
     port: 0,
     auditSink: new MemoryAuditSink(),
     heartbeat: false,
+    sharedToken: options.relaySharedToken,
     logger: silentLogger
   });
   await relay.start();
@@ -1897,6 +1919,7 @@ async function startRelayAndHost(options: {
     peerId: "host-1",
     displayName: options.hostDisplayName ?? "Host",
     deviceId: "dev_host_1",
+    token: options.hostToken,
     auditSink: options.hostAuditSink,
     hostDecision: options.hostDecision ?? "none",
     decisionReason: options.decisionReason,

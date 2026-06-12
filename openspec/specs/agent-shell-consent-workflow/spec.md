@@ -10,6 +10,10 @@ The agent shell SHALL expose a managed runtime with explicit start and stop oper
 - **WHEN** the agent shell runtime starts
 - **THEN** it connects to the relay and sends a join message using the same implementation as the CLI
 
+#### Scenario: Relay token remains local to connection setup
+- **WHEN** the managed agent shell connects to a token-protected development relay with a configured relay token
+- **THEN** local runtime logs and emitted runtime event records MUST NOT include the raw relay token, credentials, pairing codes, protocol payloads, private reasons, keystrokes, screenshots, screen contents, or input contents
+
 #### Scenario: Hello waits for recipient
 - **WHEN** the relay returns `relay-ready` with room size 1
 - **THEN** the shell MUST NOT send `hello`
