@@ -1138,14 +1138,22 @@ describe("relay runtime integration", () => {
 
   it("audits invalid shared-token attempts without logging the raw token", async () => {
     const auditSink = new MemoryAuditSink();
-    const runtime = await startRuntime({ auditSink, sharedToken: "correct-token" });
-    const socket = await openSocket(`${runtime.url()}?token=wrong-token`);
+    const configuredToken = "correct-token configured-token-marker";
+    const presentedToken = "wrong-token presented-token-marker";
+    const runtime = await startRuntime({ auditSink, sharedToken: configuredToken });
+    const socket = await openSocket(`${runtime.url()}?token=${encodeURIComponent(presentedToken)}`);
 
-    expect(await waitForClose(socket)).toMatchObject({ code: 1008 });
+    expect(await waitForClose(socket)).toEqual({
+      code: 1008,
+      reason: "Invalid relay token"
+    });
 
     const denied = auditSink.records().find((record) => record.action === "relay.token.denied");
     expect(denied).toBeDefined();
-    expect(JSON.stringify(denied)).not.toContain("wrong-token");
+    expect(JSON.stringify(denied)).not.toContain(presentedToken);
+    expect(JSON.stringify(denied)).not.toContain(configuredToken);
+    expect(JSON.stringify(denied)).not.toContain("presented-token-marker");
+    expect(JSON.stringify(denied)).not.toContain("configured-token-marker");
     expect(denied?.detail).toMatchObject({
       accessPresented: true
     });

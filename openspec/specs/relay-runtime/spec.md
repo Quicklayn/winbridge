@@ -84,6 +84,7 @@ The relay runtime SHALL allow tests to inject audit sinks and inspect security-r
 #### Scenario: Runtime rejects invalid token
 - **WHEN** a peer connects with an invalid shared token
 - **THEN** the injected audit sink receives a secret-safe denied token event
+- **AND** the peer-facing close reason MUST be bounded and MUST NOT include the raw presented token, configured shared token, credentials, pairing codes, protocol payloads, private reasons, keystrokes, screenshots, or screen contents
 
 ### Requirement: Testable heartbeat configuration
 The managed relay runtime SHALL allow callers to inject relay heartbeat settings or disable heartbeat timers for tests, and SHALL reject unsafe injected heartbeat timer values before starting peer heartbeat timers.
