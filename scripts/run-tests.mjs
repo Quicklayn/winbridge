@@ -13,7 +13,8 @@ if (testFiles.length === 0) {
 
 for (const testFile of testFiles) {
   const isAgentShellRuntime = testFile === "apps/agent-shell/src/runtime.integration.test.ts";
-  const pool = isAgentShellRuntime ? "vmThreads" : "forks";
+  const isRelayRuntime = testFile === "apps/relay/src/server.integration.test.ts";
+  const pool = isAgentShellRuntime || isRelayRuntime ? "threads" : "forks";
   const reporter = isAgentShellRuntime ? "default" : "dot";
   const result = spawnSync(
     process.execPath,
