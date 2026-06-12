@@ -92,6 +92,65 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(auditRecords)).not.toContain("123-456");
   });
 
+  it("audits forwarded signal authorization ids without payload contents", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const authorizationId = "authz-audit-demo";
+    const privateMarker = "accepted-signal-forward-private-marker";
+    const signalPayload = {
+      authorizationId,
+      kind: "offer",
+      sdp: "raw-forwarded-signal-sdp",
+      candidates: [{ candidate: "raw-forwarded-signal-candidate" }],
+      safeMarker: privateMarker
+    };
+
+    host.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: signalPayload
+      })
+    );
+
+    expect(await waitForProtocolMessage(viewer, (message) => message.type === "signal")).toMatchObject({
+      type: "signal",
+      fromPeerId: "host-1",
+      payload: signalPayload
+    });
+
+    const forwarded = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.forwarded" &&
+        record.detail?.messageType === "signal" &&
+        record.detail?.authorizationId === authorizationId
+    );
+
+    expect(forwarded).toMatchObject({
+      action: "relay.message.forwarded",
+      actor: {
+        id: "development-relay:host-1"
+      },
+      outcome: "accepted",
+      sessionId: "session-demo",
+      detail: {
+        messageType: "signal",
+        authorizationId
+      }
+    });
+    expect(forwarded.detail).toEqual({
+      messageType: "signal",
+      authorizationId
+    });
+    expect(JSON.stringify(forwarded)).not.toContain(privateMarker);
+    expect(JSON.stringify(forwarded)).not.toContain("raw-forwarded-signal-sdp");
+    expect(JSON.stringify(forwarded)).not.toContain("raw-forwarded-signal-candidate");
+  });
+
   it("rejects duplicate live host joins without replacing the original host or refreshing pairing", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
