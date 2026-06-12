@@ -12,9 +12,16 @@ import {
 export const DeviceTrustLevelSchema = z.enum(["unknown", "local-dev", "verified"]);
 export type DeviceTrustLevel = z.infer<typeof DeviceTrustLevelSchema>;
 
+export const DeviceDisplayNameSchema = z
+  .string()
+  .min(1)
+  .max(120)
+  .refine((displayName) => displayName.trim().length > 0, "Display name must not be blank");
+export type DeviceDisplayName = z.infer<typeof DeviceDisplayNameSchema>;
+
 export const DeviceIdentitySchema = z.object({
   deviceId: ProtocolIdentifierSchema.min(8),
-  displayName: z.string().min(1).max(120),
+  displayName: DeviceDisplayNameSchema,
   platform: z.enum(["windows", "linux", "macos", "unknown"]),
   trustLevel: DeviceTrustLevelSchema,
   createdAt: z.string().datetime()

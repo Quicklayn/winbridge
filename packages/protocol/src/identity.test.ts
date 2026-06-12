@@ -40,6 +40,16 @@ describe("device identity", () => {
       })
     ).toThrow();
   });
+
+  it("rejects blank local device display names", () => {
+    expect(() =>
+      createDeviceIdentity({
+        displayName: "   ",
+        platform: "windows",
+        deviceId: "dev_host_1"
+      })
+    ).toThrow("Display name must not be blank");
+  });
 });
 
 describe("pairing tickets", () => {

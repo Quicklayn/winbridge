@@ -30,6 +30,19 @@ describe("protocol envelopes", () => {
     ).toThrow();
   });
 
+  it("rejects blank hello display names", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "   ",
+        capabilities: ["session:visible"]
+      })
+    ).toThrow("Display name must not be blank");
+  });
+
   it("encodes only schema-valid envelopes", () => {
     const encoded = encodeProtocolEnvelope({
       ...createMessageBase("session-demo"),
@@ -327,6 +340,18 @@ describe("protocol envelopes", () => {
         requestedPermissions: ["screen:view", "screen:view"]
       })
     ).toThrow("requestedPermissions must be unique");
+  });
+
+  it("rejects blank legacy host consent request display names", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "host-consent-required",
+        viewerPeerId: "viewer-1",
+        viewerDisplayName: "   ",
+        requestedPermissions: ["screen:view"]
+      })
+    ).toThrow("Display name must not be blank");
   });
 
   it("rejects malformed legacy host consent decision grants", () => {

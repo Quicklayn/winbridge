@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import { z } from "zod";
 import { AuditOutcomeSchema, redactAuditDetail } from "./audit.js";
 import { SessionAuthorizationStatusSchema } from "./authorization.js";
-import { DeviceIdentitySchema } from "./identity.js";
+import { DeviceDisplayNameSchema, DeviceIdentitySchema } from "./identity.js";
 import {
   PairingCodeSchema,
   PeerIdSchema,
@@ -57,7 +57,7 @@ export const HelloMessageSchema = BaseMessageSchema.extend({
   type: z.literal("hello"),
   peerId: PeerIdSchema,
   role: SessionRoleSchema,
-  displayName: z.string().min(1).max(120),
+  displayName: DeviceDisplayNameSchema,
   capabilities: z.array(z.string().min(1).max(80)).max(32)
 });
 
@@ -72,7 +72,7 @@ export const JoinSessionMessageSchema = BaseMessageSchema.extend({
 export const HostConsentRequiredMessageSchema = BaseMessageSchema.extend({
   type: z.literal("host-consent-required"),
   viewerPeerId: PeerIdSchema,
-  viewerDisplayName: z.string().min(1).max(120),
+  viewerDisplayName: DeviceDisplayNameSchema,
   requestedPermissions: z.array(PermissionSchema).min(1).max(16)
 }).superRefine((message, context) => {
   rejectDuplicatePermissions(message.requestedPermissions, context, "requestedPermissions");

@@ -48,6 +48,8 @@ Unexpected relay CLI startup/shutdown errors are metadata-only and expose generi
 
 Remote actions still require an explicit host-approved active session grant.
 
+Protocol display-name metadata in local device identity, `hello`, and legacy host consent request messages must be non-blank before components use it as peer or consent UI metadata. These local display names are usability metadata only and are not production account authentication.
+
 ## Session Authorization Lifecycle
 
 Remote assistance authorization is deny-by-default:
