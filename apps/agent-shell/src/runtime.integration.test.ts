@@ -323,6 +323,58 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(sentSignal)).not.toContain("outbound-candidate");
   });
 
+  it("ignores signal messages that are not addressed to the local peer or originate locally", async () => {
+    const signalServer = await startMisdirectedSignalServer();
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: signalServer.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvents = await waitForRawEventCount(hostEvents, 2);
+      await delay(100);
+
+      expect(rawEvents).toHaveLength(2);
+      for (const rawEvent of rawEvents) {
+        expect(rawEvent).toMatchObject({
+          direction: "raw",
+          text: "[REDACTED]",
+          byteLength: expect.any(Number)
+        });
+        expect(rawEvent.byteLength).toBeGreaterThan(0);
+      }
+      expect(
+        hostEvents.some((event) => event.direction === "received" && event.message.type === "signal")
+      ).toBe(false);
+
+      const serializedRawEvents = JSON.stringify(rawEvents);
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput.match(/ignored unsafe inbound protocol message bytes=/g)).toHaveLength(2);
+      expect(logOutput).not.toContain("received signal");
+      expect(logOutput).not.toContain("signal");
+      expect(logOutput).not.toContain("host-1");
+      expect(logOutput).not.toContain("viewer-1");
+      expect(logOutput).not.toContain("other-peer");
+      expect(logOutput).not.toContain("session-demo");
+      expect(logOutput).not.toContain("private-signal-payload-marker");
+      expect(serializedRawEvents).not.toContain("signal");
+      expect(serializedRawEvents).not.toContain("host-1");
+      expect(serializedRawEvents).not.toContain("viewer-1");
+      expect(serializedRawEvents).not.toContain("other-peer");
+      expect(serializedRawEvents).not.toContain("session-demo");
+      expect(serializedRawEvents).not.toContain("private-signal-payload-marker");
+    } finally {
+      await host?.stop();
+      await signalServer.stop();
+    }
+  });
+
   it("sends viewer authorization requests through the relay to the host", async () => {
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -2303,6 +2355,24 @@ function waitForRawEvent(
   );
 }
 
+function waitForRawEventCount(
+  events: AgentShellEvent[],
+  count: number
+): Promise<Array<Extract<AgentShellEvent, { direction: "raw" }>>> {
+  return withTimeout(
+    new Promise((resolve) => {
+      const interval = setInterval(() => {
+        const matches = events.filter((event) => event.direction === "raw");
+
+        if (matches.length >= count) {
+          clearInterval(interval);
+          resolve(matches.slice(0, count) as Array<Extract<AgentShellEvent, { direction: "raw" }>>);
+        }
+      }, 5);
+    })
+  );
+}
+
 function waitForClosedEvent(
   events: AgentShellEvent[]
 ): Promise<Extract<AgentShellEvent, { direction: "closed" }>> {
@@ -2478,6 +2548,58 @@ async function startSelfHelloServer(): Promise<{
   const address = wss.address() as AddressInfo | string | null;
   if (!address || typeof address === "string") {
     throw new Error("Self-hello test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startMisdirectedSignalServer(): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    socket.once("message", () => {
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "other-peer",
+        payload: {
+          kind: "offer",
+          sdp: "private-signal-payload-marker"
+        }
+      }));
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "host-1",
+        payload: {
+          kind: "answer",
+          sdp: "private-signal-payload-marker"
+        }
+      }));
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Misdirected signal test server did not expose a TCP port");
   }
 
   return {

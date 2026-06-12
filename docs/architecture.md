@@ -122,6 +122,7 @@ The shell has a managed runtime shared by CLI and tests. Development consent wor
 - Runtime `sent` events use schema-normalized event-safe protocol views; audit-event details and join-session pairing codes are redacted from the local event surface.
 - Runtime `sent` events for `signal` messages expose routing metadata and redacted payload summaries, not raw signal payload contents.
 - Runtime `received` events for `signal` messages expose routing metadata and redacted payload summaries, not raw signal payload contents.
+- Inbound `signal` messages are ignored before local received-event emission unless they are addressed to the local runtime peer and originate from a distinct remote peer.
 - Runtime `sent` and `received` events redact protocol `reason` text while preserving consent workflow metadata.
 - Runtime `raw` events for non-protocol inbound text are metadata-only; they expose redacted text and byte length, not the original payload.
 - Runtime `closed` events for WebSocket disconnects are metadata-only; they expose redacted reason text and reason byte length, not the original close reason.

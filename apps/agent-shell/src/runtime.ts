@@ -282,6 +282,11 @@ function handleMessage(
     return;
   }
 
+  if (isMisdirectedSignal(envelope, options)) {
+    reportIgnoredUnsafeProtocolMessage(text, options);
+    return;
+  }
+
   options.onEvent?.({ direction: "received", message: redactReceivedEventMessage(envelope) });
   options.logger?.log(`[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 
@@ -336,6 +341,16 @@ function isSelfHelloMessage(
   options: AgentShellRuntimeOptions
 ): boolean {
   return envelope.type === "hello" && envelope.peerId === options.peerId;
+}
+
+function isMisdirectedSignal(
+  envelope: ProtocolEnvelope,
+  options: AgentShellRuntimeOptions
+): boolean {
+  return (
+    envelope.type === "signal" &&
+    (envelope.toPeerId !== options.peerId || envelope.fromPeerId === options.peerId)
+  );
 }
 
 function reportIgnoredUnsafeProtocolMessage(
