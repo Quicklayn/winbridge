@@ -147,7 +147,7 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-consent-prompt
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
-The prompt accepts only exact `approve` or `deny` responses. Static `--host-decision approve|deny` remains for deterministic automation and is mutually exclusive with `--host-consent-prompt true`.
+The prompt accepts only exact `approve` or `deny` responses before the host consent timeout expires. Prompt mode defaults to a 60000 ms timeout; use `--host-consent-timeout-ms 30000` with `--host-consent-prompt true` to configure a shorter or longer bounded wait. Static `--host-decision approve|deny` remains for deterministic automation and is mutually exclusive with `--host-consent-prompt true`.
 
 This still does not capture the screen or send input. It only sends session authorization protocol messages and local secret-safe host indicator events for development UI wiring. Signaling payloads must be JSON-compatible objects; JavaScript-only values that JSON would drop or coerce are rejected before forwarding.
 

@@ -1,27 +1,40 @@
 import { createInterface } from "node:readline/promises";
 import type { Readable, Writable } from "node:stream";
-import type { HostDecision, HostDecisionProvider, HostDecisionProviderRequest } from "./runtime.js";
+import {
+  DEFAULT_HOST_CONSENT_TIMEOUT_MS,
+  type HostDecision,
+  type HostDecisionProvider,
+  type HostDecisionProviderRequest
+} from "./runtime.js";
 
 export type HostConsentPromptStreams = {
   input?: Readable;
   output?: Writable;
 };
 
+export type HostConsentPromptOptions = HostConsentPromptStreams & {
+  timeoutMs?: number;
+};
+
 export function createInteractiveHostDecisionProvider(
-  streams: HostConsentPromptStreams = {}
+  options: HostConsentPromptOptions = {}
 ): HostDecisionProvider {
-  return (request) => promptForHostConsentDecision(request, streams);
+  return (request) => promptForHostConsentDecision(request, options);
 }
 
 export async function promptForHostConsentDecision(
   request: HostDecisionProviderRequest,
-  streams: HostConsentPromptStreams = {}
+  options: HostConsentPromptOptions = {}
 ): Promise<HostDecision> {
-  const input = streams.input ?? process.stdin;
-  const output = streams.output ?? process.stdout;
+  const input = options.input ?? process.stdin;
+  const output = options.output ?? process.stdout;
   const readline = createInterface({ input, output });
   const abortController = new AbortController();
   const abortPrompt = () => abortController.abort();
+  const timeout = setTimeout(
+    abortPrompt,
+    options.timeoutMs ?? DEFAULT_HOST_CONSENT_TIMEOUT_MS
+  );
 
   try {
     input.once("close", abortPrompt);
@@ -38,6 +51,7 @@ export async function promptForHostConsentDecision(
     input.off("close", abortPrompt);
     input.off("end", abortPrompt);
     input.off("error", abortPrompt);
+    clearTimeout(timeout);
     readline.close();
   }
 }

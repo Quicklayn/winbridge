@@ -52,6 +52,7 @@ export type AgentShellRuntimeOptions = {
   requestedPermissions?: Permission[];
   hostDecision?: HostDecision;
   hostDecisionProvider?: HostDecisionProvider;
+  hostConsentTimeoutMs?: number;
   visibleToHost?: boolean;
   decisionReason?: string;
   authorizationTtlMs?: number;
@@ -149,10 +150,13 @@ export type AgentShellRuntime = {
 export const MAX_AGENT_SHELL_REASON_LENGTH = 240;
 export const MAX_AGENT_SHELL_TOKEN_BYTES = 1024;
 export const MAX_AGENT_SHELL_TIMER_DELAY_MS = 2_147_483_647;
+export const DEFAULT_HOST_CONSENT_TIMEOUT_MS = 60_000;
 
 const HOST_DECISION_ERROR_MESSAGE = "Host decision must be one of: none, approve, deny";
 const HOST_DECISION_PROVIDER_ERROR_MESSAGE =
   "Host decision provider is only valid for host runtimes without static approval or denial";
+const HOST_CONSENT_TIMEOUT_ERROR_MESSAGE =
+  "Host consent timeout must be an integer from 1 through 2147483647 and requires an interactive host decision provider";
 const RUNTIME_DISPLAY_NAME_ERROR_MESSAGE =
   "Runtime display name must be non-blank, already trimmed, 120 characters or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
 const RUNTIME_IDENTIFIER_ERROR_MESSAGE = "Runtime protocol identifiers are invalid";
@@ -1192,10 +1196,15 @@ async function resolveHostDecision(
   }
 
   try {
-    const decision = await options.hostDecisionProvider({
-      requestedPermissions: [...request.requestedPermissions],
-      requestedPermissionCount: request.requestedPermissions.length
-    });
+    const result = await resolveHostDecisionProvider(options, request);
+    if (result.timedOut) {
+      options.logger?.log(
+        `[winbridge-agent] interactive host consent timed out timeoutMs=${result.timeoutMs}`
+      );
+      return "none";
+    }
+
+    const decision = result.decision;
 
     if (decision === "approve" || decision === "deny") {
       return decision;
@@ -1207,6 +1216,47 @@ async function resolveHostDecision(
     reportRuntimeError(options, error);
     options.logger?.log("[winbridge-agent] interactive host consent failed closed");
     return "none";
+  }
+}
+
+async function resolveHostDecisionProvider(
+  options: AgentShellRuntimeOptions,
+  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>
+): Promise<
+  | { timedOut: false; decision: HostDecision | null | undefined }
+  | { timedOut: true; timeoutMs: number }
+> {
+  const provider = options.hostDecisionProvider;
+  if (!provider) {
+    return { timedOut: false, decision: options.hostDecision ?? "none" };
+  }
+
+  const timeoutMs = options.hostConsentTimeoutMs ?? DEFAULT_HOST_CONSENT_TIMEOUT_MS;
+  const timeoutResult = Symbol("host-consent-timeout");
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const decision = await Promise.race([
+      Promise.resolve(
+        provider({
+          requestedPermissions: [...request.requestedPermissions],
+          requestedPermissionCount: request.requestedPermissions.length
+        })
+      ),
+      new Promise<typeof timeoutResult>((resolve) => {
+        timeout = setTimeout(() => resolve(timeoutResult), timeoutMs);
+      })
+    ]);
+
+    if (decision === timeoutResult) {
+      return { timedOut: true, timeoutMs };
+    }
+
+    return { timedOut: false, decision };
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
 }
 
@@ -1344,6 +1394,24 @@ function assertRuntimeHostDecisionProvider(options: AgentShellRuntimeOptions): v
   }
 }
 
+function assertRuntimeHostConsentTimeout(
+  value: unknown,
+  provider: HostDecisionProvider | undefined
+): void {
+  if (value === undefined) {
+    return;
+  }
+
+  if (
+    provider === undefined ||
+    !Number.isInteger(value) ||
+    (value as number) < 1 ||
+    (value as number) > MAX_AGENT_SHELL_TIMER_DELAY_MS
+  ) {
+    throw new Error(HOST_CONSENT_TIMEOUT_ERROR_MESSAGE);
+  }
+}
+
 function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
   const relayUrl = parseRuntimeRelayUrl(options.relayUrl);
 
@@ -1356,6 +1424,7 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
   assertRuntimeVisibleToHost(options.visibleToHost);
   assertValidHostDecision(options.hostDecision);
   assertRuntimeHostDecisionProvider(options);
+  assertRuntimeHostConsentTimeout(options.hostConsentTimeoutMs, options.hostDecisionProvider);
   assertRuntimeAuthorizationTtl(options.authorizationTtlMs);
   assertRuntimeWorkflowTimers([
     options.hostRevokeAfterMs,

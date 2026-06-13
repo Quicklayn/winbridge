@@ -120,6 +120,22 @@ describe("agent shell consent workflow", () => {
       ["untrimmed display name", { displayName: " Host" }, "Runtime display name"],
       ["control-character display name", { displayName: "Host\nName" }, "Runtime display name"],
       ["bidi-control display name", { displayName: "Host\u202eName" }, "Runtime display name"],
+      ["providerless host consent timeout", { hostConsentTimeoutMs: 5000 }, "Host consent timeout"],
+      [
+        "zero host consent timeout",
+        { hostDecisionProvider: () => "deny", hostConsentTimeoutMs: 0 },
+        "Host consent timeout"
+      ],
+      [
+        "fractional host consent timeout",
+        { hostDecisionProvider: () => "deny", hostConsentTimeoutMs: 1.5 },
+        "Host consent timeout"
+      ],
+      [
+        "unsafe host consent timeout",
+        { hostDecisionProvider: () => "deny", hostConsentTimeoutMs: 2_147_483_648 },
+        "Host consent timeout"
+      ],
       ["blank token", { token: "   " }, "Runtime token"],
       ["untrimmed token", { token: " relay-token " }, "Runtime token"],
       ["non-string token", { token: null as unknown as string }, "Runtime token"],
@@ -1786,6 +1802,36 @@ describe("agent shell consent workflow", () => {
             event.message.type === "audit-event")
       )
     ).toBe(false);
+  });
+
+  it("fails closed when interactive host consent times out", async () => {
+    const hostLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: () => new Promise<HostDecision>(() => undefined),
+      hostConsentTimeoutMs: 5,
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(hostEvents, (message) => message.type === "session-authorization-request");
+    await delay(100);
+
+    expect(hostLogs.join("\n")).toContain("interactive host consent timed out timeoutMs=5");
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          event.direction !== "indicator" &&
+          "message" in event &&
+          (event.message.type === "session-authorization-decision" ||
+            event.message.type === "session-authorization-state" ||
+            event.message.type === "session-control" ||
+            event.message.type === "permission-revoked" ||
+            event.message.type === "signal" ||
+            event.message.type === "audit-event")
+      )
+    ).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
   });
 
   it("fails closed with secret-safe diagnostics when interactive host consent throws", async () => {
@@ -6706,6 +6752,7 @@ async function startRelayAndHost(options: {
   hostDisconnectAfterMs?: number;
   hostDisplayName?: string;
   hostDecisionProvider?: HostDecisionProvider;
+  hostConsentTimeoutMs?: number;
   hostLogger?: TestLogger;
   hostOnEvent?: (event: AgentShellEvent) => void;
   hostPauseAfterMs?: number;
@@ -6745,6 +6792,7 @@ async function startRelayAndHost(options: {
     auditSink: options.hostAuditSink,
     hostDecision: options.hostDecision ?? "none",
     hostDecisionProvider: options.hostDecisionProvider,
+    hostConsentTimeoutMs: options.hostConsentTimeoutMs,
     hostDisconnectAfterMs: options.hostDisconnectAfterMs,
     decisionReason: options.decisionReason,
     authorizationTtlMs: options.authorizationTtlMs,

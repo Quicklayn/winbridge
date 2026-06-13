@@ -36,6 +36,13 @@ describe("agent shell arguments", () => {
   it("parses interactive host consent prompt mode for host runtimes", () => {
     expect(parseArgs(["host", "--host-consent-prompt", "true"], {}, 42).hostConsentPrompt).toBe(true);
     expect(
+      parseArgs(
+        ["host", "--host-consent-prompt", "true", "--host-consent-timeout-ms", "5000"],
+        {},
+        42
+      ).hostConsentTimeoutMs
+    ).toBe(5000);
+    expect(
       parseArgs(["host", "--host-consent-prompt", "true", "--host-decision", "none"], {}, 42)
         .hostConsentPrompt
     ).toBe(true);
@@ -109,6 +116,22 @@ describe("agent shell arguments", () => {
     expect(() =>
       parseArgs(["host", "--host-consent-prompt", "true", "--host-decision", "deny"], {}, 42)
     ).toThrow(AgentShellUsageError);
+  });
+
+  it("rejects malformed host consent timeout values", () => {
+    expect(() => parseArgs(["host", "--host-consent-timeout-ms", "5000"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+
+    for (const timeoutMs of ["0", "-1", "1.5", "Infinity", "2147483648"]) {
+      expect(() =>
+        parseArgs(
+          ["host", "--host-consent-prompt", "true", "--host-consent-timeout-ms", timeoutMs],
+          {},
+          42
+        )
+      ).toThrow(AgentShellUsageError);
+    }
   });
 
   it("rejects unknown and duplicate options", () => {

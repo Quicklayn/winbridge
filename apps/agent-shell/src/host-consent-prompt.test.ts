@@ -1,8 +1,13 @@
 import { Readable, Writable } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { promptForHostConsentDecision } from "./host-consent-prompt.js";
+import { DEFAULT_HOST_CONSENT_TIMEOUT_MS } from "./runtime.js";
 
 describe("interactive host consent prompt", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("accepts exact approval and denial responses", async () => {
     await expect(promptWithInput("approve\n")).resolves.toBe("approve");
     await expect(promptWithInput("deny\n")).resolves.toBe("deny");
@@ -24,6 +29,38 @@ describe("interactive host consent prompt", () => {
         { input: Readable.from([]), output }
       )
     ).resolves.toBe("none");
+  });
+
+  it("fails closed when the prompt times out", async () => {
+    const input = new Readable({
+      read() {
+        // Keep the stream open so timeout, not EOF, closes the prompt.
+      }
+    });
+
+    await expect(
+      promptForHostConsentDecision(
+        { requestedPermissions: ["screen:view"], requestedPermissionCount: 1 },
+        { input, output: createCapturingOutput(), timeoutMs: 1 }
+      )
+    ).resolves.toBe("none");
+  });
+
+  it("fails closed with the default timeout when no timeout option is supplied", async () => {
+    vi.useFakeTimers();
+    const input = new Readable({
+      read() {
+        // Keep the stream open so the default timeout closes the prompt.
+      }
+    });
+
+    const decision = promptForHostConsentDecision(
+      { requestedPermissions: ["screen:view"], requestedPermissionCount: 1 },
+      { input, output: createCapturingOutput() }
+    );
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_HOST_CONSENT_TIMEOUT_MS);
+    await expect(decision).resolves.toBe("none");
   });
 
   it("renders only bounded permission metadata", async () => {

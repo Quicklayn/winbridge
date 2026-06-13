@@ -8,7 +8,9 @@ try {
   const args = parseArgs(process.argv.slice(2));
   const runtime = createAgentShellRuntime({
     ...args,
-    hostDecisionProvider: args.hostConsentPrompt ? createInteractiveHostDecisionProvider() : undefined,
+    hostDecisionProvider: args.hostConsentPrompt
+      ? createInteractiveHostDecisionProvider({ timeoutMs: args.hostConsentTimeoutMs })
+      : undefined,
     auditSink: args.auditLogPath ? new FileAuditSink(args.auditLogPath) : undefined
   });
 
