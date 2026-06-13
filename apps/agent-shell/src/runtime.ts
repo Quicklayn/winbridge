@@ -1094,7 +1094,13 @@ async function handleHostAuthorizationRequest(
   }
 
   const authorizationId = `authz_${randomUUID()}`;
-  const expiresAt = new Date(Date.now() + (options.authorizationTtlMs ?? 10 * 60_000)).toISOString();
+  const grantCreatedAt = new Date();
+  const ttlMs = options.authorizationTtlMs ?? 10 * 60_000;
+  const expiresAt = new Date(grantCreatedAt.getTime() + ttlMs).toISOString();
+  const createGrantMessageBase = () => ({
+    ...createMessageBase(options.sessionId),
+    createdAt: grantCreatedAt.toISOString()
+  });
   const approvalAuditEvent = prepareDevelopmentAuditEvent(options, {
     action: "agent-shell.authorization.approved",
     outcome: "accepted",
@@ -1113,7 +1119,7 @@ async function handleHostAuthorizationRequest(
     expiresAt
   });
   sendProtocol(socket, options, {
-    ...createMessageBase(options.sessionId),
+    ...createGrantMessageBase(),
     type: "session-authorization-decision",
     authorizationId,
     hostPeerId: options.peerId,
@@ -1147,7 +1153,7 @@ async function handleHostAuthorizationRequest(
   });
   emitHostIndicatorFromAuthorization(options, sessionState, "activated");
   sendProtocol(socket, options, {
-    ...createMessageBase(options.sessionId),
+    ...createGrantMessageBase(),
     type: "session-authorization-state",
     authorizationId,
     actorPeerId: options.peerId,
@@ -1158,10 +1164,10 @@ async function handleHostAuthorizationRequest(
   });
   sendProtocol(socket, options, activeAuditEvent);
 
+  scheduleHostExpiration(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostRevoke(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostTerminate(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostPause(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
-  scheduleHostExpiration(socket, options, request, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostDisconnect(socket, options, expiresAt, workflowState, sessionState, scheduleTimer);
 }
 
@@ -2025,6 +2031,7 @@ function scheduleHostExpiration(
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): void {
   const ttlMs = options.authorizationTtlMs ?? 10 * 60_000;
+  const expirationDelayMs = Math.max(0, Date.parse(expiresAt) - Date.now());
 
   scheduleTimer(() => {
     if (workflowState.terminalStatus) {
@@ -2069,7 +2076,7 @@ function scheduleHostExpiration(
     });
 
     sendProtocol(socket, options, auditEvent);
-  }, ttlMs);
+  }, expirationDelayMs);
 }
 
 function scheduleHostDisconnect(

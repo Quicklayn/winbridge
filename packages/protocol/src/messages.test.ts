@@ -1508,24 +1508,32 @@ describe("protocol envelopes", () => {
     }
   });
 
-  it("accepts terminal session authorization state updates with empty permissions", () => {
-    const parsed = parseProtocolEnvelope({
-      ...createMessageBase("session-demo"),
-      type: "session-authorization-state",
-      authorizationId: "authz-demo",
-      actorPeerId: "host-1",
-      status: "revoked",
-      visibleToHost: true,
-      permissions: [],
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      reason: "Host revoked"
-    });
+  it("accepts terminal session authorization state updates with reasons and empty permissions", () => {
+    for (const state of [
+      { status: "denied", visibleToHost: false, reason: "Host denied" },
+      { status: "revoked", visibleToHost: true, reason: "Host revoked" },
+      { status: "terminated", visibleToHost: true, reason: "Host terminated" },
+      { status: "expired", visibleToHost: true, reason: "Authorization expired" }
+    ] as const) {
+      const parsed = parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        status: state.status,
+        visibleToHost: state.visibleToHost,
+        permissions: [],
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        reason: state.reason
+      });
 
-    expect(parsed).toMatchObject({
-      type: "session-authorization-state",
-      status: "revoked",
-      permissions: []
-    });
+      expect(parsed).toMatchObject({
+        type: "session-authorization-state",
+        status: state.status,
+        visibleToHost: state.visibleToHost,
+        permissions: []
+      });
+    }
   });
 
   it("rejects active session authorization state updates that are not visible to host", () => {
@@ -1562,9 +1570,9 @@ describe("protocol envelopes", () => {
     });
 
     for (const state of [
-      { status: "pending", permissions: [] },
-      { status: "approved", permissions: ["screen:view"] },
-      { status: "denied", permissions: [] }
+      { status: "pending", permissions: [], reason: undefined },
+      { status: "approved", permissions: ["screen:view"], reason: undefined },
+      { status: "denied", permissions: [], reason: "Host denied" }
     ] as const) {
       expect(() =>
         parseProtocolEnvelope({
@@ -1575,9 +1583,32 @@ describe("protocol envelopes", () => {
           status: state.status,
           visibleToHost: true,
           permissions: state.permissions,
-          expiresAt: new Date(Date.now() + 60_000).toISOString()
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          ...(state.reason ? { reason: state.reason } : {})
         })
       ).toThrow("cannot be visible before activation");
+    }
+  });
+
+  it("rejects terminal session authorization state updates without reasons", () => {
+    for (const state of [
+      { status: "denied", visibleToHost: false },
+      { status: "revoked", visibleToHost: true },
+      { status: "terminated", visibleToHost: true },
+      { status: "expired", visibleToHost: true }
+    ] as const) {
+      expect(() =>
+        parseProtocolEnvelope({
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz-demo",
+          actorPeerId: "host-1",
+          status: state.status,
+          visibleToHost: state.visibleToHost,
+          permissions: [],
+          expiresAt: new Date(Date.now() + 60_000).toISOString()
+        })
+      ).toThrow(`${state.status} session authorization state requires reason`);
     }
   });
 

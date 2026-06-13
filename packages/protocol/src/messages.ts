@@ -259,6 +259,20 @@ export const SessionAuthorizationStateMessageSchema = BaseMessageSchema.extend({
   const grantBearingState =
     message.status === "approved" || message.status === "active" || message.status === "paused";
 
+  const terminalState =
+    message.status === "denied" ||
+    message.status === "revoked" ||
+    message.status === "terminated" ||
+    message.status === "expired";
+
+  if (terminalState && !message.reason) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${message.status} session authorization state requires reason`,
+      path: ["reason"]
+    });
+  }
+
   if (grantBearingState && message.permissions.length === 0) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
