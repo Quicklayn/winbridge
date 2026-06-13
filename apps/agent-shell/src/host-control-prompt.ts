@@ -47,10 +47,23 @@ export function startInteractiveHostControlPrompt(
   const readline = createInterface({ input, output, terminal: false });
   let stopped = false;
 
+  const stopPrompt = () => {
+    if (stopped) {
+      return;
+    }
+
+    stopped = true;
+    readline.close();
+  };
+
   output.write(HOST_CONTROL_PROMPT_TEXT);
 
   readline.on("line", (line) => {
-    handleHostControlLine(runtime, output, line);
+    if (stopped) {
+      return;
+    }
+
+    handleHostControlLine(runtime, output, stopPrompt, line);
   });
   readline.once("close", () => {
     if (!stopped) {
@@ -61,12 +74,7 @@ export function startInteractiveHostControlPrompt(
 
   return {
     stop() {
-      if (stopped) {
-        return;
-      }
-
-      stopped = true;
-      readline.close();
+      stopPrompt();
     }
   };
 }
@@ -133,6 +141,7 @@ function parseRevokeCommand(line: string): HostControlCommand | undefined {
 function handleHostControlLine(
   runtime: AgentShellRuntime,
   output: Writable,
+  stopPrompt: () => void,
   line: string
 ): void {
   const command = parseHostControlCommand(line);
@@ -154,6 +163,9 @@ function handleHostControlLine(
 
     runHostControlCommand(runtime, command);
     output.write(`${HOST_CONTROL_ACCEPTED_PREFIX} action=${command.action}\n`);
+    if (command.action === "disconnect") {
+      stopPrompt();
+    }
   } catch (error) {
     output.write(`${formatAgentShellCliError(error)}\n`);
   }

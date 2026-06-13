@@ -169,6 +169,75 @@ describe("interactive host control prompt", () => {
     expect(output.text()).not.toContain("raw-token");
   });
 
+  it("stops the prompt after successful host disconnect", async () => {
+    const runtime = createRuntimeSpy();
+    const output = createCapturingOutput();
+    const input = new PassThrough();
+
+    const handle = startInteractiveHostControlPrompt(runtime, { input, output });
+    try {
+      input.write("disconnect\n");
+      await waitForText(output, (text) => text.includes("host control accepted action=disconnect"));
+
+      input.write("status\n");
+      await waitForSettledPromptInput();
+
+      expect(runtime.disconnect).toHaveBeenCalledTimes(1);
+      expect(runtime.getHostStatus).not.toHaveBeenCalled();
+      expect(runtime.pause).not.toHaveBeenCalled();
+      expect(runtime.resume).not.toHaveBeenCalled();
+      expect(runtime.revokePermission).not.toHaveBeenCalled();
+      expect(runtime.terminate).not.toHaveBeenCalled();
+      expect(runtime.leave).not.toHaveBeenCalled();
+      expect(runtime.send).not.toHaveBeenCalled();
+      expect(output.text()).not.toContain("[winbridge-agent] host status");
+      expect(output.text()).not.toContain("raw-token");
+    } finally {
+      handle.stop();
+      input.end();
+    }
+  });
+
+  it("keeps the prompt available after failed host disconnect", async () => {
+    const rawErrorMessage = "disconnect failed with raw-token at C:\\Users\\Nur\\secret";
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.disconnect).mockImplementation(() => {
+      throw new Error(rawErrorMessage);
+    });
+    vi.mocked(runtime.getHostStatus).mockReturnValue({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0,
+      inactiveCause: "local-disconnect"
+    });
+    const output = createCapturingOutput();
+    const input = new PassThrough();
+
+    const handle = startInteractiveHostControlPrompt(runtime, { input, output });
+    try {
+      input.write("disconnect\n");
+      await waitForText(output, (text) => text.includes("[winbridge-agent] error messageBytes="));
+      input.write("status\n");
+      await waitForText(output, (text) => text.includes("inactiveCause=local-disconnect"));
+
+      expect(runtime.disconnect).toHaveBeenCalledTimes(1);
+      expect(runtime.getHostStatus).toHaveBeenCalledTimes(1);
+      expect(runtime.pause).not.toHaveBeenCalled();
+      expect(runtime.resume).not.toHaveBeenCalled();
+      expect(runtime.revokePermission).not.toHaveBeenCalled();
+      expect(runtime.terminate).not.toHaveBeenCalled();
+      expect(runtime.leave).not.toHaveBeenCalled();
+      expect(runtime.send).not.toHaveBeenCalled();
+      expect(output.text()).toContain(`[winbridge-agent] error messageBytes=${Buffer.byteLength(rawErrorMessage)}`);
+      expect(output.text()).not.toContain(rawErrorMessage);
+      expect(output.text()).not.toContain("raw-token");
+      expect(output.text()).not.toContain("C:\\Users\\Nur");
+    } finally {
+      handle.stop();
+      input.end();
+    }
+  });
+
   it("formats inactive host status without undefined fields", () => {
     expect(
       formatHostControlStatus({
@@ -323,4 +392,8 @@ async function waitForText(
 
 function countMatches(text: string, pattern: string): number {
   return text.split(pattern).length - 1;
+}
+
+async function waitForSettledPromptInput(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 25));
 }
