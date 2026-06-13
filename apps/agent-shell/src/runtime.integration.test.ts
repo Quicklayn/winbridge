@@ -119,6 +119,7 @@ describe("agent shell consent workflow", () => {
       ["blank display name", { displayName: "   " }, "Runtime display name"],
       ["untrimmed display name", { displayName: " Host" }, "Runtime display name"],
       ["control-character display name", { displayName: "Host\nName" }, "Runtime display name"],
+      ["bidi-control display name", { displayName: "Host\u202eName" }, "Runtime display name"],
       ["blank token", { token: "   " }, "Runtime token"],
       ["untrimmed token", { token: " relay-token " }, "Runtime token"],
       ["non-string token", { token: null as unknown as string }, "Runtime token"],
@@ -599,6 +600,52 @@ describe("agent shell consent workflow", () => {
         peerId: "viewer-1",
         role: "viewer",
         displayName: `${privateMarker}\nControl`,
+        capabilities: ["session:visible"]
+      })
+    ]);
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: server.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(hostEvents.some((event) => event.direction === "received")).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "hello")).toBe(false);
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("received non-protocol message bytes=");
+      expect(logOutput).not.toContain(privateMarker);
+      expect(serializedEvents).not.toContain(privateMarker);
+    } finally {
+      await host?.stop();
+      await server.stop();
+    }
+  });
+
+  it("treats inbound hello messages with bidi-control display names as raw unsafe input", async () => {
+    const privateMarker = "Viewer Private Display";
+    const server = await startViewerAuthorizationLifecycleServer(() => [
+      JSON.stringify({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: `${privateMarker}\u202eControl`,
         capabilities: ["session:visible"]
       })
     ]);
@@ -6089,6 +6136,44 @@ describe("agent shell consent workflow", () => {
         peerId: "host-1",
         role: "host",
         displayName: `${privateMarker}\nControl`,
+        capabilities: ["agent-shell:test"]
+      } as ProtocolEnvelope);
+    } catch (error) {
+      blockedError = error;
+    }
+
+    await delay(50);
+
+    expect(blockedError).toBeInstanceOf(Error);
+    expect(String(blockedError)).not.toContain(privateMarker);
+    expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBefore);
+    expect(
+      viewerEvents.filter((event) => event.direction === "received" && event.message.type === "hello")
+    ).toHaveLength(viewerReceivedHelloCountBefore);
+    expect(JSON.stringify(hostEvents)).not.toContain(privateMarker);
+    expect(JSON.stringify(viewerEvents)).not.toContain(privateMarker);
+  });
+
+  it("blocks public hello sends with bidi-control display names before socket write or sent events", async () => {
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost();
+    await startViewer(relay.url(), [], viewerEvents);
+    await waitForMessage(hostEvents, (message) => message.type === "hello");
+    await waitForMessage(viewerEvents, (message) => message.type === "hello");
+
+    const privateMarker = "Host Private Display";
+    const sentCountBefore = hostEvents.filter((event) => event.direction === "sent").length;
+    const viewerReceivedHelloCountBefore = viewerEvents.filter(
+      (event) => event.direction === "received" && event.message.type === "hello"
+    ).length;
+
+    let blockedError: unknown;
+    try {
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: `${privateMarker}\u202eControl`,
         capabilities: ["agent-shell:test"]
       } as ProtocolEnvelope);
     } catch (error) {

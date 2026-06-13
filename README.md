@@ -129,7 +129,7 @@ npm run dev:agent -- host --session demo --pairing 123-456
 npm run dev:agent -- viewer --session demo --pairing 123-456
 ```
 
-Optional `--name` display values must be non-blank, already trimmed, at most 120 characters, and contain no ASCII control characters.
+Optional `--name` display values must be non-blank, already trimmed, at most 120 characters, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls.
 Optional `--request` values must use exact comma-separated permission tokens with no spaces around entries, for example `screen:view,input:pointer`.
 Optional workflow reason values such as `--revoke-reason`, `--pause-reason`, `--resume-reason`, and `--terminate-reason` must be non-blank, already trimmed, and at most 240 characters.
 

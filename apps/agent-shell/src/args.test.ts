@@ -187,6 +187,8 @@ describe("agent shell arguments", () => {
       " Viewer Support",
       "Viewer Support ",
       "Viewer\nSupport",
+      "Viewer\u202eSupport",
+      "Viewer\u200bSupport",
       "x".repeat(121)
     ]) {
       expect(() => parseArgs(["viewer", "--name", displayName], {}, 42)).toThrow(

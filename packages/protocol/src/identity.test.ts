@@ -74,6 +74,18 @@ describe("device identity", () => {
     ).toThrow("Display name must not contain ASCII control characters");
   });
 
+  it("rejects local device display names with Unicode bidi or zero-width controls", () => {
+    for (const displayName of ["Host\u202eworkstation", "Host\u200bworkstation"]) {
+      expect(() =>
+        createDeviceIdentity({
+          displayName,
+          platform: "windows",
+          deviceId: "dev_host_1"
+        })
+      ).toThrow("Display name must not contain Unicode bidi or zero-width formatting controls");
+    }
+  });
+
   it("rejects device identity records with unknown fixed fields", () => {
     expect(() =>
       DeviceIdentitySchema.parse({

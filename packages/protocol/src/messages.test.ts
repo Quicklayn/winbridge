@@ -235,6 +235,21 @@ describe("protocol envelopes", () => {
     ).toThrow("Display name must not contain ASCII control characters");
   });
 
+  it("rejects hello display names with Unicode bidi or zero-width controls", () => {
+    for (const displayName of ["Host\u202ename", "Host\u200bname"]) {
+      expect(() =>
+        parseProtocolEnvelope({
+          ...createMessageBase("session-demo"),
+          type: "hello",
+          peerId: "host-1",
+          role: "host",
+          displayName,
+          capabilities: ["session:visible"]
+        })
+      ).toThrow("Display name must not contain Unicode bidi or zero-width formatting controls");
+    }
+  });
+
   it("rejects blank hello capabilities", () => {
     expect(() =>
       parseProtocolEnvelope({
@@ -961,6 +976,18 @@ describe("protocol envelopes", () => {
         requestedPermissions: ["screen:view"]
       })
     ).toThrow("Display name must not contain ASCII control characters");
+  });
+
+  it("rejects legacy host consent request display names with Unicode bidi controls", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "host-consent-required",
+        viewerPeerId: "viewer-1",
+        viewerDisplayName: "Viewer\u2066name",
+        requestedPermissions: ["screen:view"]
+      })
+    ).toThrow("Display name must not contain Unicode bidi or zero-width formatting controls");
   });
 
   it("rejects malformed legacy host consent decision grants", () => {
