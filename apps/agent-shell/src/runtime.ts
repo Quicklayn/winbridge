@@ -69,6 +69,7 @@ export type AgentShellRuntimeOptions = {
   hostTerminateAfterMs?: number;
   hostTerminateReason?: string;
   hostDisconnectAfterMs?: number;
+  hostDisconnectReason?: string;
   hostSignalProbeAck?: boolean;
   viewerSignalProbeAfterMs?: number;
   auditSink?: AuditSink;
@@ -176,6 +177,7 @@ export type AgentShellViewerStatusSnapshot = {
 };
 
 export const MAX_AGENT_SHELL_REASON_LENGTH = 240;
+export const MAX_AGENT_SHELL_DISCONNECT_REASON_BYTES = 123;
 export const MAX_AGENT_SHELL_TOKEN_BYTES = 1024;
 export const MAX_AGENT_SHELL_TIMER_DELAY_MS = 2_147_483_647;
 export const DEFAULT_HOST_CONSENT_TIMEOUT_MS = 60_000;
@@ -199,6 +201,8 @@ const RUNTIME_TOKEN_ERROR_MESSAGE =
 const RUNTIME_VISIBLE_SESSION_ERROR_MESSAGE = "Runtime visibleToHost must be a boolean when provided";
 const RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE =
   "Runtime workflow reasons must be non-blank, already trimmed, 240 characters or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
+const RUNTIME_HOST_DISCONNECT_REASON_ERROR_MESSAGE =
+  "Runtime host disconnect reason is only valid for host runtimes and must fit WebSocket close reason bounds";
 const RUNTIME_AUTHORIZATION_TTL_ERROR_MESSAGE =
   "Runtime authorization TTL must be an integer from 1 through 2147483647";
 const RUNTIME_WORKFLOW_TIMER_ERROR_MESSAGE =
@@ -430,7 +434,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         options,
         sessionState,
         authorization,
-        "Host disconnect control",
+        options.hostDisconnectReason ?? "Host disconnect control",
         "disconnect control closing local relay connection"
       );
     },
@@ -2046,8 +2050,10 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
     options.hostRevokeReason,
     options.hostPauseReason,
     options.hostResumeReason,
-    options.hostTerminateReason
+    options.hostTerminateReason,
+    options.hostDisconnectReason
   ]);
+  assertRuntimeHostDisconnectReason(options);
 
   return relayUrl;
 }
@@ -2293,6 +2299,19 @@ function assertRuntimeWorkflowReasons(values: unknown[]): void {
     ) {
       throw new Error(RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE);
     }
+  }
+}
+
+function assertRuntimeHostDisconnectReason(options: AgentShellRuntimeOptions): void {
+  if (options.hostDisconnectReason === undefined) {
+    return;
+  }
+
+  if (
+    options.role !== "host" ||
+    Buffer.byteLength(options.hostDisconnectReason, "utf8") > MAX_AGENT_SHELL_DISCONNECT_REASON_BYTES
+  ) {
+    throw new Error(RUNTIME_HOST_DISCONNECT_REASON_ERROR_MESSAGE);
   }
 }
 
@@ -2894,7 +2913,7 @@ function scheduleHostDisconnect(
       options,
       sessionState,
       authorization,
-      "Host disconnect simulation",
+      options.hostDisconnectReason ?? "Host disconnect simulation",
       "disconnect simulation closing local relay connection"
     );
   }, options.hostDisconnectAfterMs);

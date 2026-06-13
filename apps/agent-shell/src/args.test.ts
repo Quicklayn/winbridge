@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AgentShellUsageError, parseArgs } from "./args.js";
+import { MAX_AGENT_SHELL_DISCONNECT_REASON_BYTES } from "./runtime.js";
 
 describe("agent shell arguments", () => {
   const workflowTimerOptions = [
@@ -113,6 +114,17 @@ describe("agent shell arguments", () => {
       parseArgs(["viewer", "--viewer-disconnect-after-ms", "2147483647"], {}, 42)
         .viewerDisconnectAfterMs
     ).toBe(2147483647);
+  });
+
+  it("parses host disconnect reason for host runtimes", () => {
+    expect(
+      parseArgs(["host", "--disconnect-reason", "Host local close"], {}, 42)
+        .hostDisconnectReason
+    ).toBe("Host local close");
+    expect(
+      parseArgs(["host", "--disconnect-reason", "x".repeat(MAX_AGENT_SHELL_DISCONNECT_REASON_BYTES)], {}, 42)
+        .hostDisconnectReason
+    ).toBe("x".repeat(MAX_AGENT_SHELL_DISCONNECT_REASON_BYTES));
   });
 
   it("parses absolute websocket relay urls", () => {
@@ -277,6 +289,12 @@ describe("agent shell arguments", () => {
     );
   });
 
+  it("rejects host disconnect reason for viewer runtimes", () => {
+    expect(() => parseArgs(["viewer", "--disconnect-reason", "Host local close"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+  });
+
   it("rejects malformed host consent timeout values", () => {
     expect(() => parseArgs(["host", "--host-consent-timeout-ms", "5000"], {}, 42)).toThrow(
       AgentShellUsageError
@@ -395,7 +413,13 @@ describe("agent shell arguments", () => {
   });
 
   it("rejects malformed lifecycle reason values", () => {
-    for (const option of ["revoke-reason", "pause-reason", "resume-reason", "terminate-reason"]) {
+    for (const option of [
+      "revoke-reason",
+      "pause-reason",
+      "resume-reason",
+      "terminate-reason",
+      "disconnect-reason"
+    ]) {
       expect(() => parseArgs(["host", `--${option}`, "   "], {}, 42)).toThrow(
         AgentShellUsageError
       );
@@ -421,22 +445,32 @@ describe("agent shell arguments", () => {
         AgentShellUsageError
       );
     }
+    expect(() =>
+      parseArgs(
+        ["host", "--disconnect-reason", "x".repeat(MAX_AGENT_SHELL_DISCONNECT_REASON_BYTES + 1)],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
   });
 
   it("rejects unsafe lifecycle reason values without exposing raw reason text", () => {
+    const reasonOptions = ["terminate-reason", "disconnect-reason"];
     for (const reason of [
       "private-cli-reason-marker\n",
       "private-cli-reason-marker\u202e",
       "private-cli-reason-marker\u200b",
       "private-cli-reason-marker\ufeff"
     ]) {
-      try {
-        parseArgs(["host", "--terminate-reason", reason], {}, 42);
-        throw new Error("Expected unsafe CLI lifecycle reason to be rejected");
-      } catch (error) {
-        expect(error).toBeInstanceOf(AgentShellUsageError);
-        expect((error as Error).message).not.toContain("private-cli-reason-marker");
-        expect((error as Error).message).not.toContain(reason);
+      for (const option of reasonOptions) {
+        try {
+          parseArgs(["host", `--${option}`, reason], {}, 42);
+          throw new Error("Expected unsafe CLI lifecycle reason to be rejected");
+        } catch (error) {
+          expect(error).toBeInstanceOf(AgentShellUsageError);
+          expect((error as Error).message).not.toContain("private-cli-reason-marker");
+          expect((error as Error).message).not.toContain(reason);
+        }
       }
     }
   });
@@ -609,7 +643,9 @@ describe("agent shell arguments", () => {
         "--terminate-reason",
         "Host terminated",
         "--disconnect-after-ms",
-        "1500"
+        "1500",
+        "--disconnect-reason",
+        "Host local close"
       ],
       { WINBRIDGE_AGENT_AUDIT_LOG_PATH: "logs/audit.jsonl" },
       42
@@ -628,7 +664,8 @@ describe("agent shell arguments", () => {
       hostPauseReason: "Host paused",
       hostResumeReason: "Host resumed",
       hostTerminateReason: "Host terminated",
-      hostDisconnectAfterMs: 1500
+      hostDisconnectAfterMs: 1500,
+      hostDisconnectReason: "Host local close"
     });
   });
 });

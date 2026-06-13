@@ -133,7 +133,7 @@ npm run dev:agent -- viewer --session demo --pairing 123-456
 Optional `--name` display values must be non-blank, already trimmed, at most 120 characters, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls.
 Optional `--request` values must use exact comma-separated permission tokens with no spaces around entries, for example `screen:view,input:pointer`.
 Optional host `--grant` values use the same exact permission-token format and can only narrow an approved host grant to a non-empty subset of the current viewer request.
-Optional workflow reason values such as `--revoke-reason`, `--pause-reason`, `--resume-reason`, and `--terminate-reason` must be non-blank, already trimmed, at most 240 characters, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls.
+Optional workflow reason values such as `--revoke-reason`, `--pause-reason`, `--resume-reason`, `--terminate-reason`, and `--disconnect-reason` must be non-blank, already trimmed, at most 240 characters, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls. `--disconnect-reason` is host-only and is additionally capped to 123 UTF-8 bytes so it fits WebSocket close reason metadata.
 
 Exercise the development consent workflow:
 
@@ -259,11 +259,11 @@ Termination simulation only sends protocol and local host indicator messages; it
 Simulate host local disconnect during development:
 
 ```powershell
-npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --disconnect-after-ms 5000
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --disconnect-after-ms 5000 --disconnect-reason "Host closed session"
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
-Disconnect simulation closes the host relay connection after visible activation and deactivates the local host indicator. It does not send forged disconnect notices; the relay observes the close and sends `peer-disconnected` to the viewer.
+Disconnect simulation closes the host relay connection after visible activation and deactivates the local host indicator. The optional disconnect reason is local close metadata only; runtime events redact the text and audit records keep only bounded lifecycle details. The host does not send forged disconnect notices; the relay observes the close and sends `peer-disconnected` to the viewer.
 
 ## OpenSpec
 

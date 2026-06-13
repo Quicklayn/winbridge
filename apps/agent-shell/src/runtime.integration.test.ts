@@ -321,9 +321,30 @@ describe("agent shell consent workflow", () => {
         "Runtime workflow reasons"
       ],
       [
+        "untrimmed disconnect reason",
+        { hostDisconnectReason: " Host disconnected " },
+        "Runtime workflow reasons"
+      ],
+      [
         "oversized lifecycle reason",
         { hostTerminateReason: "x".repeat(241) },
         "Runtime workflow reasons"
+      ],
+      [
+        "viewer host disconnect reason",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          hostDisconnectReason: "Host local close"
+        },
+        "Runtime host disconnect reason"
+      ],
+      [
+        "oversized host disconnect close reason",
+        { hostDisconnectReason: "x".repeat(124) },
+        "Runtime host disconnect reason"
       ]
     ];
 
@@ -336,23 +357,29 @@ describe("agent shell consent workflow", () => {
   });
 
   it("rejects unsafe runtime workflow reasons without exposing raw reason text", () => {
+    const reasonOptions: Array<keyof AgentShellRuntimeOptions> = [
+      "hostTerminateReason",
+      "hostDisconnectReason"
+    ];
     for (const reason of [
       "runtime-private-reason-marker\n",
       "runtime-private-reason-marker\u202e",
       "runtime-private-reason-marker\u200b",
       "runtime-private-reason-marker\ufeff"
     ]) {
-      try {
-        createAgentShellRuntime(createRuntimeOptions({
-          hostTerminateReason: reason,
-          logger: silentLogger
-        }));
-        throw new Error("Expected unsafe runtime workflow reason to be rejected");
-      } catch (error) {
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toContain("Runtime workflow reasons");
-        expect((error as Error).message).not.toContain("runtime-private-reason-marker");
-        expect((error as Error).message).not.toContain(reason);
+      for (const option of reasonOptions) {
+        try {
+          createAgentShellRuntime(createRuntimeOptions({
+            [option]: reason,
+            logger: silentLogger
+          }));
+          throw new Error("Expected unsafe runtime workflow reason to be rejected");
+        } catch (error) {
+          expect(error).toBeInstanceOf(Error);
+          expect((error as Error).message).toContain("Runtime workflow reasons");
+          expect((error as Error).message).not.toContain("runtime-private-reason-marker");
+          expect((error as Error).message).not.toContain(reason);
+        }
       }
     }
   });
@@ -9253,8 +9280,10 @@ describe("agent shell consent workflow", () => {
 
   it("closes the host connection through direct local disconnect control after visible pause", async () => {
     const hostLogs: string[] = [];
+    const privateDisconnectReason = "Direct host disconnect private marker";
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
+      hostDisconnectReason: privateDisconnectReason,
       hostLogger: captureLogger(hostLogs),
       hostPauseAfterMs: 10,
       visibleToHost: true
@@ -9284,7 +9313,7 @@ describe("agent shell consent workflow", () => {
       direction: "closed",
       code: 1000,
       reason: "[REDACTED]",
-      reasonBytes: Buffer.byteLength("Host disconnect control")
+      reasonBytes: Buffer.byteLength(privateDisconnectReason)
     });
     expect(disconnect).toMatchObject({
       type: "peer-disconnected",
@@ -9304,6 +9333,8 @@ describe("agent shell consent workflow", () => {
       false
     );
     expect(hostLogs.join("\n")).toContain("disconnect control closing local relay connection");
+    expect(hostLogs.join("\n")).not.toContain(privateDisconnectReason);
+    expect(JSON.stringify(hostEvents)).not.toContain(privateDisconnectReason);
     expect(() =>
       host.send({
         ...createMessageBase("session-demo"),
@@ -9410,10 +9441,12 @@ describe("agent shell consent workflow", () => {
   it("closes the host connection after visible disconnect simulation", async () => {
     const hostAuditSink = new MemoryAuditSink();
     const hostLogs: string[] = [];
+    const privateDisconnectReason = "Scheduled host disconnect private marker";
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostAuditSink,
       hostDecision: "approve",
       hostDisconnectAfterMs: 10,
+      hostDisconnectReason: privateDisconnectReason,
       hostLogger: captureLogger(hostLogs),
       visibleToHost: true
     });
@@ -9440,7 +9473,7 @@ describe("agent shell consent workflow", () => {
       direction: "closed",
       code: 1000,
       reason: "[REDACTED]",
-      reasonBytes: Buffer.byteLength("Host disconnect simulation")
+      reasonBytes: Buffer.byteLength(privateDisconnectReason)
     });
     expect(disconnect).toMatchObject({
       type: "peer-disconnected",
@@ -9487,8 +9520,10 @@ describe("agent shell consent workflow", () => {
         event.message.action === "agent-shell.session.disconnected"
     )).toBe(false);
     expect(JSON.stringify(hostAuditSink.records())).not.toContain("123-456");
-    expect(JSON.stringify(hostAuditSink.records())).not.toContain("Host disconnect simulation");
+    expect(JSON.stringify(hostAuditSink.records())).not.toContain(privateDisconnectReason);
     expect(hostLogs.join("\n")).toContain("disconnect simulation closing local relay connection");
+    expect(hostLogs.join("\n")).not.toContain(privateDisconnectReason);
+    expect(JSON.stringify(hostEvents)).not.toContain(privateDisconnectReason);
     expect(() =>
       host.send({
         ...createMessageBase("session-demo"),
@@ -11029,6 +11064,7 @@ async function startRelayAndHost(options: {
   hostAuditSink?: AuditSink;
   hostDecision?: "none" | "approve" | "deny";
   hostDisconnectAfterMs?: number;
+  hostDisconnectReason?: string;
   hostDisplayName?: string;
   hostDecisionProvider?: HostDecisionProvider;
   hostConsentTimeoutMs?: number;
@@ -11076,6 +11112,7 @@ async function startRelayAndHost(options: {
     hostConsentTimeoutMs: options.hostConsentTimeoutMs,
     hostGrantPermissions: options.hostGrantPermissions,
     hostDisconnectAfterMs: options.hostDisconnectAfterMs,
+    hostDisconnectReason: options.hostDisconnectReason,
     decisionReason: options.decisionReason,
     authorizationTtlMs: options.authorizationTtlMs,
     hostPauseAfterMs: options.hostPauseAfterMs,

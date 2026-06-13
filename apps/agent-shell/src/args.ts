@@ -10,6 +10,7 @@ import {
   type SessionRole
 } from "@winbridge/protocol";
 import {
+  MAX_AGENT_SHELL_DISCONNECT_REASON_BYTES,
   MAX_AGENT_SHELL_REASON_LENGTH,
   MAX_AGENT_SHELL_TOKEN_BYTES,
   MAX_AGENT_SHELL_TIMER_DELAY_MS,
@@ -46,13 +47,14 @@ export type AgentShellArgs = {
   hostTerminateAfterMs?: number;
   hostTerminateReason?: string;
   hostDisconnectAfterMs?: number;
+  hostDisconnectReason?: string;
   viewerSignalProbeAfterMs?: number;
   viewerStatusAfterMs?: number;
   viewerDisconnectAfterMs?: number;
 };
 
 export const AGENT_SHELL_USAGE =
-  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000]";
+  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000]";
 
 const knownOptions = new Set([
   "relay",
@@ -82,6 +84,7 @@ const knownOptions = new Set([
   "terminate-after-ms",
   "terminate-reason",
   "disconnect-after-ms",
+  "disconnect-reason",
   "viewer-signal-probe-after-ms",
   "viewer-status-after-ms",
   "viewer-disconnect-after-ms"
@@ -168,6 +171,7 @@ export function parseArgs(
     hostTerminateAfterMs: parseOptionalTimerDelayMs(options.get("terminate-after-ms")),
     hostTerminateReason: parseOptionalReason(options.get("terminate-reason")),
     hostDisconnectAfterMs: parseOptionalTimerDelayMs(options.get("disconnect-after-ms")),
+    hostDisconnectReason: parseHostDisconnectReason(role, options.get("disconnect-reason")),
     viewerSignalProbeAfterMs,
     viewerStatusAfterMs,
     viewerDisconnectAfterMs
@@ -462,6 +466,22 @@ function parseViewerDisconnectAfterMs(
   }
 
   return delayMs;
+}
+
+function parseHostDisconnectReason(role: SessionRole, raw: string | undefined): string | undefined {
+  const reason = parseOptionalReason(raw);
+  if (reason === undefined) {
+    return undefined;
+  }
+
+  if (
+    role !== "host" ||
+    Buffer.byteLength(reason, "utf8") > MAX_AGENT_SHELL_DISCONNECT_REASON_BYTES
+  ) {
+    throw new AgentShellUsageError();
+  }
+
+  return reason;
 }
 
 function parseBooleanFlag(raw: string | undefined, defaultValue: boolean): boolean {
