@@ -2584,6 +2584,7 @@ describe("relay runtime integration", () => {
       "dev\ntoken",
       "dev\u202etoken",
       "dev\u200btoken",
+      "dev\ufefftoken",
       "x".repeat(1025)
     ]) {
       expect(() =>
@@ -2602,20 +2603,20 @@ describe("relay runtime integration", () => {
   });
 
   it("rejects format-control shared-token configuration without exposing raw token text", () => {
-    const token = "relay-secret\u202etoken-marker";
+    for (const token of ["relay-secret\u202etoken-marker", "relay-secret\ufefftoken-marker"]) {
+      expect(() =>
+        createRelaySharedTokenConfig({ WINBRIDGE_RELAY_SHARED_TOKEN: token })
+      ).toThrow("WINBRIDGE_RELAY_SHARED_TOKEN");
 
-    expect(() =>
-      createRelaySharedTokenConfig({ WINBRIDGE_RELAY_SHARED_TOKEN: token })
-    ).toThrow("WINBRIDGE_RELAY_SHARED_TOKEN");
-
-    try {
-      createRelayRuntime({ port: 0, sharedToken: token });
-      throw new Error("Expected format-control shared token to be rejected");
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).not.toContain("relay-secret");
-      expect((error as Error).message).not.toContain("token-marker");
-      expect((error as Error).message).not.toContain(token);
+      try {
+        createRelayRuntime({ port: 0, sharedToken: token });
+        throw new Error("Expected format-control shared token to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain("relay-secret");
+        expect((error as Error).message).not.toContain("token-marker");
+        expect((error as Error).message).not.toContain(token);
+      }
     }
   });
 

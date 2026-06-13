@@ -113,7 +113,7 @@ The protocol SHALL reject malformed authorization request, decision, and state u
 - **THEN** the protocol schema rejects the message so denied consent cannot be confused with an active visible session
 
 ### Requirement: Legacy host consent message permission-scope invariants
-The protocol SHALL reject malformed legacy `host-consent-required` and `host-consent-decision` messages that carry empty, duplicate, or fail-open permission scopes, and legacy consent request viewer display names SHALL be non-blank, already trimmed, 120 characters or less, contain no ASCII control characters, and contain no Unicode bidirectional formatting controls.
+The protocol SHALL reject malformed legacy `host-consent-required` and `host-consent-decision` messages that carry empty, duplicate, or fail-open permission scopes, and legacy consent request viewer display names SHALL be non-blank, already trimmed, 120 characters or less, contain no ASCII control characters, and contain no Unicode bidirectional or zero-width formatting controls.
 
 #### Scenario: Legacy consent request lacks permissions
 - **WHEN** a `host-consent-required` message has no requested permissions
@@ -135,8 +135,8 @@ The protocol SHALL reject malformed legacy `host-consent-required` and `host-con
 - **WHEN** a `host-consent-required` message has a `viewerDisplayName` that contains an ASCII control character
 - **THEN** the protocol schema rejects the message before it can be forwarded or processed
 
-#### Scenario: Legacy consent request display name contains Unicode bidirectional formatting controls
-- **WHEN** a `host-consent-required` message has a `viewerDisplayName` that contains a Unicode bidirectional formatting control
+#### Scenario: Legacy consent request display name contains Unicode formatting controls
+- **WHEN** a `host-consent-required` message has a `viewerDisplayName` that contains a Unicode bidirectional or zero-width formatting control including `U+FEFF`
 - **THEN** the protocol schema rejects the message before it can be forwarded or processed
 
 #### Scenario: Rejected legacy display name grants no access

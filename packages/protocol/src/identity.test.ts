@@ -75,7 +75,7 @@ describe("device identity", () => {
   });
 
   it("rejects local device display names with Unicode bidi or zero-width controls", () => {
-    for (const displayName of ["Host\u202eworkstation", "Host\u200bworkstation"]) {
+    for (const displayName of ["Host\u202eworkstation", "Host\u200bworkstation", "Host\ufeffworkstation"]) {
       expect(() =>
         createDeviceIdentity({
           displayName,

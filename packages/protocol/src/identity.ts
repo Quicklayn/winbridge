@@ -222,6 +222,7 @@ function hasUnsafeDisplayFormatCharacter(value: string): boolean {
       codePoint === 0x200e ||
       codePoint === 0x200f ||
       codePoint === 0x2060 ||
+      codePoint === 0xfeff ||
       (codePoint !== undefined && codePoint >= 0x202a && codePoint <= 0x202e) ||
       (codePoint !== undefined && codePoint >= 0x2066 && codePoint <= 0x2069)
     ) {

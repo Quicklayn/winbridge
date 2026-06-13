@@ -120,6 +120,7 @@ describe("agent shell consent workflow", () => {
       ["untrimmed display name", { displayName: " Host" }, "Runtime display name"],
       ["control-character display name", { displayName: "Host\nName" }, "Runtime display name"],
       ["bidi-control display name", { displayName: "Host\u202eName" }, "Runtime display name"],
+      ["zero-width display name", { displayName: "Host\ufeffName" }, "Runtime display name"],
       ["providerless host consent timeout", { hostConsentTimeoutMs: 5000 }, "Host consent timeout"],
       [
         "zero host consent timeout",
@@ -142,6 +143,7 @@ describe("agent shell consent workflow", () => {
       ["control-character token", { token: "dev\ntoken" }, "Runtime token"],
       ["bidi-control token", { token: "dev\u202etoken" }, "Runtime token"],
       ["zero-width token", { token: "dev\u200btoken" }, "Runtime token"],
+      ["feff token", { token: "dev\ufefftoken" }, "Runtime token"],
       ["oversized token", { token: "x".repeat(1025) }, "Runtime token"],
       [
         "invalid requested permission",
@@ -225,20 +227,20 @@ describe("agent shell consent workflow", () => {
   });
 
   it("rejects format-control runtime tokens without exposing raw token text", () => {
-    const token = "runtime-token\u202eprivate-marker";
-
-    try {
-      createAgentShellRuntime(createRuntimeOptions({
-        token,
-        logger: silentLogger
-      }));
-      throw new Error("Expected format-control runtime token to be rejected");
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toContain("Runtime token");
-      expect((error as Error).message).not.toContain("runtime-token");
-      expect((error as Error).message).not.toContain("private-marker");
-      expect((error as Error).message).not.toContain(token);
+    for (const token of ["runtime-token\u202eprivate-marker", "runtime-token\ufeffprivate-marker"]) {
+      try {
+        createAgentShellRuntime(createRuntimeOptions({
+          token,
+          logger: silentLogger
+        }));
+        throw new Error("Expected format-control runtime token to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("Runtime token");
+        expect((error as Error).message).not.toContain("runtime-token");
+        expect((error as Error).message).not.toContain("private-marker");
+        expect((error as Error).message).not.toContain(token);
+      }
     }
   });
 

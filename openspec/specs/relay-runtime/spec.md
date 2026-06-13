@@ -147,14 +147,14 @@ The relay runtime SHALL allow tests to inject audit sinks and inspect security-r
 - **AND** the peer-facing close reason MUST be bounded and MUST NOT include the raw presented token, credentials, pairing codes, protocol payloads, private reasons, keystrokes, screenshots, or screen contents
 
 ### Requirement: Testable shared-token configuration
-The managed relay runtime SHALL reject malformed development shared-token configuration before creating a listener, opening a listening socket, or accepting peer connections. Malformed shared-token configuration MUST include non-string, blank, whitespace-only, untrimmed, ASCII-control-character, Unicode bidirectional-formatting-control, zero-width-formatting-control, or oversized values.
+The managed relay runtime SHALL reject malformed development shared-token configuration before creating a listener, opening a listening socket, or accepting peer connections. Malformed shared-token configuration MUST include non-string, blank, whitespace-only, untrimmed, ASCII-control-character, Unicode bidirectional-formatting-control, zero-width-formatting-control including `U+FEFF`, or oversized values.
 
 #### Scenario: Runtime shared token configuration is malformed
-- **WHEN** tests create the relay runtime with non-string, blank, untrimmed, ASCII-control-character, Unicode bidirectional-formatting-control, zero-width-formatting-control, or oversized shared-token configuration
+- **WHEN** tests create the relay runtime with non-string, blank, untrimmed, ASCII-control-character, Unicode bidirectional-formatting-control, zero-width-formatting-control including `U+FEFF`, or oversized shared-token configuration
 - **THEN** the runtime rejects configuration before accepting peer connections
 
 #### Scenario: Environment shared token configuration is malformed
-- **WHEN** the relay shared-token environment value is blank, untrimmed, ASCII-control-character, Unicode bidirectional-formatting-control, zero-width-formatting-control, or oversized
+- **WHEN** the relay shared-token environment value is blank, untrimmed, ASCII-control-character, Unicode bidirectional-formatting-control, zero-width-formatting-control including `U+FEFF`, or oversized
 - **THEN** relay shared-token config parsing rejects the value before accepting peer connections
 
 #### Scenario: Shared-token config rejection does not leak secrets

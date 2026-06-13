@@ -50,7 +50,7 @@ The relay SHALL reject a join attempt before registration when the target sessio
 - **THEN** a later join using the same `peerId` MAY be accepted through the normal pairing and room constraints
 
 ### Requirement: Message schema validation
-The relay and agents SHALL validate protocol envelopes before accepting or forwarding messages, protocol display-name metadata SHALL be non-blank, already trimmed, 120 characters or less, contain no ASCII control characters, and contain no Unicode bidirectional formatting controls, `hello` capability metadata SHALL be non-blank, already trimmed, and unique after trimming, and relay rejection errors for malformed protocol input SHALL use bounded secret-safe reasons.
+The relay and agents SHALL validate protocol envelopes before accepting or forwarding messages, protocol display-name metadata SHALL be non-blank, already trimmed, 120 characters or less, contain no ASCII control characters, and contain no Unicode bidirectional or zero-width formatting controls, `hello` capability metadata SHALL be non-blank, already trimmed, and unique after trimming, and relay rejection errors for malformed protocol input SHALL use bounded secret-safe reasons.
 
 #### Scenario: Invalid protocol message
 - **WHEN** a peer sends malformed JSON or an unknown protocol message
@@ -68,8 +68,8 @@ The relay and agents SHALL validate protocol envelopes before accepting or forwa
 - **WHEN** a peer sends a `hello` protocol message whose `displayName` contains an ASCII control character
 - **THEN** the receiver rejects the message before accepting or forwarding it as trusted peer metadata
 
-#### Scenario: Unicode bidi-control hello display name
-- **WHEN** a peer sends a `hello` protocol message whose `displayName` contains a Unicode bidirectional formatting control
+#### Scenario: Unicode format-control hello display name
+- **WHEN** a peer sends a `hello` protocol message whose `displayName` contains a Unicode bidirectional or zero-width formatting control including `U+FEFF`
 - **THEN** the receiver rejects the message before accepting or forwarding it as trusted peer metadata
 
 #### Scenario: Blank hello capability
@@ -169,7 +169,7 @@ The relay and agents SHALL enforce the `signal.payload` size bound using the sha
 - **THEN** the protocol schema accepts the payload if all other signal safety checks pass
 
 ### Requirement: Development relay token
-The relay SHALL support an optional shared token for local/private development and SHALL document that production deployments require stronger identity and authorization. When a shared token is configured, it MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidirectional formatting controls, contain no zero-width formatting controls, and peers MUST present exactly one canonical lowercase `token` query parameter whose value exactly matches the configured shared token before joining a session room. Query parameter names whose ASCII case-insensitive form is `token` but whose exact spelling is not lowercase `token` MUST be treated as token-bearing and invalid. When a shared token is not configured, peers MUST NOT present any canonical or case-variant `token` query parameter and the relay MUST reject token-bearing connections before joining a session room.
+The relay SHALL support an optional shared token for local/private development and SHALL document that production deployments require stronger identity and authorization. When a shared token is configured, it MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidirectional formatting controls, contain no zero-width formatting controls including `U+FEFF`, and peers MUST present exactly one canonical lowercase `token` query parameter whose value exactly matches the configured shared token before joining a session room. Query parameter names whose ASCII case-insensitive form is `token` but whose exact spelling is not lowercase `token` MUST be treated as token-bearing and invalid. When a shared token is not configured, peers MUST NOT present any canonical or case-variant `token` query parameter and the relay MUST reject token-bearing connections before joining a session room.
 
 #### Scenario: Shared token configured
 - **WHEN** the relay is started with a shared token
@@ -199,7 +199,7 @@ The relay SHALL support an optional shared token for local/private development a
 - **AND** the relay MUST NOT store, forward, echo, or audit the raw presented token value
 
 #### Scenario: Malformed shared token is rejected
-- **WHEN** the relay is configured with an empty, whitespace-only, non-string, untrimmed, control-character, Unicode bidirectional formatting control, zero-width formatting control, or oversized shared token
+- **WHEN** the relay is configured with an empty, whitespace-only, non-string, untrimmed, control-character, Unicode bidirectional formatting control, zero-width formatting control including `U+FEFF`, or oversized shared token
 - **THEN** the relay rejects the configuration before accepting peer connections
 
 ### Requirement: Host-created pairing gate

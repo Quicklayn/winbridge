@@ -212,6 +212,7 @@ describe("agent shell arguments", () => {
       "Viewer\nSupport",
       "Viewer\u202eSupport",
       "Viewer\u200bSupport",
+      "Viewer\ufeffSupport",
       "x".repeat(121)
     ]) {
       expect(() => parseArgs(["viewer", "--name", displayName], {}, 42)).toThrow(
@@ -344,6 +345,7 @@ describe("agent shell arguments", () => {
       "dev\ntoken",
       "dev\u202etoken",
       "dev\u200btoken",
+      "dev\ufefftoken",
       "x".repeat(1025)
     ]) {
       expect(() => parseArgs(["host", "--token", token], {}, 42)).toThrow(
@@ -353,16 +355,16 @@ describe("agent shell arguments", () => {
   });
 
   it("rejects format-control relay tokens without exposing raw token text", () => {
-    const token = "agent-token\u202eprivate-marker";
-
-    try {
-      parseArgs(["host", "--token", token], {}, 42);
-      throw new Error("Expected format-control relay token to be rejected");
-    } catch (error) {
-      expect(error).toBeInstanceOf(AgentShellUsageError);
-      expect((error as Error).message).not.toContain("agent-token");
-      expect((error as Error).message).not.toContain("private-marker");
-      expect((error as Error).message).not.toContain(token);
+    for (const token of ["agent-token\u202eprivate-marker", "agent-token\ufeffprivate-marker"]) {
+      try {
+        parseArgs(["host", "--token", token], {}, 42);
+        throw new Error("Expected format-control relay token to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(AgentShellUsageError);
+        expect((error as Error).message).not.toContain("agent-token");
+        expect((error as Error).message).not.toContain("private-marker");
+        expect((error as Error).message).not.toContain(token);
+      }
     }
   });
 
