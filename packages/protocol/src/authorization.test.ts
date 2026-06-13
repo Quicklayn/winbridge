@@ -16,6 +16,19 @@ import { createPairingTicket, createPairedDevice } from "./identity.js";
 import { assertConsentBoundGrant } from "./session.js";
 
 const baseTime = new Date("2026-06-11T00:00:00.000Z");
+const unsafePermissionShapes = [
+  "remote-shell",
+  "admin:run",
+  "unattended:access",
+  "persistence:install",
+  "service:install",
+  "startup:persist",
+  "privilege:elevate",
+  "credential:read",
+  "keylog:capture",
+  "stealth:session",
+  "windows-prompt:bypass"
+] as const;
 
 function pending() {
   return createPendingSessionAuthorization({
@@ -1548,5 +1561,74 @@ describe("session authorization state machine", () => {
         now: baseTime
       })
     ).toThrow();
+  });
+
+  it("rejects covert and high-risk administrative permission shapes", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+
+    for (const rawPermission of unsafePermissionShapes) {
+      const unsafePermissions = [rawPermission] as unknown as Parameters<
+        typeof createPendingSessionAuthorization
+      >[0]["requestedPermissions"];
+      const unsafeGrant = [rawPermission] as unknown as Parameters<
+        typeof approveSessionAuthorization
+      >[1]["grantedPermissions"];
+      const unsafePermission = rawPermission as unknown as Parameters<
+        typeof revokeSessionPermission
+      >[1]["permission"];
+
+      expect(() =>
+        createPendingSessionAuthorization({
+          sessionId: "session-demo",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          requestedPermissions: unsafePermissions,
+          now: baseTime
+        })
+      ).toThrow();
+      expect(() =>
+        approveSessionAuthorization(pending(), {
+          grantedPermissions: unsafeGrant,
+          now: baseTime
+        })
+      ).toThrow();
+      expect(() =>
+        SessionAuthorizationSchema.parse({
+          ...pending(),
+          permissions: unsafePermissions
+        })
+      ).toThrow();
+      expect(() =>
+        assertConsentBoundGrant({
+          sessionId: "session-demo",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          permissions: unsafePermissions,
+          requiresHostApproval: true,
+          visibleSessionRequired: true,
+          expiresAt: new Date(baseTime.getTime() + 60_000).toISOString(),
+          auditId: "audit-demo"
+        })
+      ).toThrow();
+      expect(() =>
+        revokeSessionPermission(active, {
+          permission: unsafePermission,
+          now: baseTime
+        })
+      ).toThrow();
+      expect(() =>
+        assertSessionActionAuthorized({
+          authorization: active,
+          permission: unsafePermission,
+          now: baseTime
+        })
+      ).toThrow();
+    }
   });
 });
