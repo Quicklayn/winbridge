@@ -1,6 +1,7 @@
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import {
+  formatHostControlStatus,
   parseHostControlCommand,
   startInteractiveHostControlPrompt
 } from "./host-control-prompt.js";
@@ -8,6 +9,7 @@ import type { AgentShellRuntime } from "./runtime.js";
 
 describe("interactive host control prompt", () => {
   it("parses exact host control commands", () => {
+    expect(parseHostControlCommand("status")).toEqual({ action: "status" });
     expect(parseHostControlCommand("pause")).toEqual({ action: "pause" });
     expect(parseHostControlCommand("resume")).toEqual({ action: "resume" });
     expect(parseHostControlCommand("terminate")).toEqual({ action: "terminate" });
@@ -21,6 +23,10 @@ describe("interactive host control prompt", () => {
   it("rejects malformed or unsafe command lines", () => {
     for (const line of [
       "",
+      " status",
+      "status ",
+      "Status",
+      "status raw-token",
       " pause",
       "pause ",
       "Pause",
@@ -58,6 +64,50 @@ describe("interactive host control prompt", () => {
     expect(output.text()).not.toContain("screen:view");
     expect(output.text()).not.toContain("123-456");
     expect(output.text()).not.toContain("raw-token");
+  });
+
+  it("prints host status without invoking controls or public sends", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getHostStatus).mockReturnValue({
+      state: "active",
+      authorizationStatus: "active",
+      authorizationId: "authz_status_1",
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    const output = createCapturingOutput();
+
+    startInteractiveHostControlPrompt(runtime, {
+      input: PassThrough.from(["status\n"]),
+      output
+    });
+    await waitForText(output, (text) => text.includes("[winbridge-agent] host status"));
+
+    expect(runtime.getHostStatus).toHaveBeenCalledTimes(1);
+    expect(runtime.pause).not.toHaveBeenCalled();
+    expect(runtime.resume).not.toHaveBeenCalled();
+    expect(runtime.revokePermission).not.toHaveBeenCalled();
+    expect(runtime.terminate).not.toHaveBeenCalled();
+    expect(runtime.disconnect).not.toHaveBeenCalled();
+    expect(runtime.send).not.toHaveBeenCalled();
+    expect(output.text()).toContain("state=active");
+    expect(output.text()).toContain("authorizationStatus=active");
+    expect(output.text()).toContain("authorizationId=authz_status_1");
+    expect(output.text()).toContain("visibleToHost=true");
+    expect(output.text()).toContain("permissionCount=1");
+    expect(output.text()).not.toContain("screen:view");
+    expect(output.text()).not.toContain("Viewer Support");
+    expect(output.text()).not.toContain("raw-token");
+  });
+
+  it("formats inactive host status without undefined fields", () => {
+    expect(
+      formatHostControlStatus({
+        state: "inactive",
+        visibleToHost: false,
+        permissionCount: 0
+      })
+    ).toBe("[winbridge-agent] host status state=inactive visibleToHost=false permissionCount=0\n");
   });
 
   it("rejects malformed commands without invoking runtime controls or echoing input", async () => {
@@ -124,6 +174,11 @@ function createRuntimeSpy(): AgentShellRuntime {
   return {
     start: vi.fn(),
     stop: vi.fn(),
+    getHostStatus: vi.fn(() => ({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0
+    })),
     disconnect: vi.fn(),
     pause: vi.fn(),
     revokePermission: vi.fn(),

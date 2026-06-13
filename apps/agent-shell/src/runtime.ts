@@ -149,12 +149,21 @@ export type AgentShellReasonRedacted<T> = T extends unknown
 export type AgentShellRuntime = {
   start(): Promise<void>;
   stop(): Promise<void>;
+  getHostStatus(): AgentShellHostStatusSnapshot;
   disconnect(): void;
   pause(): void;
   revokePermission(permission: Permission): void;
   resume(): void;
   terminate(): void;
   send(message: ProtocolEnvelope): void;
+};
+
+export type AgentShellHostStatusSnapshot = {
+  state: AgentShellHostIndicatorEvent["state"];
+  visibleToHost: boolean;
+  permissionCount: number;
+  authorizationId?: string;
+  authorizationStatus?: SessionAuthorizationStatus;
 };
 
 export const MAX_AGENT_SHELL_REASON_LENGTH = 240;
@@ -196,6 +205,8 @@ const AGENT_SHELL_LOCAL_DISCONNECT_ROLE_ERROR_MESSAGE =
   "Agent shell local disconnect control is only valid for host runtimes";
 const AGENT_SHELL_LOCAL_DISCONNECT_AUTHORIZATION_ERROR_MESSAGE =
   "Agent shell local disconnect control requires active visible host authorization";
+const AGENT_SHELL_HOST_STATUS_ROLE_ERROR_MESSAGE =
+  "Agent shell host status is only valid for host runtimes";
 const AGENT_SHELL_REVOKE_ROLE_ERROR_MESSAGE = "Agent shell revoke control is only valid for host runtimes";
 const AGENT_SHELL_REVOKE_AUTHORIZATION_ERROR_MESSAGE =
   "Agent shell revoke control requires active or paused visible host authorization";
@@ -379,6 +390,10 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         socketToClose.once("close", () => resolve());
         socketToClose.close();
       });
+    },
+
+    getHostStatus() {
+      return getHostStatusSnapshot(options, sessionState);
     },
 
     disconnect() {
@@ -1778,6 +1793,33 @@ function emitHostIndicatorFromAuthorization(
     permissionCount: state === "inactive" ? 0 : snapshot.permissions.length,
     cause
   });
+}
+
+function getHostStatusSnapshot(
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState
+): AgentShellHostStatusSnapshot {
+  if (options.role !== "host") {
+    throw new Error(AGENT_SHELL_HOST_STATUS_ROLE_ERROR_MESSAGE);
+  }
+
+  const snapshot = sessionState.hostAuthorization;
+  if (!snapshot) {
+    return {
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0
+    };
+  }
+
+  const state = hostIndicatorStateForAuthorization(snapshot.status);
+  return {
+    state,
+    authorizationId: snapshot.authorizationId,
+    authorizationStatus: snapshot.status,
+    visibleToHost: state === "inactive" ? false : snapshot.visibleToHost,
+    permissionCount: state === "inactive" ? 0 : snapshot.permissions.length
+  };
 }
 
 function deactivateHostIndicator(

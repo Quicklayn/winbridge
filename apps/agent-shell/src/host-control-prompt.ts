@@ -2,7 +2,7 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { PermissionSchema, type Permission } from "@winbridge/protocol";
 import { formatAgentShellCliError } from "./cli-diagnostics.js";
-import type { AgentShellRuntime } from "./runtime.js";
+import type { AgentShellHostStatusSnapshot, AgentShellRuntime } from "./runtime.js";
 
 export type HostControlPromptStreams = {
   input?: Readable;
@@ -16,17 +16,21 @@ export type HostControlPromptHandle = {
 };
 
 type HostControlCommand =
+  | { action: "status" }
   | { action: "pause" }
   | { action: "resume" }
   | { action: "terminate" }
   | { action: "disconnect" }
   | { action: "revoke"; permission: Permission };
 
+type HostLifecycleControlCommand = Exclude<HostControlCommand, { action: "status" }>;
+
 const HOST_CONTROL_PROMPT_TEXT =
-  "[winbridge-agent] Host controls: pause | resume | revoke <permission> | terminate | disconnect\n";
+  "[winbridge-agent] Host controls: status | pause | resume | revoke <permission> | terminate | disconnect\n";
 const HOST_CONTROL_ACCEPTED_PREFIX = "[winbridge-agent] host control accepted";
 const HOST_CONTROL_REJECTED_MESSAGE = "[winbridge-agent] host control rejected";
 const HOST_CONTROL_STOPPED_MESSAGE = "[winbridge-agent] host control prompt stopped\n";
+const HOST_CONTROL_STATUS_PREFIX = "[winbridge-agent] host status";
 
 export function startInteractiveHostControlPrompt(
   runtime: AgentShellRuntime,
@@ -63,6 +67,8 @@ export function startInteractiveHostControlPrompt(
 
 export function parseHostControlCommand(line: string): HostControlCommand | undefined {
   switch (line) {
+    case "status":
+      return { action: "status" };
     case "pause":
       return { action: "pause" };
     case "resume":
@@ -74,6 +80,25 @@ export function parseHostControlCommand(line: string): HostControlCommand | unde
     default:
       return parseRevokeCommand(line);
   }
+}
+
+export function formatHostControlStatus(status: AgentShellHostStatusSnapshot): string {
+  const parts = [
+    HOST_CONTROL_STATUS_PREFIX,
+    `state=${status.state}`,
+    `visibleToHost=${status.visibleToHost}`,
+    `permissionCount=${status.permissionCount}`
+  ];
+
+  if (status.authorizationStatus) {
+    parts.push(`authorizationStatus=${status.authorizationStatus}`);
+  }
+
+  if (status.authorizationId) {
+    parts.push(`authorizationId=${status.authorizationId}`);
+  }
+
+  return `${parts.join(" ")}\n`;
 }
 
 function parseRevokeCommand(line: string): HostControlCommand | undefined {
@@ -101,6 +126,11 @@ function handleHostControlLine(
   }
 
   try {
+    if (command.action === "status") {
+      output.write(formatHostControlStatus(runtime.getHostStatus()));
+      return;
+    }
+
     runHostControlCommand(runtime, command);
     output.write(`${HOST_CONTROL_ACCEPTED_PREFIX} action=${command.action}\n`);
   } catch (error) {
@@ -108,7 +138,7 @@ function handleHostControlLine(
   }
 }
 
-function runHostControlCommand(runtime: AgentShellRuntime, command: HostControlCommand): void {
+function runHostControlCommand(runtime: AgentShellRuntime, command: HostLifecycleControlCommand): void {
   switch (command.action) {
     case "pause":
       runtime.pause();

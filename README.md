@@ -186,7 +186,7 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-decision appro
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view,input:pointer
 ```
 
-Host control prompt mode accepts exact commands: `pause`, `resume`, `revoke screen:view`, `terminate`, and `disconnect`. It is host-only and mutually exclusive with `--host-consent-prompt true` so only one stdin prompt is active. Commands call the same managed runtime controls as tests, so invisible sessions, expired grants, terminal sessions, disconnected peers, and missing permissions still fail closed before lifecycle protocol messages.
+Host control prompt mode accepts exact commands: `status`, `pause`, `resume`, `revoke screen:view`, `terminate`, and `disconnect`. It is host-only and mutually exclusive with `--host-consent-prompt true` so only one stdin prompt is active. `status` prints bounded local host status metadata such as indicator state, visibility, permission count, and authorization id/status when available; it does not send protocol messages or invoke controls. Other commands call the same managed runtime controls as tests, so invisible sessions, expired grants, terminal sessions, disconnected peers, and missing permissions still fail closed before lifecycle protocol messages.
 
 Persist development host workflow audit records as JSONL:
 
