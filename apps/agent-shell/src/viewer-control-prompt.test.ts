@@ -1,6 +1,7 @@
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import {
+  formatViewerControlHelp,
   parseViewerControlCommand,
   startInteractiveViewerControlPrompt
 } from "./viewer-control-prompt.js";
@@ -8,6 +9,7 @@ import type { AgentShellRuntime } from "./runtime.js";
 
 describe("interactive viewer control prompt", () => {
   it("parses exact viewer control commands", () => {
+    expect(parseViewerControlCommand("help")).toEqual({ action: "help" });
     expect(parseViewerControlCommand("status")).toEqual({ action: "status" });
     expect(parseViewerControlCommand("disconnect")).toEqual({ action: "disconnect" });
   });
@@ -15,6 +17,10 @@ describe("interactive viewer control prompt", () => {
   it("rejects malformed or unsafe command lines", () => {
     for (const line of [
       "",
+      " help",
+      "help ",
+      "Help",
+      "help raw-token",
       " status",
       "status ",
       "Status",
@@ -70,6 +76,33 @@ describe("interactive viewer control prompt", () => {
     expect(output.text()).not.toContain("raw-token");
   });
 
+  it("prints viewer help without reading status, leaving, invoking host controls, or public sends", async () => {
+    const runtime = createRuntimeSpy();
+    const output = createCapturingOutput();
+
+    startInteractiveViewerControlPrompt(runtime, {
+      input: PassThrough.from(["help\n"]),
+      output
+    });
+    await waitForText(output, (text) => text.includes("[winbridge-agent] viewer control help"));
+
+    expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.stop).not.toHaveBeenCalled();
+    expect(runtime.getHostStatus).not.toHaveBeenCalled();
+    expect(runtime.pause).not.toHaveBeenCalled();
+    expect(runtime.resume).not.toHaveBeenCalled();
+    expect(runtime.revokePermission).not.toHaveBeenCalled();
+    expect(runtime.terminate).not.toHaveBeenCalled();
+    expect(runtime.disconnect).not.toHaveBeenCalled();
+    expect(runtime.send).not.toHaveBeenCalled();
+    expect(output.text()).toContain("commands=help,status,disconnect");
+    expect(output.text()).not.toContain("screen:view");
+    expect(output.text()).not.toContain("123-456");
+    expect(output.text()).not.toContain("Viewer Support");
+    expect(output.text()).not.toContain("raw-token");
+  });
+
   it("leaves only the local viewer runtime for disconnect", async () => {
     const runtime = createRuntimeSpy();
     const output = createCapturingOutput();
@@ -95,18 +128,27 @@ describe("interactive viewer control prompt", () => {
     expect(output.text()).not.toContain("raw-token");
   });
 
+  it("formats viewer help as a bounded static command list", () => {
+    expect(formatViewerControlHelp()).toBe(
+      "[winbridge-agent] viewer control help commands=help,status,disconnect\n"
+    );
+  });
+
   it("rejects malformed commands without invoking runtime operations or echoing input", async () => {
     const runtime = createRuntimeSpy();
     const output = createCapturingOutput();
     const input = PassThrough.from([
+      " help\n",
+      "Help\n",
       " status\n",
       "disconnect raw-token\n",
+      "help raw-token\n",
       "revoke screen:view\n",
       "raw-token\n"
     ]);
 
     startInteractiveViewerControlPrompt(runtime, { input, output });
-    await waitForText(output, (text) => countMatches(text, "viewer control rejected") === 4);
+    await waitForText(output, (text) => countMatches(text, "viewer control rejected") === 7);
 
     expect(runtime.getViewerStatus).not.toHaveBeenCalled();
     expect(runtime.leave).not.toHaveBeenCalled();

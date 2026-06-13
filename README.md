@@ -205,7 +205,7 @@ Use the development viewer control prompt for repeated local viewer status reads
 npm run dev:agent -- viewer --session demo --pairing 123-456 --viewer-control-prompt true
 ```
 
-Viewer control prompt mode accepts exact commands: `status` and `disconnect`. It is viewer-only and mutually exclusive with `--viewer-status-after-ms` and `--viewer-disconnect-after-ms`. `status` prints the same bounded local viewer status snapshot as the one-shot status helper. `disconnect` invokes the managed viewer-only `leave()` control and closes only the local viewer runtime; it does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages, and it cannot invoke host controls.
+Viewer control prompt mode accepts exact commands: `help`, `status`, and `disconnect`. It is viewer-only and mutually exclusive with `--viewer-status-after-ms` and `--viewer-disconnect-after-ms`. `help` prints a static command list and does not read runtime status, send protocol messages, invoke viewer leave, or invoke host controls. `status` prints the same bounded local viewer status snapshot as the one-shot status helper. `disconnect` invokes the managed viewer-only `leave()` control and closes only the local viewer runtime; it does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages, and it cannot invoke host controls.
 
 Simulate a viewer leaving the session locally:
 

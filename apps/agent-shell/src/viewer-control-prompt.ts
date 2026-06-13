@@ -17,13 +17,18 @@ export type ViewerControlPromptHandle = {
 
 export type ViewerControlRuntime = Pick<AgentShellRuntime, "getViewerStatus" | "leave">;
 
-type ViewerControlCommand = { action: "status" } | { action: "disconnect" };
+type ViewerControlCommand =
+  | { action: "help" }
+  | { action: "status" }
+  | { action: "disconnect" };
 
 const VIEWER_CONTROL_PROMPT_TEXT =
-  "[winbridge-agent] Viewer controls: status | disconnect\n";
+  "[winbridge-agent] Viewer controls: help | status | disconnect\n";
 const VIEWER_CONTROL_ACCEPTED_PREFIX = "[winbridge-agent] viewer control accepted";
 const VIEWER_CONTROL_REJECTED_MESSAGE = "[winbridge-agent] viewer control rejected";
 const VIEWER_CONTROL_STOPPED_MESSAGE = "[winbridge-agent] viewer control prompt stopped\n";
+const VIEWER_CONTROL_HELP_TEXT =
+  "[winbridge-agent] viewer control help commands=help,status,disconnect\n";
 
 export function startInteractiveViewerControlPrompt(
   runtime: ViewerControlRuntime,
@@ -68,6 +73,8 @@ export function startInteractiveViewerControlPrompt(
 
 export function parseViewerControlCommand(line: string): ViewerControlCommand | undefined {
   switch (line) {
+    case "help":
+      return { action: "help" };
     case "status":
       return { action: "status" };
     case "disconnect":
@@ -75,6 +82,10 @@ export function parseViewerControlCommand(line: string): ViewerControlCommand | 
     default:
       return undefined;
   }
+}
+
+export function formatViewerControlHelp(): string {
+  return VIEWER_CONTROL_HELP_TEXT;
 }
 
 function handleViewerControlLine(
@@ -86,6 +97,11 @@ function handleViewerControlLine(
   const command = parseViewerControlCommand(line);
   if (!command) {
     output.write(`${VIEWER_CONTROL_REJECTED_MESSAGE}\n`);
+    return;
+  }
+
+  if (command.action === "help") {
+    output.write(formatViewerControlHelp());
     return;
   }
 
