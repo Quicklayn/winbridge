@@ -1707,8 +1707,8 @@ describe("protocol envelopes", () => {
     });
   });
 
-  it("accepts session control messages without optional reasons for non-revoke actions", () => {
-    for (const action of ["pause", "resume", "terminate"] as const) {
+  it("accepts session control messages without optional reasons for reversible actions", () => {
+    for (const action of ["pause", "resume"] as const) {
       const parsed = parseProtocolEnvelope({
         ...createMessageBase("session-demo"),
         type: "session-control",
@@ -1769,6 +1769,18 @@ describe("protocol envelopes", () => {
         actorPeerId: "host-1",
         action: "revoke-permission",
         permission: "screen:view"
+      })
+    ).toThrow("require reason");
+  });
+
+  it("rejects terminate session control messages without reason", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-control",
+        authorizationId: "authz-demo",
+        actorPeerId: "host-1",
+        action: "terminate"
       })
     ).toThrow("require reason");
   });

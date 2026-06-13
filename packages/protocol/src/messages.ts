@@ -378,6 +378,14 @@ export const SessionControlMessageSchema = BaseMessageSchema.extend({
     });
   }
 
+  if (message.action === "terminate" && !message.reason) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Terminate session control messages require reason",
+      path: ["reason"]
+    });
+  }
+
   if (message.action !== "revoke-permission" && message.permission) {
     context.addIssue({
       code: z.ZodIssueCode.custom,

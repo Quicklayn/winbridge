@@ -194,6 +194,22 @@ The protocol SHALL reject malformed `session-control` messages whose action-spec
 - **WHEN** a `session-control` message has action `revoke-permission` and omits reason
 - **THEN** the protocol schema rejects the message before peers can process unauditable revocation intent
 
+#### Scenario: Terminate control includes reason
+- **WHEN** a `session-control` message has action `terminate`, includes `authorizationId`, and includes a non-blank already trimmed reason with no unsafe control or formatting characters
+- **THEN** the protocol schema accepts the message as termination intent for that authorization
+
+#### Scenario: Terminate control lacks reason
+- **WHEN** a `session-control` message has action `terminate` and omits reason
+- **THEN** the protocol schema rejects the message before peers can process unauditable termination intent
+
+#### Scenario: Pause control can omit reason
+- **WHEN** a `session-control` message has action `pause`, includes `authorizationId`, and omits reason
+- **THEN** the protocol schema accepts the message as pause intent for that authorization
+
+#### Scenario: Resume control can omit reason
+- **WHEN** a `session-control` message has action `resume`, includes `authorizationId`, and omits reason
+- **THEN** the protocol schema accepts the message as resume intent for that authorization
+
 #### Scenario: Pause control includes permission
 - **WHEN** a `session-control` message has action `pause` and includes permission
 - **THEN** the protocol schema rejects the message so pause cannot be confused with permission revocation or grant scope
