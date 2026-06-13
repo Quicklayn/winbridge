@@ -4014,6 +4014,43 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(timeout)).not.toContain("123-456");
   });
 
+  it("uses a validated heartbeat snapshot after caller mutates injected config", async () => {
+    const auditSink = new MemoryAuditSink();
+    const heartbeat = {
+      intervalMs: 20,
+      timeoutMs: 60
+    };
+    const runtime = createRelayRuntime({
+      port: 0,
+      auditSink,
+      heartbeat,
+      logger: silentLogger
+    });
+    heartbeat.intervalMs = 1;
+    heartbeat.timeoutMs = 1;
+
+    await runtime.start();
+    runtimes.push(runtime);
+    const host = await openSocket(runtime.url(), { autoPong: false });
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    await waitForClose(host);
+
+    const timeout = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.peer.heartbeat.timeout"
+    );
+    expect(timeout).toMatchObject({
+      action: "relay.peer.heartbeat.timeout",
+      detail: {
+        intervalMs: 20,
+        timeoutMs: 60
+      }
+    });
+    expect(JSON.stringify(timeout)).not.toContain("123-456");
+  });
+
   it("notifies the remaining peer with heartbeat timeout reason", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({

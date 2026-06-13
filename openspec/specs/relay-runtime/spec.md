@@ -211,7 +211,7 @@ The managed relay runtime SHALL reject malformed development shared-token config
 - **THEN** thrown errors, startup diagnostics, audit records, and logs MUST NOT expose the raw shared token, token whitespace shape, pairing codes, credentials, protocol payloads, keystrokes, screenshots, screen contents, or full secrets
 
 ### Requirement: Testable heartbeat configuration
-The managed relay runtime SHALL allow callers to inject relay heartbeat settings or disable heartbeat timers for tests, and SHALL reject unsafe injected heartbeat timer values before starting peer heartbeat timers.
+The managed relay runtime SHALL allow callers to inject relay heartbeat settings or disable heartbeat timers for tests, SHALL reject unsafe injected heartbeat timer values before starting peer heartbeat timers, and SHALL preserve the same validated snapshot semantics as relay heartbeat configuration.
 
 #### Scenario: Runtime receives injected heartbeat settings
 - **WHEN** tests create a relay runtime with explicit heartbeat interval and timeout values
@@ -224,6 +224,11 @@ The managed relay runtime SHALL allow callers to inject relay heartbeat settings
 #### Scenario: Runtime rejects unsafe injected heartbeat settings
 - **WHEN** tests create the relay runtime with non-integer, non-positive, or timer-unsafe heartbeat interval or timeout values
 - **THEN** the runtime rejects configuration before starting peer heartbeat timers
+
+#### Scenario: Runtime snapshots injected heartbeat configuration
+- **WHEN** `createRelayRuntime({ heartbeat })` receives a safe heartbeat config and caller code mutates that original object before peers connect
+- **THEN** accepted peers use the validated snapshot captured during runtime creation
+- **AND** the later mutation MUST NOT change stale-peer timeout behavior or create unsafe timers
 
 ### Requirement: CLI heartbeat defaults
 The relay CLI SHALL start the managed relay runtime with environment-derived heartbeat configuration.

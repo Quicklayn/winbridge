@@ -136,6 +136,18 @@ describe("relay heartbeat", () => {
     );
   });
 
+  it("returns an immutable snapshot for injected heartbeat settings", () => {
+    const injected = { intervalMs: 1_000, timeoutMs: 2_000 };
+
+    const normalized = normalizeRelayHeartbeatConfig(injected);
+    injected.intervalMs = 1;
+    injected.timeoutMs = 1;
+
+    expect(normalized).toEqual({ intervalMs: 1_000, timeoutMs: 2_000 });
+    expect(normalized).not.toBe(injected);
+    expect(Object.isFrozen(normalized)).toBe(true);
+  });
+
   it("tracks ping, pong, and timeout state", () => {
     const initial = createRelayHeartbeatState(1_000);
     const pinged = markHeartbeatPing(initial, 2_000);

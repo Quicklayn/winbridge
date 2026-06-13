@@ -35,9 +35,12 @@ export function createRelayHeartbeatConfig(env: NodeJS.ProcessEnv = process.env)
 }
 
 export function normalizeRelayHeartbeatConfig(config: RelayHeartbeatConfig): RelayHeartbeatConfig {
-  assertSafeHeartbeatTimer(config.intervalMs, "Heartbeat interval");
-  assertSafeHeartbeatTimer(config.timeoutMs, "Heartbeat timeout");
-  return config;
+  const intervalMs = config.intervalMs;
+  const timeoutMs = config.timeoutMs;
+
+  assertSafeHeartbeatTimer(intervalMs, "Heartbeat interval");
+  assertSafeHeartbeatTimer(timeoutMs, "Heartbeat timeout");
+  return Object.freeze({ intervalMs, timeoutMs });
 }
 
 export function createRelayHeartbeatState(now = Date.now()): RelayHeartbeatState {
