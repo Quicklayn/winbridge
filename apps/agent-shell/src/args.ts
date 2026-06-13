@@ -33,6 +33,7 @@ export type AgentShellArgs = {
   hostDecision: HostDecision;
   hostConsentPrompt: boolean;
   hostControlPrompt: boolean;
+  viewerControlPrompt: boolean;
   hostSignalProbeAck: boolean;
   hostConsentTimeoutMs?: number;
   visibleToHost: boolean;
@@ -54,7 +55,7 @@ export type AgentShellArgs = {
 };
 
 export const AGENT_SHELL_USAGE =
-  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000]";
+  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000]";
 
 const knownOptions = new Set([
   "relay",
@@ -70,6 +71,7 @@ const knownOptions = new Set([
   "host-decision",
   "host-consent-prompt",
   "host-control-prompt",
+  "viewer-control-prompt",
   "host-signal-probe-ack",
   "host-consent-timeout-ms",
   "visible-session",
@@ -136,6 +138,12 @@ export function parseArgs(
     role,
     options.get("viewer-disconnect-after-ms")
   );
+  const viewerControlPrompt = parseViewerControlPrompt(
+    role,
+    viewerStatusAfterMs,
+    viewerDisconnectAfterMs,
+    options.get("viewer-control-prompt")
+  );
 
   return {
     role,
@@ -154,6 +162,7 @@ export function parseArgs(
     hostDecision,
     hostConsentPrompt,
     hostControlPrompt,
+    viewerControlPrompt,
     hostSignalProbeAck,
     hostConsentTimeoutMs: parseHostConsentTimeoutMs(
       hostConsentPrompt,
@@ -380,6 +389,25 @@ function parseHostControlPrompt(
   }
 
   if (enabled && hostConsentPrompt) {
+    throw new AgentShellUsageError();
+  }
+
+  return enabled;
+}
+
+function parseViewerControlPrompt(
+  role: SessionRole,
+  viewerStatusAfterMs: number | undefined,
+  viewerDisconnectAfterMs: number | undefined,
+  raw: string | undefined
+): boolean {
+  const enabled = parseBooleanFlag(raw, false);
+
+  if (raw !== undefined && role !== "viewer") {
+    throw new AgentShellUsageError();
+  }
+
+  if (enabled && (viewerStatusAfterMs !== undefined || viewerDisconnectAfterMs !== undefined)) {
     throw new AgentShellUsageError();
   }
 

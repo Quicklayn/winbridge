@@ -199,6 +199,14 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --viewer-status-aft
 
 `--viewer-status-after-ms` is viewer-only, accepts an exact integer delay from `0` through `2147483647`, and does not require requested permissions. It reads only local viewer status and does not start signaling, send protocol messages, emit workflow audit events, grant permissions, or invoke host controls.
 
+Use the development viewer control prompt for repeated local viewer status reads or a local viewer leave:
+
+```powershell
+npm run dev:agent -- viewer --session demo --pairing 123-456 --viewer-control-prompt true
+```
+
+Viewer control prompt mode accepts exact commands: `status` and `disconnect`. It is viewer-only and mutually exclusive with `--viewer-status-after-ms` and `--viewer-disconnect-after-ms`. `status` prints the same bounded local viewer status snapshot as the one-shot status helper. `disconnect` stops only the local viewer runtime; it does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages, and it cannot invoke host controls.
+
 Simulate a viewer leaving the session locally:
 
 ```powershell

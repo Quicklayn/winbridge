@@ -4,12 +4,17 @@ import { reportAgentShellCliError } from "./cli-diagnostics.js";
 import { createInteractiveHostDecisionProvider } from "./host-consent-prompt.js";
 import { startInteractiveHostControlPrompt, type HostControlPromptHandle } from "./host-control-prompt.js";
 import { createAgentShellRuntime } from "./runtime.js";
+import {
+  startInteractiveViewerControlPrompt,
+  type ViewerControlPromptHandle
+} from "./viewer-control-prompt.js";
 import { scheduleViewerLocalDisconnect, type ViewerLocalDisconnectHandle } from "./viewer-disconnect.js";
 import { scheduleViewerStatusPrint, type ViewerStatusPrintHandle } from "./viewer-status.js";
 
 try {
   const args = parseArgs(process.argv.slice(2));
   let hostControlPrompt: HostControlPromptHandle | undefined;
+  let viewerControlPrompt: ViewerControlPromptHandle | undefined;
   let viewerLocalDisconnect: ViewerLocalDisconnectHandle | undefined;
   let viewerStatusPrint: ViewerStatusPrintHandle | undefined;
   const runtime = createAgentShellRuntime({
@@ -22,6 +27,7 @@ try {
 
   const shutdown = async () => {
     hostControlPrompt?.stop();
+    viewerControlPrompt?.stop();
     viewerLocalDisconnect?.stop();
     viewerStatusPrint?.stop();
     await runtime.stop();
@@ -50,6 +56,10 @@ try {
     .then(() => {
       if (args.hostControlPrompt) {
         hostControlPrompt = startInteractiveHostControlPrompt(runtime);
+      }
+
+      if (args.viewerControlPrompt) {
+        viewerControlPrompt = startInteractiveViewerControlPrompt(runtime);
       }
 
       if (args.viewerStatusAfterMs !== undefined) {

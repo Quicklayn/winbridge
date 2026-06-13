@@ -26,6 +26,7 @@ describe("agent shell arguments", () => {
       hostDecision: "none",
       hostConsentPrompt: false,
       hostControlPrompt: false,
+      viewerControlPrompt: false,
       hostSignalProbeAck: false,
       visibleToHost: false
     });
@@ -57,6 +58,11 @@ describe("agent shell arguments", () => {
   it("parses interactive host control prompt mode for host runtimes", () => {
     expect(parseArgs(["host", "--host-control-prompt", "true"], {}, 42).hostControlPrompt).toBe(true);
     expect(parseArgs(["host", "--host-control-prompt", "false"], {}, 42).hostControlPrompt).toBe(false);
+  });
+
+  it("parses interactive viewer control prompt mode for viewer runtimes", () => {
+    expect(parseArgs(["viewer", "--viewer-control-prompt", "true"], {}, 42).viewerControlPrompt).toBe(true);
+    expect(parseArgs(["viewer", "--viewer-control-prompt", "false"], {}, 42).viewerControlPrompt).toBe(false);
   });
 
   it("parses host signal probe acknowledgement mode for host runtimes", () => {
@@ -188,6 +194,14 @@ describe("agent shell arguments", () => {
     );
   });
 
+  it("rejects malformed interactive viewer control prompt values", () => {
+    for (const value of ["yes", "1", "TRUE", "False", ""]) {
+      expect(() => parseArgs(["viewer", "--viewer-control-prompt", value], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+    }
+  });
+
   it("rejects malformed host signal probe acknowledgement values", () => {
     for (const value of ["yes", "1", "TRUE", "False", ""]) {
       expect(() => parseArgs(["host", "--host-signal-probe-ack", value], {}, 42)).toThrow(
@@ -246,6 +260,29 @@ describe("agent shell arguments", () => {
     expect(() =>
       parseArgs(
         ["host", "--host-control-prompt", "true", "--host-consent-prompt", "true"],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+  });
+
+  it("rejects interactive viewer control prompt for host runtimes or one-shot viewer helpers", () => {
+    expect(() => parseArgs(["host", "--viewer-control-prompt", "true"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+    expect(() => parseArgs(["host", "--viewer-control-prompt", "false"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+    expect(() =>
+      parseArgs(
+        ["viewer", "--viewer-control-prompt", "true", "--viewer-status-after-ms", "0"],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+    expect(() =>
+      parseArgs(
+        ["viewer", "--viewer-control-prompt", "true", "--viewer-disconnect-after-ms", "0"],
         {},
         42
       )
