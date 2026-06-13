@@ -558,7 +558,10 @@ describe("audit records", () => {
       "fileTransfer: raw-file-transfer",
       "diagnostic: raw-diagnostic",
       "diagnostics: raw-diagnostics",
-      "diagnosticDump: raw-diagnostic-dump"
+      "diagnosticDump: raw-diagnostic-dump",
+      "keylog: raw-keylog-content",
+      "rawKeylog=raw-keylog-marker",
+      "keyloggerOutput raw-keylogger-output"
     ]) {
       const record = createAuditRecord({
         actor: { type: "relay", id: "relay-dev" },
@@ -579,7 +582,8 @@ describe("audit records", () => {
       "Relay token rate limit exceeded",
       "clipboard denied",
       "file transfer denied",
-      "diagnostic denied"
+      "diagnostic denied",
+      "keylog denied"
     ]) {
       const record = createAuditRecord({
         actor: { type: "relay", id: "relay-dev" },
