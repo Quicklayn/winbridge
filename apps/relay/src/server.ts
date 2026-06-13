@@ -19,6 +19,7 @@ import {
   createMessageBase,
   decodeProtocolEnvelope,
   encodeProtocolEnvelope,
+  hasSecretBearingAuditMetadata,
   JoinSessionMessageSchema,
   stringifyJson,
   type AuditDetail,
@@ -623,7 +624,7 @@ function relayAuditDeviceIdentity(
     trustLevel: deviceIdentity.trustLevel
   };
 
-  if (isDeniedJoinIdentifierSafe(deviceIdentity.deviceId, pairingCode)) {
+  if (isRelayAuditIdentifierSafe(deviceIdentity.deviceId, pairingCode)) {
     auditIdentity.deviceId = deviceIdentity.deviceId;
   } else {
     auditIdentity.deviceIdRedacted = true;
@@ -691,9 +692,10 @@ function acceptedForwardAuditDetail(
   const detail: AuditDetail = {
     messageType: envelope.type,
     messageId: envelope.messageId,
-    recipientPeerId: recipient.peerId,
     recipientRole: recipient.role
   };
+
+  applyRelayAuditIdentifierDetail(detail, "recipientPeerId", recipient.peerId);
 
   const authorizationId = forwardAuditAuthorizationId(envelope);
   if (authorizationId) {
@@ -701,6 +703,20 @@ function acceptedForwardAuditDetail(
   }
 
   return detail;
+}
+
+function applyRelayAuditIdentifierDetail(
+  detail: AuditDetail,
+  fieldName: string,
+  identifier: string
+): void {
+  if (isRelayAuditIdentifierSafe(identifier)) {
+    detail[fieldName] = identifier;
+    return;
+  }
+
+  detail[`${fieldName}Redacted`] = true;
+  detail[`${fieldName}Length`] = identifier.length;
 }
 
 function forwardAuditAuthorizationId(envelope: ProtocolEnvelope): string | undefined {
@@ -952,8 +968,8 @@ function joinDenialAuditAttribution(envelope: ProtocolEnvelope): {
   }
 
   const detail: AuditDetail = {};
-  const sessionIdSafe = isDeniedJoinIdentifierSafe(envelope.sessionId, envelope.pairingCode);
-  const peerIdSafe = isDeniedJoinIdentifierSafe(envelope.peerId, envelope.pairingCode);
+  const sessionIdSafe = isRelayAuditIdentifierSafe(envelope.sessionId, envelope.pairingCode);
+  const peerIdSafe = isRelayAuditIdentifierSafe(envelope.peerId, envelope.pairingCode);
   const attemptedDeviceIdentity = relayDeniedJoinAuditDeviceIdentity(
     envelope.deviceIdentity,
     envelope.pairingCode
@@ -980,8 +996,11 @@ function joinDenialAuditAttribution(envelope: ProtocolEnvelope): {
   };
 }
 
-function isDeniedJoinIdentifierSafe(identifier: string, pairingCode: string): boolean {
-  return !identifier.includes(pairingCode);
+function isRelayAuditIdentifierSafe(identifier: string, pairingCode?: string): boolean {
+  return (
+    (pairingCode === undefined || !identifier.includes(pairingCode)) &&
+    !hasSecretBearingAuditMetadata(identifier)
+  );
 }
 
 function relayDeniedJoinAuditDeviceIdentity(

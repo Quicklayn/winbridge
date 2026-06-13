@@ -264,6 +264,116 @@ describe("relay runtime integration", () => {
     expect(serialized).not.toContain("input:pointer");
   });
 
+  it("redacts accepted join secret-bearing session and peer identifiers from audit attribution", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+    const secretBearingSessionId = "token:raw-session-secret";
+    const secretBearingPeerId = "token:raw-peer-secret";
+
+    host.send(joinMessage(secretBearingSessionId, secretBearingPeerId, "host", "123-456"));
+
+    expect(await waitForProtocolMessage(host, (message) => message.type === "relay-ready")).toMatchObject({
+      type: "relay-ready",
+      peerId: secretBearingPeerId,
+      roomSize: 1
+    });
+
+    const accepted = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.peer.join.accepted"
+    );
+
+    expect(accepted.sessionId).toBeUndefined();
+    expect(accepted.actor.id).toBe("development-relay:peer:redacted");
+    expect(accepted.detail).toMatchObject({
+      role: "host",
+      pairingTicketCreated: true,
+      relaySessionIdRedacted: true,
+      relaySessionIdLength: secretBearingSessionId.length,
+      relayPeerIdRedacted: true,
+      relayPeerIdLength: secretBearingPeerId.length
+    });
+
+    const serialized = JSON.stringify(accepted);
+    expect(serialized).not.toContain(secretBearingSessionId);
+    expect(serialized).not.toContain(secretBearingPeerId);
+    expect(serialized).not.toContain("raw-session-secret");
+    expect(serialized).not.toContain("raw-peer-secret");
+    expect(serialized).not.toContain("123-456");
+  });
+
+  it("redacts secret-bearing join device ids in accepted and denied audits", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+    const deniedViewer = await openSocket(runtime.url());
+    const acceptedDeviceId = "token:raw-accepted-device-secret";
+    const deniedDeviceId = "cookie:raw-denied-device-secret";
+    const acceptedIdentity: DeviceIdentity = {
+      deviceId: acceptedDeviceId,
+      displayName: "Accepted Device Private Display",
+      platform: "windows",
+      trustLevel: "local-dev",
+      createdAt: "2026-06-13T10:00:00.000Z"
+    };
+    const deniedIdentity: DeviceIdentity = {
+      deviceId: deniedDeviceId,
+      displayName: "Denied Device Private Display",
+      platform: "windows",
+      trustLevel: "unknown",
+      createdAt: "2026-06-13T10:01:00.000Z"
+    };
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456", acceptedIdentity));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+
+    deniedViewer.send(
+      joinMessage("session-demo", "viewer-2", "viewer", "999-000", deniedIdentity)
+    );
+    await waitForJsonMessage(deniedViewer, (message) => message.type === "relay-error");
+
+    const accepted = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.join.accepted" &&
+        record.actor.id === "development-relay:host-1"
+    );
+    const denied = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.join.denied" &&
+        record.reason === "Pairing code mismatch"
+    );
+
+    expect(accepted.detail).toMatchObject({
+      deviceIdentity: {
+        platform: "windows",
+        trustLevel: "local-dev",
+        createdAt: "2026-06-13T10:00:00.000Z",
+        deviceIdRedacted: true,
+        deviceIdLength: acceptedDeviceId.length
+      }
+    });
+    expect(denied.detail).toMatchObject({
+      attemptedDeviceIdentity: {
+        platform: "windows",
+        trustLevel: "unknown",
+        createdAt: "2026-06-13T10:01:00.000Z",
+        deviceIdRedacted: true,
+        deviceIdLength: deniedDeviceId.length
+      }
+    });
+
+    const serialized = JSON.stringify([accepted, denied]);
+    expect(serialized).not.toContain(acceptedDeviceId);
+    expect(serialized).not.toContain(deniedDeviceId);
+    expect(serialized).not.toContain("raw-accepted-device-secret");
+    expect(serialized).not.toContain("raw-denied-device-secret");
+    expect(serialized).not.toContain("Accepted Device Private Display");
+    expect(serialized).not.toContain("Denied Device Private Display");
+  });
+
   it("rejects join messages with unknown fixed fields before registration", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
@@ -437,6 +547,54 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(forwarded)).not.toContain(privateMarker);
     expect(JSON.stringify(forwarded)).not.toContain("raw-forwarded-signal-sdp");
     expect(JSON.stringify(forwarded)).not.toContain("raw-forwarded-signal-candidate");
+  });
+
+  it("redacts secret-bearing recipient peer ids in forwarded audit metadata", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url());
+    const recipientPeerId = "cookie:raw-recipient-peer-secret";
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    viewer.send(joinMessage("session-demo", recipientPeerId, "viewer", "123-456"));
+    await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready");
+
+    const signal = {
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: recipientPeerId,
+      payload: { authorizationId: "authz-recipient-redaction", kind: "test-signal" }
+    } as const;
+
+    host.send(encodeProtocolEnvelope(signal));
+
+    expect(await waitForProtocolMessage(viewer, (message) => message.type === "signal")).toMatchObject({
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: recipientPeerId
+    });
+
+    const forwarded = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.forwarded" &&
+        record.detail?.messageType === "signal" &&
+        record.detail?.messageId === signal.messageId
+    );
+
+    expect(forwarded.detail).toEqual({
+      messageType: "signal",
+      messageId: signal.messageId,
+      recipientRole: "viewer",
+      recipientPeerIdRedacted: true,
+      recipientPeerIdLength: recipientPeerId.length,
+      authorizationId: "authz-recipient-redaction"
+    });
+    expect(JSON.stringify(forwarded)).not.toContain(recipientPeerId);
+    expect(JSON.stringify(forwarded)).not.toContain("raw-recipient-peer-secret");
   });
 
   it("audits forwarded authorization lifecycle ids without sensitive lifecycle metadata", async () => {

@@ -6,6 +6,7 @@ import {
   type AuditSink
 } from "@winbridge/audit-log";
 import {
+  hasSecretBearingAuditMetadata,
   PROTOCOL_IDENTIFIER_MAX_LENGTH,
   type AuditActor,
   type AuditDetail,
@@ -15,6 +16,7 @@ import {
 
 const relayActor = { type: "relay", id: "development-relay" } as const;
 const boundedRelayPeerActorPrefix = `${relayActor.id}:peer`;
+const redactedRelayPeerActorId = `${boundedRelayPeerActorPrefix}:redacted`;
 const RELAY_AUDIT_LOG_PATH_ERROR_MESSAGE =
   "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
 
@@ -41,14 +43,39 @@ export function writeRelayAudit(
   }
 ): AuditRecord {
   const actor = relayAuditActor(input.peerId);
+  const session = relayAuditSession(input.sessionId);
   return sink.write({
     actor: actor.actor,
     action: input.action,
     outcome: input.outcome,
-    sessionId: input.sessionId,
+    sessionId: session.sessionId,
     reason: input.reason,
-    detail: actor.detail ? { ...(input.detail ?? {}), ...actor.detail } : (input.detail ?? {})
+    detail: {
+      ...(input.detail ?? {}),
+      ...(actor.detail ?? {}),
+      ...(session.detail ?? {})
+    }
   });
+}
+
+function relayAuditSession(sessionId: string | undefined): {
+  sessionId?: string;
+  detail?: AuditDetail;
+} {
+  if (!sessionId) {
+    return {};
+  }
+
+  if (!isSecretBearingRelayIdentifier(sessionId)) {
+    return { sessionId };
+  }
+
+  return {
+    detail: {
+      relaySessionIdRedacted: true,
+      relaySessionIdLength: sessionId.length
+    }
+  };
 }
 
 function relayAuditActor(peerId: string | undefined): {
@@ -57,6 +84,19 @@ function relayAuditActor(peerId: string | undefined): {
 } {
   if (!peerId) {
     return { actor: relayActor };
+  }
+
+  if (isSecretBearingRelayIdentifier(peerId)) {
+    return {
+      actor: {
+        ...relayActor,
+        id: redactedRelayPeerActorId
+      },
+      detail: {
+        relayPeerIdRedacted: true,
+        relayPeerIdLength: peerId.length
+      }
+    };
   }
 
   const readableId = `${relayActor.id}:${peerId}`;
@@ -81,4 +121,8 @@ function relayAuditActor(peerId: string | undefined): {
       relayPeerIdLength: peerId.length
     }
   };
+}
+
+function isSecretBearingRelayIdentifier(identifier: string): boolean {
+  return hasSecretBearingAuditMetadata(identifier);
 }
