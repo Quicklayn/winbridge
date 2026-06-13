@@ -49,6 +49,8 @@ describe("viewer status print", () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(runtime.getViewerStatus).toHaveBeenCalledTimes(1);
       expect(runtime.getHostStatus).not.toHaveBeenCalled();
+      expect(runtime.leave).not.toHaveBeenCalled();
+      expect(runtime.stop).not.toHaveBeenCalled();
       expect(runtime.pause).not.toHaveBeenCalled();
       expect(runtime.resume).not.toHaveBeenCalled();
       expect(runtime.revokePermission).not.toHaveBeenCalled();
@@ -117,6 +119,7 @@ function createRuntimeSpy(): AgentShellRuntime {
   return {
     start: vi.fn(),
     stop: vi.fn(),
+    leave: vi.fn(),
     getHostStatus: vi.fn(() => ({
       state: "inactive",
       visibleToHost: false,

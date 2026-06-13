@@ -11,7 +11,7 @@ export type ViewerLocalDisconnectHandle = {
 };
 
 export function scheduleViewerLocalDisconnect(
-  runtime: Pick<AgentShellRuntime, "stop">,
+  runtime: Pick<AgentShellRuntime, "leave">,
   delayMs: number,
   options: ViewerLocalDisconnectOptions = {}
 ): ViewerLocalDisconnectHandle {
@@ -23,7 +23,7 @@ export function scheduleViewerLocalDisconnect(
     }
 
     stopped = true;
-    runtime.stop().catch((error: unknown) => {
+    runtime.leave().catch((error: unknown) => {
       output.write(`${formatAgentShellCliError(error)}\n`);
     });
   }, delayMs);

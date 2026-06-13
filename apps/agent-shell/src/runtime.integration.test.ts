@@ -2762,6 +2762,46 @@ describe("agent shell consent workflow", () => {
     );
   });
 
+  it("leaves the viewer runtime locally and reports inactive viewer status", async () => {
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostGrantPermissions: ["screen:view"],
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active"
+    );
+    if (activeState.type !== "session-authorization-state") {
+      throw new Error("Expected active authorization state");
+    }
+
+    const viewerSentBeforeLeave = viewerEvents.filter((event) => event.direction === "sent").length;
+    await viewer.leave();
+
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "peer-disconnected" && message.peerId === "viewer-1"
+    );
+
+    expect(viewer.getViewerStatus()).toEqual({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0
+    });
+    expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(
+      viewerSentBeforeLeave
+    );
+    expect(viewerEvents.some((event) => event.direction === "sent" && event.message.type === "peer-disconnected")).toBe(
+      false
+    );
+    expect(viewerEvents.some((event) => event.direction === "sent" && event.message.type === "audit-event")).toBe(
+      false
+    );
+  });
+
   it("reports invisible or denied viewer status as inactive", async () => {
     const invisible = await startRelayAndHost({
       hostDecision: "approve",
@@ -2832,6 +2872,56 @@ describe("agent shell consent workflow", () => {
     expect(() => host.getViewerStatus()).toThrow(
       "Agent shell viewer status is only valid for viewer runtimes"
     );
+  });
+
+  it("rejects viewer leave control on host runtimes without closing the host transport", async () => {
+    const { host, relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostGrantPermissions: ["screen:view"],
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active"
+    );
+    if (activeState.type !== "session-authorization-state") {
+      throw new Error("Expected active authorization state");
+    }
+    await waitForSentMessage(
+      hostEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.active"
+    );
+
+    const expectedActiveHostStatus = {
+      state: "active" as const,
+      authorizationId: activeState.authorizationId,
+      authorizationStatus: "active" as const,
+      visibleToHost: true,
+      permissionCount: 1
+    };
+    const hostSentBeforeRejectedLeave = hostEvents.filter((event) => event.direction === "sent").length;
+    const hostIndicatorBeforeRejectedLeave = hostEvents.filter(
+      (event) => event.direction === "indicator"
+    ).length;
+    expect(host.getHostStatus()).toEqual(expectedActiveHostStatus);
+
+    await expect(host.leave()).rejects.toThrow(
+      "Agent shell viewer leave is only valid for viewer runtimes"
+    );
+    await delay(50);
+
+    expect(hostEvents.some((event) => event.direction === "closed")).toBe(false);
+    expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(
+      hostSentBeforeRejectedLeave
+    );
+    expect(hostEvents.filter((event) => event.direction === "indicator")).toHaveLength(
+      hostIndicatorBeforeRejectedLeave
+    );
+    expect(host.getHostStatus()).toEqual(expectedActiveHostStatus);
   });
 
   it("withholds active state when host approves without visible session state", async () => {

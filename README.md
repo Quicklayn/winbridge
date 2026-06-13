@@ -189,7 +189,7 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 Host control prompt mode accepts exact commands: `status`, `pause`, `resume`, `revoke screen:view`, `terminate`, and `disconnect`. It is host-only and mutually exclusive with `--host-consent-prompt true` so only one stdin prompt is active. `status` prints bounded local host status metadata such as indicator state, visibility, permission count, and authorization id/status when available; it does not send protocol messages or invoke controls. Other commands call the same managed runtime controls as tests, so invisible sessions, expired grants, terminal sessions, disconnected peers, and missing permissions still fail closed before lifecycle protocol messages.
 
-Managed viewer runtimes also expose a read-only `getViewerStatus()` snapshot for future viewer UI wiring. It reports only bounded lifecycle metadata such as `state`, `visibleToHost`, `permissionCount`, and optional authorization id/status. After a trusted host disconnect notice, the snapshot reports inactive local state with `visibleToHost=false` and `permissionCount=0` while preserving optional authorization id/status metadata. It is viewer-only and does not send protocol messages, emit workflow audit events, grant permissions, start signaling, or invoke host controls.
+Managed viewer runtimes also expose a read-only `getViewerStatus()` snapshot for future viewer UI wiring. It reports only bounded lifecycle metadata such as `state`, `visibleToHost`, `permissionCount`, and optional authorization id/status. After a trusted host disconnect notice or managed local viewer leave, the snapshot reports inactive local state with `visibleToHost=false` and `permissionCount=0` while preserving optional authorization id/status metadata. It is viewer-only and does not send protocol messages, emit workflow audit events, grant permissions, start signaling, or invoke host controls.
 
 Print that bounded viewer-side local status snapshot from the development CLI:
 
@@ -205,7 +205,7 @@ Use the development viewer control prompt for repeated local viewer status reads
 npm run dev:agent -- viewer --session demo --pairing 123-456 --viewer-control-prompt true
 ```
 
-Viewer control prompt mode accepts exact commands: `status` and `disconnect`. It is viewer-only and mutually exclusive with `--viewer-status-after-ms` and `--viewer-disconnect-after-ms`. `status` prints the same bounded local viewer status snapshot as the one-shot status helper. `disconnect` stops only the local viewer runtime; it does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages, and it cannot invoke host controls.
+Viewer control prompt mode accepts exact commands: `status` and `disconnect`. It is viewer-only and mutually exclusive with `--viewer-status-after-ms` and `--viewer-disconnect-after-ms`. `status` prints the same bounded local viewer status snapshot as the one-shot status helper. `disconnect` invokes the managed viewer-only `leave()` control and closes only the local viewer runtime; it does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages, and it cannot invoke host controls.
 
 Simulate a viewer leaving the session locally:
 
@@ -213,7 +213,7 @@ Simulate a viewer leaving the session locally:
 npm run dev:agent -- viewer --session demo --pairing 123-456 --viewer-disconnect-after-ms 5000
 ```
 
-`--viewer-disconnect-after-ms` is viewer-only, accepts an exact integer delay from `0` through `2147483647`, and does not require requested permissions or active authorization. It stops only the local viewer runtime; the viewer does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages. The relay observes the socket close and notifies the remaining host.
+`--viewer-disconnect-after-ms` is viewer-only, accepts an exact integer delay from `0` through `2147483647`, and does not require requested permissions or active authorization. It invokes the managed viewer-only `leave()` control and closes only the local viewer runtime; host runtimes reject this control without closing the host transport. The viewer does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages. The relay observes the socket close and notifies the remaining host.
 
 Persist development host workflow audit records as JSONL:
 

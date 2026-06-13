@@ -60,6 +60,7 @@ describe("interactive host control prompt", () => {
     expect(runtime.revokePermission).toHaveBeenCalledWith("screen:view");
     expect(runtime.terminate).toHaveBeenCalledTimes(1);
     expect(runtime.disconnect).toHaveBeenCalledTimes(1);
+    expect(runtime.leave).not.toHaveBeenCalled();
     expect(runtime.send).not.toHaveBeenCalled();
     expect(output.text()).not.toContain("screen:view");
     expect(output.text()).not.toContain("123-456");
@@ -89,6 +90,7 @@ describe("interactive host control prompt", () => {
     expect(runtime.revokePermission).not.toHaveBeenCalled();
     expect(runtime.terminate).not.toHaveBeenCalled();
     expect(runtime.disconnect).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
     expect(runtime.send).not.toHaveBeenCalled();
     expect(output.text()).toContain("state=active");
     expect(output.text()).toContain("authorizationStatus=active");
@@ -128,6 +130,7 @@ describe("interactive host control prompt", () => {
     expect(runtime.revokePermission).not.toHaveBeenCalled();
     expect(runtime.terminate).not.toHaveBeenCalled();
     expect(runtime.disconnect).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
     expect(output.text()).not.toContain("input:keylogger");
     expect(output.text()).not.toContain("raw-token");
   });
@@ -167,6 +170,7 @@ describe("interactive host control prompt", () => {
     expect(runtime.revokePermission).not.toHaveBeenCalled();
     expect(runtime.terminate).not.toHaveBeenCalled();
     expect(runtime.disconnect).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
   });
 });
 
@@ -174,6 +178,7 @@ function createRuntimeSpy(): AgentShellRuntime {
   return {
     start: vi.fn(),
     stop: vi.fn(),
+    leave: vi.fn(),
     getHostStatus: vi.fn(() => ({
       state: "inactive",
       visibleToHost: false,

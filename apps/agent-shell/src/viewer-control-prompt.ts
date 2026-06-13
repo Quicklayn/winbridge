@@ -15,7 +15,7 @@ export type ViewerControlPromptHandle = {
   stop(): void;
 };
 
-export type ViewerControlRuntime = Pick<AgentShellRuntime, "getViewerStatus" | "stop">;
+export type ViewerControlRuntime = Pick<AgentShellRuntime, "getViewerStatus" | "leave">;
 
 type ViewerControlCommand = { action: "status" } | { action: "disconnect" };
 
@@ -100,7 +100,7 @@ function handleViewerControlLine(
 
   stopPrompt();
   Promise.resolve()
-    .then(() => runtime.stop())
+    .then(() => runtime.leave())
     .then(() => {
       output.write(`${VIEWER_CONTROL_ACCEPTED_PREFIX} action=disconnect\n`);
     })

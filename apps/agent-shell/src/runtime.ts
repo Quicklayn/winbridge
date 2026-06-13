@@ -150,6 +150,7 @@ export type AgentShellReasonRedacted<T> = T extends unknown
 export type AgentShellRuntime = {
   start(): Promise<void>;
   stop(): Promise<void>;
+  leave(): Promise<void>;
   getHostStatus(): AgentShellHostStatusSnapshot;
   getViewerStatus(): AgentShellViewerStatusSnapshot;
   disconnect(): void;
@@ -222,6 +223,8 @@ const AGENT_SHELL_HOST_STATUS_ROLE_ERROR_MESSAGE =
   "Agent shell host status is only valid for host runtimes";
 const AGENT_SHELL_VIEWER_STATUS_ROLE_ERROR_MESSAGE =
   "Agent shell viewer status is only valid for viewer runtimes";
+const AGENT_SHELL_VIEWER_LEAVE_ROLE_ERROR_MESSAGE =
+  "Agent shell viewer leave is only valid for viewer runtimes";
 const AGENT_SHELL_REVOKE_ROLE_ERROR_MESSAGE = "Agent shell revoke control is only valid for host runtimes";
 const AGENT_SHELL_REVOKE_AUTHORIZATION_ERROR_MESSAGE =
   "Agent shell revoke control requires active or paused visible host authorization";
@@ -334,6 +337,27 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
     timers.add(timer);
   };
 
+  const stopRuntime = async () => {
+    for (const timer of timers) {
+      clearTimeout(timer);
+    }
+    timers.clear();
+    deactivateHostIndicator(options, sessionState, "runtime-stop");
+    resetConnectionScopedSessionState(sessionState);
+
+    const socketToClose = socket;
+    socket = undefined;
+
+    if (!socketToClose || socketToClose.readyState === WebSocket.CLOSED) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      socketToClose.once("close", () => resolve());
+      socketToClose.close();
+    });
+  };
+
   return {
     async start() {
       resetConnectionScopedSessionState(sessionState);
@@ -387,24 +411,15 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
     },
 
     async stop() {
-      for (const timer of timers) {
-        clearTimeout(timer);
-      }
-      timers.clear();
-      deactivateHostIndicator(options, sessionState, "runtime-stop");
-      resetConnectionScopedSessionState(sessionState);
+      await stopRuntime();
+    },
 
-      const socketToClose = socket;
-      socket = undefined;
-
-      if (!socketToClose || socketToClose.readyState === WebSocket.CLOSED) {
-        return;
+    async leave() {
+      if (options.role !== "viewer") {
+        throw new Error(AGENT_SHELL_VIEWER_LEAVE_ROLE_ERROR_MESSAGE);
       }
 
-      await new Promise<void>((resolve) => {
-        socketToClose.once("close", () => resolve());
-        socketToClose.close();
-      });
+      await stopRuntime();
     },
 
     getHostStatus() {

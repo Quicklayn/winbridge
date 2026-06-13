@@ -51,6 +51,7 @@ describe("interactive viewer control prompt", () => {
     await waitForText(output, (text) => text.includes("[winbridge-agent] viewer status"));
 
     expect(runtime.getViewerStatus).toHaveBeenCalledTimes(1);
+    expect(runtime.leave).not.toHaveBeenCalled();
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.getHostStatus).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
@@ -69,7 +70,7 @@ describe("interactive viewer control prompt", () => {
     expect(output.text()).not.toContain("raw-token");
   });
 
-  it("stops only the local viewer runtime for disconnect", async () => {
+  it("leaves only the local viewer runtime for disconnect", async () => {
     const runtime = createRuntimeSpy();
     const output = createCapturingOutput();
 
@@ -79,7 +80,8 @@ describe("interactive viewer control prompt", () => {
     });
     await waitForText(output, (text) => text.includes("viewer control accepted"));
 
-    expect(runtime.stop).toHaveBeenCalledTimes(1);
+    expect(runtime.leave).toHaveBeenCalledTimes(1);
+    expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.getViewerStatus).not.toHaveBeenCalled();
     expect(runtime.getHostStatus).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
@@ -107,6 +109,7 @@ describe("interactive viewer control prompt", () => {
     await waitForText(output, (text) => countMatches(text, "viewer control rejected") === 4);
 
     expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
     expect(runtime.resume).not.toHaveBeenCalled();
@@ -141,7 +144,7 @@ describe("interactive viewer control prompt", () => {
   it("formats disconnect failures without raw exception text", async () => {
     const rawErrorMessage = "viewer disconnect failed with raw-token at C:\\Users\\Nur\\secret";
     const runtime = createRuntimeSpy();
-    vi.mocked(runtime.stop).mockRejectedValue(new Error(rawErrorMessage));
+    vi.mocked(runtime.leave).mockRejectedValue(new Error(rawErrorMessage));
     const output = createCapturingOutput();
 
     startInteractiveViewerControlPrompt(runtime, {
@@ -167,6 +170,7 @@ describe("interactive viewer control prompt", () => {
     await waitForText(output, (text) => text.includes("viewer control prompt stopped"));
 
     expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
     expect(runtime.resume).not.toHaveBeenCalled();
@@ -181,6 +185,7 @@ function createRuntimeSpy(): AgentShellRuntime {
   return {
     start: vi.fn(),
     stop: vi.fn(async () => undefined),
+    leave: vi.fn(async () => undefined),
     getHostStatus: vi.fn(() => ({
       state: "inactive",
       visibleToHost: false,

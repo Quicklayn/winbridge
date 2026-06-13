@@ -4,7 +4,7 @@ import { scheduleViewerLocalDisconnect } from "./viewer-disconnect.js";
 import type { AgentShellRuntime } from "./runtime.js";
 
 describe("viewer local disconnect", () => {
-  it("stops the local runtime after the configured delay without invoking controls or public sends", async () => {
+  it("leaves the local viewer runtime after the configured delay without invoking controls or public sends", async () => {
     vi.useFakeTimers();
     try {
       const runtime = createRuntimeSpy();
@@ -13,12 +13,13 @@ describe("viewer local disconnect", () => {
       const handle = scheduleViewerLocalDisconnect(runtime, 25, { output });
 
       await vi.advanceTimersByTimeAsync(24);
-      expect(runtime.stop).not.toHaveBeenCalled();
+      expect(runtime.leave).not.toHaveBeenCalled();
 
       await vi.advanceTimersByTimeAsync(1);
       await Promise.resolve();
 
-      expect(runtime.stop).toHaveBeenCalledTimes(1);
+      expect(runtime.leave).toHaveBeenCalledTimes(1);
+      expect(runtime.stop).not.toHaveBeenCalled();
       expect(runtime.getHostStatus).not.toHaveBeenCalled();
       expect(runtime.getViewerStatus).not.toHaveBeenCalled();
       expect(runtime.pause).not.toHaveBeenCalled();
@@ -35,7 +36,7 @@ describe("viewer local disconnect", () => {
     }
   });
 
-  it("stops before closing the local runtime", async () => {
+  it("stops before leaving the local viewer runtime", async () => {
     vi.useFakeTimers();
     try {
       const runtime = createRuntimeSpy();
@@ -45,19 +46,19 @@ describe("viewer local disconnect", () => {
       handle.stop();
       await vi.advanceTimersByTimeAsync(10);
 
-      expect(runtime.stop).not.toHaveBeenCalled();
+      expect(runtime.leave).not.toHaveBeenCalled();
       expect(output.text()).toBe("");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("formats stop failures without raw exception text", async () => {
+  it("formats leave failures without raw exception text", async () => {
     vi.useFakeTimers();
     try {
       const rawErrorMessage = "viewer disconnect failed with raw-token at C:\\Users\\Nur\\secret";
       const runtime = createRuntimeSpy();
-      vi.mocked(runtime.stop).mockRejectedValue(new Error(rawErrorMessage));
+      vi.mocked(runtime.leave).mockRejectedValue(new Error(rawErrorMessage));
       const output = createCapturingOutput();
 
       scheduleViewerLocalDisconnect(runtime, 0, { output });
@@ -80,6 +81,7 @@ function createRuntimeSpy(): AgentShellRuntime {
   return {
     start: vi.fn(),
     stop: vi.fn(async () => undefined),
+    leave: vi.fn(async () => undefined),
     getHostStatus: vi.fn(() => ({
       state: "inactive",
       visibleToHost: false,
