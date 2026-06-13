@@ -24,6 +24,39 @@ describe("SlidingWindowRateLimiter", () => {
     expect(limiter.consume("peer", new Date("2026-06-11T00:00:01.001Z")).allowed).toBe(true);
   });
 
+  it("uses a validated options snapshot after caller mutation", () => {
+    const options = { limit: 2, windowMs: 1000 };
+    const limiter = new SlidingWindowRateLimiter(options);
+    const snapshot = (limiter as unknown as { options: { limit: number; windowMs: number } }).options;
+
+    options.limit = 1_000_000;
+    options.windowMs = MAX_RATE_LIMIT_WINDOW_MS;
+    expect(Object.isFrozen(snapshot)).toBe(true);
+
+    const first = limiter.consume("peer", new Date("2026-06-11T00:00:00.000Z"));
+    const second = limiter.consume("peer", new Date("2026-06-11T00:00:00.500Z"));
+    const third = limiter.consume("peer", new Date("2026-06-11T00:00:00.750Z"));
+
+    expect(first).toMatchObject({
+      allowed: true,
+      limit: 2,
+      remaining: 1,
+      resetAt: "2026-06-11T00:00:01.000Z"
+    });
+    expect(second).toMatchObject({
+      allowed: true,
+      limit: 2,
+      remaining: 0,
+      resetAt: "2026-06-11T00:00:01.000Z"
+    });
+    expect(third).toMatchObject({
+      allowed: false,
+      limit: 2,
+      remaining: 0,
+      resetAt: "2026-06-11T00:00:01.000Z"
+    });
+  });
+
   it("supports environment defaults and overrides", () => {
     expect(createDevelopmentRateLimiter({}, "WINBRIDGE_RELAY_TEST").consume("peer").limit).toBe(5);
 

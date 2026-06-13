@@ -11,28 +11,31 @@ export const MAX_RATE_LIMIT_WINDOW_MS = 2_147_483_647;
 
 export class SlidingWindowRateLimiter {
   private readonly attempts = new Map<string, number[]>();
+  private readonly options: Readonly<{
+    limit: number;
+    windowMs: number;
+  }>;
 
-  constructor(
-    private readonly options: {
-      limit: number;
-      windowMs: number;
-    }
-  ) {
+  constructor(options: { limit: number; windowMs: number }) {
+    const { limit, windowMs } = options;
+
     if (
-      !Number.isInteger(options.limit) ||
-      options.limit < 1 ||
-      options.limit > MAX_DEVELOPMENT_RATE_LIMIT
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_DEVELOPMENT_RATE_LIMIT
     ) {
       throw new Error(`Rate limit must be an integer from 1 through ${MAX_DEVELOPMENT_RATE_LIMIT}`);
     }
 
     if (
-      !Number.isInteger(options.windowMs) ||
-      options.windowMs < 1000 ||
-      options.windowMs > MAX_RATE_LIMIT_WINDOW_MS
+      !Number.isInteger(windowMs) ||
+      windowMs < 1000 ||
+      windowMs > MAX_RATE_LIMIT_WINDOW_MS
     ) {
       throw new Error(`Rate limit window must be an integer from 1000 through ${MAX_RATE_LIMIT_WINDOW_MS}`);
     }
+
+    this.options = Object.freeze({ limit, windowMs });
   }
 
   consume(key: string, now = new Date()): RateLimitDecision {
