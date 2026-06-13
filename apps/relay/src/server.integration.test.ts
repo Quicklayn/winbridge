@@ -192,6 +192,78 @@ describe("relay runtime integration", () => {
     expect(serialized).not.toContain("input:pointer");
   });
 
+  it("redacts accepted join device ids that contain the pairing code", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url());
+    const hostIdentity: DeviceIdentity = {
+      deviceId: "dev_123-456_host",
+      displayName: "Accepted Host Private Display",
+      platform: "windows",
+      trustLevel: "local-dev",
+      createdAt: "2026-06-13T09:30:00.000Z"
+    };
+    const viewerIdentity: DeviceIdentity = {
+      deviceId: "dev_123-456_viewer",
+      displayName: "Accepted Viewer Private Display",
+      platform: "windows",
+      trustLevel: "unknown",
+      createdAt: "2026-06-13T09:31:00.000Z"
+    };
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456", hostIdentity));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456", viewerIdentity));
+    await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready");
+
+    const hostJoin = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.join.accepted" &&
+        record.actor.id === "development-relay:host-1"
+    );
+    const viewerJoin = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.join.accepted" &&
+        record.actor.id === "development-relay:viewer-1"
+    );
+
+    expect(hostJoin.detail).toMatchObject({
+      role: "host",
+      pairingTicketCreated: true,
+      deviceIdentity: {
+        platform: "windows",
+        trustLevel: "local-dev",
+        createdAt: "2026-06-13T09:30:00.000Z",
+        deviceIdRedacted: true,
+        deviceIdLength: "dev_123-456_host".length
+      }
+    });
+    expect(viewerJoin.detail).toMatchObject({
+      role: "viewer",
+      pairingTicketConsumed: true,
+      pairedDeviceRecorded: true,
+      deviceIdentity: {
+        platform: "windows",
+        trustLevel: "unknown",
+        createdAt: "2026-06-13T09:31:00.000Z",
+        deviceIdRedacted: true,
+        deviceIdLength: "dev_123-456_viewer".length
+      }
+    });
+
+    const serialized = JSON.stringify([hostJoin, viewerJoin]);
+    expect(serialized).not.toContain("dev_123-456_host");
+    expect(serialized).not.toContain("dev_123-456_viewer");
+    expect(serialized).not.toContain("Accepted Host Private Display");
+    expect(serialized).not.toContain("Accepted Viewer Private Display");
+    expect(serialized).not.toContain("123-456");
+    expect(serialized).not.toContain("screen:view");
+    expect(serialized).not.toContain("input:pointer");
+  });
+
   it("rejects join messages with unknown fixed fields before registration", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });

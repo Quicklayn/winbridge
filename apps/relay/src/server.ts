@@ -94,16 +94,13 @@ export type RelayRuntime = {
 
 type RelayJoinAuditDeviceIdentity = Pick<
   DeviceIdentity,
-  "createdAt" | "deviceId" | "platform" | "trustLevel"
->;
-type RelayDeniedJoinAuditDeviceIdentity = Omit<
-  RelayJoinAuditDeviceIdentity,
-  "deviceId"
+  "createdAt" | "platform" | "trustLevel"
 > & {
   deviceId?: string;
   deviceIdRedacted?: boolean;
   deviceIdLength?: number;
 };
+type RelayDeniedJoinAuditDeviceIdentity = RelayJoinAuditDeviceIdentity;
 
 export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRuntime {
   const port = normalizeRelayPort(options.port === undefined ? 8787 : options.port);
@@ -601,23 +598,39 @@ function registerFirstMessage(
   return {
     peer: registeredPeer,
     result,
-    deviceIdentity: relayJoinAuditDeviceIdentity(join.deviceIdentity)
+    deviceIdentity: relayJoinAuditDeviceIdentity(join.deviceIdentity, join.pairingCode)
   };
 }
 
 function relayJoinAuditDeviceIdentity(
-  deviceIdentity: DeviceIdentity | undefined
+  deviceIdentity: DeviceIdentity | undefined,
+  pairingCode: string
 ): RelayJoinAuditDeviceIdentity | undefined {
   if (!deviceIdentity) {
     return undefined;
   }
 
-  return {
+  return relayAuditDeviceIdentity(deviceIdentity, pairingCode);
+}
+
+function relayAuditDeviceIdentity(
+  deviceIdentity: DeviceIdentity,
+  pairingCode: string
+): RelayJoinAuditDeviceIdentity {
+  const auditIdentity: RelayJoinAuditDeviceIdentity = {
     createdAt: deviceIdentity.createdAt,
-    deviceId: deviceIdentity.deviceId,
     platform: deviceIdentity.platform,
     trustLevel: deviceIdentity.trustLevel
   };
+
+  if (isDeniedJoinIdentifierSafe(deviceIdentity.deviceId, pairingCode)) {
+    auditIdentity.deviceId = deviceIdentity.deviceId;
+  } else {
+    auditIdentity.deviceIdRedacted = true;
+    auditIdentity.deviceIdLength = deviceIdentity.deviceId.length;
+  }
+
+  return auditIdentity;
 }
 
 function assertRegisteredPeerStillInRoom(rooms: RoomRegistry, peer: RelayPeer): void {
@@ -979,20 +992,7 @@ function relayDeniedJoinAuditDeviceIdentity(
     return undefined;
   }
 
-  const auditIdentity: RelayDeniedJoinAuditDeviceIdentity = {
-    createdAt: deviceIdentity.createdAt,
-    platform: deviceIdentity.platform,
-    trustLevel: deviceIdentity.trustLevel
-  };
-
-  if (isDeniedJoinIdentifierSafe(deviceIdentity.deviceId, pairingCode)) {
-    auditIdentity.deviceId = deviceIdentity.deviceId;
-  } else {
-    auditIdentity.deviceIdRedacted = true;
-    auditIdentity.deviceIdLength = deviceIdentity.deviceId.length;
-  }
-
-  return auditIdentity;
+  return relayAuditDeviceIdentity(deviceIdentity, pairingCode);
 }
 
 function pairingDeniedAuditDetail(reason: string) {
