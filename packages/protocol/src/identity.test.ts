@@ -64,6 +64,16 @@ describe("device identity", () => {
     ).toThrow("Display name must be trimmed");
   });
 
+  it("rejects local device display names with ASCII control characters", () => {
+    expect(() =>
+      createDeviceIdentity({
+        displayName: "Host\nworkstation",
+        platform: "windows",
+        deviceId: "dev_host_1"
+      })
+    ).toThrow("Display name must not contain ASCII control characters");
+  });
+
   it("rejects device identity records with unknown fixed fields", () => {
     expect(() =>
       DeviceIdentitySchema.parse({

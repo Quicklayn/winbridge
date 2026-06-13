@@ -17,7 +17,11 @@ export const DeviceDisplayNameSchema = z
   .min(1)
   .max(120)
   .refine((displayName) => displayName.trim().length > 0, "Display name must not be blank")
-  .refine((displayName) => displayName === displayName.trim(), "Display name must be trimmed");
+  .refine((displayName) => displayName === displayName.trim(), "Display name must be trimmed")
+  .refine(
+    (displayName) => !hasAsciiControlCharacter(displayName),
+    "Display name must not contain ASCII control characters"
+  );
 export type DeviceDisplayName = z.infer<typeof DeviceDisplayNameSchema>;
 
 export const DeviceIdentitySchema = z.object({
@@ -189,4 +193,15 @@ function assertBoundedInteger(
   if (!Number.isInteger(value) || value < min || value > max) {
     throw new Error(`${label} must be an integer from ${min} through ${max}`);
   }
+}
+
+function hasAsciiControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) {
+      return true;
+    }
+  }
+
+  return false;
 }

@@ -153,7 +153,8 @@ export const MAX_AGENT_SHELL_TIMER_DELAY_MS = 2_147_483_647;
 const HOST_DECISION_ERROR_MESSAGE = "Host decision must be one of: none, approve, deny";
 const HOST_DECISION_PROVIDER_ERROR_MESSAGE =
   "Host decision provider is only valid for host runtimes without static approval or denial";
-const RUNTIME_DISPLAY_NAME_ERROR_MESSAGE = "Runtime display name must be non-blank and 120 characters or less";
+const RUNTIME_DISPLAY_NAME_ERROR_MESSAGE =
+  "Runtime display name must be non-blank, already trimmed, 120 characters or less, and contain no ASCII control characters";
 const RUNTIME_IDENTIFIER_ERROR_MESSAGE = "Runtime protocol identifiers are invalid";
 const RUNTIME_PERMISSION_ERROR_MESSAGE = "Runtime requested permissions must be valid and unique";
 const RUNTIME_RELAY_URL_ERROR_MESSAGE = "Runtime relay URL must be an absolute ws or wss URL";

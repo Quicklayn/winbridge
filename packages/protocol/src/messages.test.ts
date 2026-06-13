@@ -222,6 +222,19 @@ describe("protocol envelopes", () => {
     ).toThrow("Display name must be trimmed");
   });
 
+  it("rejects hello display names with ASCII control characters", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "Host\nname",
+        capabilities: ["session:visible"]
+      })
+    ).toThrow("Display name must not contain ASCII control characters");
+  });
+
   it("rejects blank hello capabilities", () => {
     expect(() =>
       parseProtocolEnvelope({
@@ -936,6 +949,18 @@ describe("protocol envelopes", () => {
         requestedPermissions: ["screen:view"]
       })
     ).toThrow("Display name must be trimmed");
+  });
+
+  it("rejects legacy host consent request display names with ASCII control characters", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "host-consent-required",
+        viewerPeerId: "viewer-1",
+        viewerDisplayName: "Viewer\nname",
+        requestedPermissions: ["screen:view"]
+      })
+    ).toThrow("Display name must not contain ASCII control characters");
   });
 
   it("rejects malformed legacy host consent decision grants", () => {

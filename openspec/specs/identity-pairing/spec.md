@@ -4,7 +4,7 @@
 Defines device identity and host-created pairing ticket requirements for development session joins without granting remote permissions.
 ## Requirements
 ### Requirement: Local device identity
-The system SHALL represent each connecting peer with schema-validated local device identity metadata that is distinct from production account authentication, and device identity display names SHALL be non-blank and already trimmed before use.
+The system SHALL represent each connecting peer with schema-validated local device identity metadata that is distinct from production account authentication, and device identity display names SHALL be non-blank, already trimmed, 120 characters or less, and contain no ASCII control characters before use.
 
 #### Scenario: Peer includes device identity
 - **WHEN** a peer joins a session with device identity metadata
@@ -16,6 +16,10 @@ The system SHALL represent each connecting peer with schema-validated local devi
 
 #### Scenario: Device identity display name is untrimmed
 - **WHEN** a peer sends device identity metadata with a display name that has leading or trailing whitespace
+- **THEN** the receiver rejects the malformed metadata without treating the peer as authenticated
+
+#### Scenario: Device identity display name contains ASCII control characters
+- **WHEN** a peer sends device identity metadata with a display name that contains an ASCII control character
 - **THEN** the receiver rejects the malformed metadata without treating the peer as authenticated
 
 #### Scenario: Device identity display-name rejection remains non-authorizing
