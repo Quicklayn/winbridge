@@ -4,6 +4,7 @@ import {
   createMessageBase,
   encodeProtocolEnvelope,
   PROTOCOL_IDENTIFIER_MAX_LENGTH,
+  type DeviceIdentity,
   type ProtocolEnvelope
 } from "@winbridge/protocol";
 import { afterEach, describe, expect, it } from "vitest";
@@ -107,6 +108,88 @@ describe("relay runtime integration", () => {
       (record) => record.action === "relay.peer.join.accepted"
     );
     expect(JSON.stringify(auditRecords)).not.toContain("123-456");
+  });
+
+  it("audits accepted join device identity metadata without display names or authorization effects", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const host = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url());
+    const hostIdentity: DeviceIdentity = {
+      deviceId: "dev_host_1",
+      displayName: "Host Private Display",
+      platform: "windows",
+      trustLevel: "local-dev",
+      createdAt: "2026-06-13T08:00:00.000Z"
+    };
+    const viewerIdentity: DeviceIdentity = {
+      deviceId: "dev_viewer_1",
+      displayName: "Viewer Private Display",
+      platform: "windows",
+      trustLevel: "unknown",
+      createdAt: "2026-06-13T08:01:00.000Z"
+    };
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456", hostIdentity));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456", viewerIdentity));
+    await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready");
+
+    const hostJoin = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.join.accepted" &&
+        record.actor.id === "development-relay:host-1"
+    );
+    const viewerJoin = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.join.accepted" &&
+        record.actor.id === "development-relay:viewer-1"
+    );
+
+    expect(hostJoin.detail).toMatchObject({
+      role: "host",
+      roomSize: 1,
+      pairingTicketCreated: true,
+      pairingTicketConsumed: false,
+      pairedDeviceRecorded: false,
+      pairingTicketRemainingUses: 1,
+      deviceIdentity: {
+        deviceId: "dev_host_1",
+        platform: "windows",
+        trustLevel: "local-dev",
+        createdAt: "2026-06-13T08:00:00.000Z"
+      }
+    });
+    expect(viewerJoin.detail).toMatchObject({
+      role: "viewer",
+      roomSize: 2,
+      pairingTicketCreated: false,
+      pairingTicketConsumed: true,
+      pairedDeviceRecorded: true,
+      pairingTicketRemainingUses: 0,
+      deviceIdentity: {
+        deviceId: "dev_viewer_1",
+        platform: "windows",
+        trustLevel: "unknown",
+        createdAt: "2026-06-13T08:01:00.000Z"
+      }
+    });
+    expect(hostJoin.detail).not.toHaveProperty("displayName");
+    expect(viewerJoin.detail).not.toHaveProperty("displayName");
+    expect(hostJoin.detail).not.toHaveProperty("permissions");
+    expect(viewerJoin.detail).not.toHaveProperty("permissions");
+    expect(hostJoin.detail).not.toHaveProperty("authorizationId");
+    expect(viewerJoin.detail).not.toHaveProperty("authorizationId");
+
+    const serialized = JSON.stringify([hostJoin, viewerJoin]);
+    expect(serialized).not.toContain("Host Private Display");
+    expect(serialized).not.toContain("Viewer Private Display");
+    expect(serialized).not.toContain("123-456");
+    expect(serialized).not.toContain("screen:view");
+    expect(serialized).not.toContain("input:pointer");
   });
 
   it("rejects join messages with unknown fixed fields before registration", async () => {
@@ -3533,14 +3616,16 @@ function joinMessage(
   sessionId: string,
   peerId: string,
   role: "host" | "viewer",
-  pairingCode: string
+  pairingCode: string,
+  deviceIdentity?: DeviceIdentity
 ): string {
   return encodeProtocolEnvelope({
     ...createMessageBase(sessionId),
     type: "join-session",
     peerId,
     role,
-    pairingCode
+    pairingCode,
+    ...(deviceIdentity ? { deviceIdentity } : {})
   });
 }
 

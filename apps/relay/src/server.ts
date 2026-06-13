@@ -22,6 +22,7 @@ import {
   JoinSessionMessageSchema,
   stringifyJson,
   type AuditDetail,
+  type DeviceIdentity,
   type ProtocolEnvelope
 } from "@winbridge/protocol";
 import {
@@ -90,6 +91,11 @@ export type RelayRuntime = {
   stop(): Promise<void>;
   url(): string;
 };
+
+type RelayJoinAuditDeviceIdentity = Pick<
+  DeviceIdentity,
+  "createdAt" | "deviceId" | "platform" | "trustLevel"
+>;
 
 export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRuntime {
   const port = normalizeRelayPort(options.port === undefined ? 8787 : options.port);
@@ -180,6 +186,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
 
         if (!registeredPeer) {
           let joinResult: RelayJoinResult | undefined;
+          let joinDeviceIdentity: RelayJoinAuditDeviceIdentity | undefined;
           try {
             const registeredJoin = registerFirstMessage(
               rooms,
@@ -200,6 +207,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
             );
             registeredPeer = registeredJoin.peer;
             joinResult = registeredJoin.result;
+            joinDeviceIdentity = registeredJoin.deviceIdentity;
           } catch (error) {
             const reason = safeRelayRejectionReason(error);
             const attribution = joinDenialAuditAttribution(envelope);
@@ -238,6 +246,9 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
           };
           if (joinResult.ticketRemainingUses !== undefined) {
             joinAuditDetail.pairingTicketRemainingUses = joinResult.ticketRemainingUses;
+          }
+          if (joinDeviceIdentity) {
+            joinAuditDetail.deviceIdentity = joinDeviceIdentity;
           }
           writeRelayAudit(auditSink, {
             action: "relay.peer.join.accepted",
@@ -556,7 +567,11 @@ function registerFirstMessage(
   envelope: ProtocolEnvelope,
   send: (data: string) => boolean,
   close: (code: number, reason: string) => void
-): { peer: RelayPeer; result: RelayJoinResult } {
+): {
+  peer: RelayPeer;
+  result: RelayJoinResult;
+  deviceIdentity?: RelayJoinAuditDeviceIdentity;
+} {
   const join = JoinSessionMessageSchema.parse(envelope);
   const peer = {
     peerId: join.peerId,
@@ -575,7 +590,26 @@ function registerFirstMessage(
     throw new Error("Peer was not registered");
   }
 
-  return { peer: registeredPeer, result };
+  return {
+    peer: registeredPeer,
+    result,
+    deviceIdentity: relayJoinAuditDeviceIdentity(join.deviceIdentity)
+  };
+}
+
+function relayJoinAuditDeviceIdentity(
+  deviceIdentity: DeviceIdentity | undefined
+): RelayJoinAuditDeviceIdentity | undefined {
+  if (!deviceIdentity) {
+    return undefined;
+  }
+
+  return {
+    createdAt: deviceIdentity.createdAt,
+    deviceId: deviceIdentity.deviceId,
+    platform: deviceIdentity.platform,
+    trustLevel: deviceIdentity.trustLevel
+  };
 }
 
 function assertRegisteredPeerStillInRoom(rooms: RoomRegistry, peer: RelayPeer): void {
