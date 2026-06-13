@@ -2342,6 +2342,11 @@ describe("relay runtime integration", () => {
         markers: ["unexpected-token", "single-token-marker"]
       },
       {
+        name: "case-variant token",
+        query: "Token=unexpected-token%20case-token-marker",
+        markers: ["unexpected-token", "case-token-marker"]
+      },
+      {
         name: "duplicate tokens",
         query: "token=unexpected-token%20duplicate-token-marker&token=second-token%20second-token-marker",
         markers: [
@@ -2385,6 +2390,45 @@ describe("relay runtime integration", () => {
         expect(serialized, name).not.toContain(marker);
         expect(close.reason, name).not.toContain(marker);
       }
+    }
+  });
+
+  it("rejects case-variant shared-token query names without logging raw tokens", async () => {
+    const auditSink = new MemoryAuditSink();
+    const configuredToken = "correct-token configured-token-marker";
+    const runtime = await startRuntime({ auditSink, sharedToken: configuredToken });
+
+    for (const tokenName of ["Token", "TOKEN"]) {
+      const auditStart = auditSink.records().length;
+      const socket = await openSocket(
+        `${runtime.url()}?${tokenName}=${encodeURIComponent(configuredToken)}`
+      );
+
+      expect(await waitForClose(socket)).toEqual({
+        code: 1008,
+        reason: "Invalid relay token"
+      });
+
+      const denied = auditSink
+        .records()
+        .slice(auditStart)
+        .find((record) => record.action === "relay.token.denied");
+      expect(denied, tokenName).toBeDefined();
+      expect(denied?.detail, tokenName).toMatchObject({
+        accessPresented: true,
+        accessConfigured: true
+      });
+      expect(
+        auditSink
+          .records()
+          .slice(auditStart)
+          .some((record) => record.action === "relay.peer.join.accepted"),
+        tokenName
+      ).toBe(false);
+
+      const serialized = JSON.stringify(denied);
+      expect(serialized, tokenName).not.toContain(configuredToken);
+      expect(serialized, tokenName).not.toContain("configured-token-marker");
     }
   });
 

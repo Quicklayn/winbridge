@@ -64,6 +64,8 @@ describe("agent shell arguments", () => {
   it("rejects relay urls with token query values", () => {
     for (const relayUrl of [
       "ws://127.0.0.1:8787/?token=raw-token",
+      "ws://127.0.0.1:8787/?Token=raw-token",
+      "ws://127.0.0.1:8787/?TOKEN=raw-token",
       "wss://relay.example.test/session?token=raw-token"
     ]) {
       expect(() => parseArgs(["viewer", "--relay", relayUrl], {}, 42)).toThrow(

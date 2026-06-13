@@ -112,7 +112,7 @@ The agent shell SHALL ignore decoded inbound `relay-ready` messages whose `peerI
 - **AND** they MUST NOT expose raw protocol payloads, session ids, peer ids, tokens, pairing codes, private reasons, signal payloads, keystrokes, screenshots, screen contents, or input contents
 
 ### Requirement: Managed runtime option validation
-The managed agent shell runtime SHALL validate direct runtime options before opening a relay connection or sending any protocol message. Invalid role, relay URL, relay token, identifiers, display name, requested permissions, revoke permission, visible session flag, host decision, authorization TTL, lifecycle workflow timer delays, or blank, untrimmed, or oversized workflow reason options MUST fail closed before relay startup. Authorization TTL values MUST be positive integers from `1` through the safe timer delay bound. Lifecycle workflow timer delays MUST remain bounded integers from `0` through the safe timer delay bound. Relay runtime token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. Relay URLs MUST NOT carry embedded credentials or token query parameters; relay shared tokens MUST use the dedicated runtime token path.
+The managed agent shell runtime SHALL validate direct runtime options before opening a relay connection or sending any protocol message. Invalid role, relay URL, relay token, identifiers, display name, requested permissions, revoke permission, visible session flag, host decision, authorization TTL, lifecycle workflow timer delays, or blank, untrimmed, or oversized workflow reason options MUST fail closed before relay startup. Authorization TTL values MUST be positive integers from `1` through the safe timer delay bound. Lifecycle workflow timer delays MUST remain bounded integers from `0` through the safe timer delay bound. Relay runtime token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. Relay URLs MUST NOT carry embedded credentials, canonical `token` query parameters, or case-variant `token` query parameters; relay shared tokens MUST use the dedicated runtime token path.
 
 #### Scenario: Malformed runtime options fail before relay startup
 - **WHEN** caller code creates a managed runtime with an invalid relay URL, session id, pairing code, peer id, device id, display name, requested permission, revoke permission, visible session flag, host decision, authorization TTL, lifecycle workflow timer delay, or workflow reason
@@ -136,7 +136,7 @@ The managed agent shell runtime SHALL validate direct runtime options before ope
 - **THEN** runtime creation fails before opening a relay connection or sending any protocol message
 
 #### Scenario: Relay URL credentials are rejected
-- **WHEN** caller code creates a managed runtime with a relay URL containing a username, password, empty userinfo marker, or `token` query parameter
+- **WHEN** caller code creates a managed runtime with a relay URL containing a username, password, empty userinfo marker, canonical `token` query parameter, or case-variant `token` query parameter
 - **THEN** runtime creation fails before opening a relay connection
 - **AND** the runtime requires relay shared tokens to be provided through the dedicated token option instead of the URL
 
@@ -635,7 +635,7 @@ The agent shell CLI SHALL report unexpected startup and shutdown failures withou
 - **AND** stderr output MUST NOT include raw user-provided argument values
 
 ### Requirement: Agent shell CLI argument validation
-The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime, including duplicate requested permissions and requested permission entries that are not exact canonical permission tokens. Relay URLs MUST NOT contain embedded credentials/userinfo, and relay shared-token values MUST be supplied through `--token` rather than embedded in `--relay` URLs. CLI token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. CLI audit log path values MUST be non-blank and already trimmed. Authorization TTL validation SHALL require `--authorization-ttl-ms` values to be positive integers from `1` through the safe timer delay bound. Lifecycle workflow timer validation SHALL allow `--revoke-after-ms`, `--pause-after-ms`, `--resume-after-ms`, `--terminate-after-ms`, and `--disconnect-after-ms` values from `0` through the safe timer delay bound.
+The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime, including duplicate requested permissions and requested permission entries that are not exact canonical permission tokens. Relay URLs MUST NOT contain embedded credentials/userinfo, canonical `token` query parameters, or case-variant `token` query parameters, and relay shared-token values MUST be supplied through `--token` rather than embedded in `--relay` URLs. CLI token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. CLI audit log path values MUST be non-blank and already trimmed. Authorization TTL validation SHALL require `--authorization-ttl-ms` values to be positive integers from `1` through the safe timer delay bound. Lifecycle workflow timer validation SHALL allow `--revoke-after-ms`, `--pause-after-ms`, `--resume-after-ms`, `--terminate-after-ms`, and `--disconnect-after-ms` values from `0` through the safe timer delay bound.
 
 #### Scenario: Unknown CLI option is rejected
 - **WHEN** the agent shell is started with an option name that is not part of the documented CLI
@@ -650,7 +650,7 @@ The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments befo
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
 #### Scenario: Relay URL token query is rejected
-- **WHEN** the agent shell is started with a `--relay` value containing a `token` query parameter
+- **WHEN** the agent shell is started with a `--relay` value containing a canonical `token` query parameter or a case-variant `token` query parameter such as `Token` or `TOKEN`
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
 #### Scenario: Visible session value is explicit

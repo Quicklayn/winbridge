@@ -166,11 +166,21 @@ function parseRelayUrl(raw: string): string {
     throw new AgentShellUsageError();
   }
 
-  if (parsed.searchParams.has("token")) {
+  if (relayUrlHasTokenQueryParameter(parsed)) {
     throw new AgentShellUsageError();
   }
 
   return parsed.toString();
+}
+
+function relayUrlHasTokenQueryParameter(relayUrl: URL): boolean {
+  for (const [name] of relayUrl.searchParams) {
+    if (name.toLowerCase() === "token") {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function relayUrlHasUserInfoMarker(raw: string): boolean {

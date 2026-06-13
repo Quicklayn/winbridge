@@ -383,11 +383,19 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
 }
 
 function readSingleRelayToken(requestUrl: URL): { presented: boolean; value?: string } {
-  const tokenValues = requestUrl.searchParams.getAll("token");
+  const tokenEntries = Array.from(requestUrl.searchParams).filter(
+    ([name]) => name.toLowerCase() === "token"
+  );
+  const canonicalTokenValues = tokenEntries
+    .filter(([name]) => name === "token")
+    .map(([, value]) => value);
 
   return {
-    presented: tokenValues.length > 0,
-    value: tokenValues.length === 1 ? tokenValues[0] : undefined
+    presented: tokenEntries.length > 0,
+    value:
+      tokenEntries.length === 1 && canonicalTokenValues.length === 1
+        ? canonicalTokenValues[0]
+        : undefined
   };
 }
 

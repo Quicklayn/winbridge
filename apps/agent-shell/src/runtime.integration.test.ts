@@ -97,6 +97,11 @@ describe("agent shell consent workflow", () => {
         "Runtime relay URL"
       ],
       [
+        "case-variant relay URL token query",
+        { relayUrl: "ws://127.0.0.1:8787/?Token=raw-token" },
+        "Runtime relay URL"
+      ],
+      [
         "relay URL credentials",
         { relayUrl: "ws://user:password@127.0.0.1:8787/" },
         "Runtime relay URL"
