@@ -76,6 +76,7 @@ Provides a development WebSocket relay:
 - Binds registered-peer forwarding to the socket's peer id and rejects join-only, relay-originated, spoofed sender/actor, or role-mismatched authorization messages.
 - Requires host role before forwarding host-originated legacy consent decisions and host-only workflow authority messages such as authorization state, permission revocation, session control, and development workflow audit events.
 - Requires a remaining registered recipient and rejects explicit target peer ids that do not match that recipient.
+- Rejects `hello` capability hints that are blank, untrimmed, duplicated after trimming, or contain ASCII control or Unicode bidi/zero-width formatting controls before accepting them as peer metadata.
 - Rejects malformed protocol identifiers before relay room registration.
 - Bounds raw WebSocket message size before protocol decoding.
 - Requires every `signal` payload to be a JSON-compatible object with a valid top-level `authorizationId` before forwarding, then rejects empty, oversized, non-representable, inherited-`toJSON`-mutated, or sensitive-key payloads including auth/session secret key names plus clipboard, file-transfer, and diagnostics content key names.

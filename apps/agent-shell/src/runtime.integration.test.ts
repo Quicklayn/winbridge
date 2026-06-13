@@ -563,6 +563,21 @@ describe("agent shell consent workflow", () => {
         name: "trim-duplicate capability",
         capabilities: ["session:visible", "session:visible "],
         privateMarker: "session:visible "
+      },
+      {
+        name: "control-character capability",
+        capabilities: ["session:visible", "capability\ninbound-private-marker"],
+        privateMarker: "inbound-private-marker"
+      },
+      {
+        name: "bidi-control capability",
+        capabilities: ["session:visible", "capability\u202einbound-private-marker"],
+        privateMarker: "inbound-private-marker"
+      },
+      {
+        name: "zero-width capability",
+        capabilities: ["session:visible", "capability\ufeffinbound-private-marker"],
+        privateMarker: "inbound-private-marker"
       }
     ];
 
@@ -607,6 +622,10 @@ describe("agent shell consent workflow", () => {
         const logOutput = hostLogs.join("\n");
         expect(logOutput, name).toContain("received non-protocol message bytes=");
         expect(logOutput, name).not.toContain(privateMarker);
+        for (const capability of capabilities) {
+          expect(logOutput, name).not.toContain(capability);
+          expect(serializedEvents, name).not.toContain(capability);
+        }
         expect(logOutput, name).not.toContain("Viewer Private Display");
         expect(serializedEvents, name).not.toContain(privateMarker);
         expect(serializedEvents, name).not.toContain("Viewer Private Display");
@@ -6141,6 +6160,21 @@ describe("agent shell consent workflow", () => {
         name: "trim-duplicate capability",
         capabilities: ["agent-shell:test", "agent-shell:test "],
         privateMarker: "agent-shell:test "
+      },
+      {
+        name: "control-character capability",
+        capabilities: ["agent-shell:test", "capability\npublic-private-marker"],
+        privateMarker: "public-private-marker"
+      },
+      {
+        name: "bidi-control capability",
+        capabilities: ["agent-shell:test", "capability\u202epublic-private-marker"],
+        privateMarker: "public-private-marker"
+      },
+      {
+        name: "zero-width capability",
+        capabilities: ["agent-shell:test", "capability\ufeffpublic-private-marker"],
+        privateMarker: "public-private-marker"
       }
     ];
 
@@ -6155,7 +6189,8 @@ describe("agent shell consent workflow", () => {
         (event) => event.direction === "received" && event.message.type === "hello"
       ).length;
 
-      expect(() =>
+      let blockedError: unknown;
+      try {
         host.send({
           ...createMessageBase("session-demo"),
           type: "hello",
@@ -6164,7 +6199,11 @@ describe("agent shell consent workflow", () => {
           displayName: "Host Private Display",
           capabilities
         } as ProtocolEnvelope)
-      ).toThrow();
+      } catch (error) {
+        blockedError = error;
+      }
+
+      expect(blockedError, name).toBeInstanceOf(Error);
 
       await delay(50);
 
@@ -6173,8 +6212,14 @@ describe("agent shell consent workflow", () => {
         viewerEvents.filter((event) => event.direction === "received" && event.message.type === "hello"),
         name
       ).toHaveLength(viewerReceivedHelloCountBefore);
+      expect((blockedError as Error).message, name).not.toContain(privateMarker);
       expect(JSON.stringify(hostEvents), name).not.toContain(privateMarker);
       expect(JSON.stringify(viewerEvents), name).not.toContain(privateMarker);
+      for (const capability of capabilities) {
+        expect((blockedError as Error).message, name).not.toContain(capability);
+        expect(JSON.stringify(hostEvents), name).not.toContain(capability);
+        expect(JSON.stringify(viewerEvents), name).not.toContain(capability);
+      }
       expect(JSON.stringify(hostEvents), name).not.toContain("Host Private Display");
       expect(JSON.stringify(viewerEvents), name).not.toContain("Host Private Display");
     }

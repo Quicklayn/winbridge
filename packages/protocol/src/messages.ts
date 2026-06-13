@@ -82,7 +82,15 @@ const ProtocolCapabilitySchema = z
   .min(1)
   .max(80)
   .refine((capability) => capability.trim().length > 0, "Capability must not be blank")
-  .refine((capability) => capability === capability.trim(), "Capability must be trimmed");
+  .refine((capability) => capability === capability.trim(), "Capability must be trimmed")
+  .refine(
+    (capability) => !hasAsciiControlCharacter(capability),
+    "Capability must not contain ASCII control characters"
+  )
+  .refine(
+    (capability) => !hasUnsafeFormatCharacter(capability),
+    "Capability must not contain Unicode bidi or zero-width formatting controls"
+  );
 const SignalPayloadSchema = createJsonObjectSchema(
   "Signal payload must be JSON-compatible"
 );

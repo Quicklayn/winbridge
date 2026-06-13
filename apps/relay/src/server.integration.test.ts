@@ -1196,6 +1196,21 @@ describe("relay runtime integration", () => {
         name: "trim-duplicate capability",
         capabilities: ["agent-shell:test", "agent-shell:test "],
         privateMarker: "agent-shell:test "
+      },
+      {
+        name: "control-character capability",
+        capabilities: ["agent-shell:test", "capability\nrelay-private-marker"],
+        privateMarker: "relay-private-marker"
+      },
+      {
+        name: "bidi-control capability",
+        capabilities: ["agent-shell:test", "capability\u202erelay-private-marker"],
+        privateMarker: "relay-private-marker"
+      },
+      {
+        name: "zero-width capability",
+        capabilities: ["agent-shell:test", "capability\ufeffrelay-private-marker"],
+        privateMarker: "relay-private-marker"
       }
     ];
 
@@ -1235,6 +1250,9 @@ describe("relay runtime integration", () => {
         }
       });
       expect(JSON.stringify(rejected), name).not.toContain(privateMarker);
+      for (const capability of capabilities) {
+        expect(JSON.stringify(rejected), name).not.toContain(capability);
+      }
       expect(JSON.stringify(rejected), name).not.toContain("Host Private Display");
     }
   });

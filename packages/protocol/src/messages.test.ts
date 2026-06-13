@@ -276,6 +276,75 @@ describe("protocol envelopes", () => {
     ).toThrow("Capability must be trimmed");
   });
 
+  it("rejects hello capabilities with ASCII control characters", () => {
+    const message = {
+      ...createMessageBase("session-demo"),
+      type: "hello",
+      peerId: "host-1",
+      role: "host",
+      displayName: "Host",
+      capabilities: ["session:visible", "capability\nprivate-marker"]
+    } as const;
+
+    expect(() => parseProtocolEnvelope(message)).toThrow(
+      "Capability must not contain ASCII control characters"
+    );
+    expect(() =>
+      encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+    ).toThrow("Capability must not contain ASCII control characters");
+  });
+
+  it("rejects hello capabilities with Unicode bidi or zero-width controls", () => {
+    for (const capability of [
+      "capability\u202eprivate-marker",
+      "capability\u200bprivate-marker",
+      "capability\ufeffprivate-marker"
+    ]) {
+      const message = {
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "Host",
+        capabilities: ["session:visible", capability]
+      } as const;
+
+      expect(() => parseProtocolEnvelope(message)).toThrow(
+        "Capability must not contain Unicode bidi or zero-width formatting controls"
+      );
+      expect(() =>
+        encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+      ).toThrow("Capability must not contain Unicode bidi or zero-width formatting controls");
+    }
+  });
+
+  it("rejects unsafe hello capabilities without exposing raw private text", () => {
+    for (const capability of [
+      "capability-private-marker\n",
+      "capability-private-marker\u202e",
+      "capability-private-marker\u200b",
+      "capability-private-marker\ufeff"
+    ]) {
+      const message = {
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "Host",
+        capabilities: ["session:visible", capability]
+      } as const;
+
+      try {
+        parseProtocolEnvelope(message);
+        throw new Error("Expected unsafe capability metadata to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain("capability-private-marker");
+        expect((error as Error).message).not.toContain(capability);
+      }
+    }
+  });
+
   it("rejects duplicate hello capabilities", () => {
     expect(() =>
       parseProtocolEnvelope({

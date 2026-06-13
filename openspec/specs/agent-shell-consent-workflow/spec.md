@@ -24,10 +24,14 @@ The agent shell SHALL expose a managed runtime with explicit start and stop oper
 - **AND** sending `hello` MUST NOT approve authorization, activate a visible session, grant permissions, start capture, send input, reconnect a peer, suppress host visibility, or bypass consent workflows
 
 ### Requirement: Hello capability metadata remains canonical
-The agent shell SHALL rely on shared protocol validation for generated, inbound, and public-send `hello` capability metadata. `hello` capability metadata that is blank, untrimmed, or duplicate after trimming MUST be rejected before it can create peer presence, authorize public sends, emit trusted local `received` or `sent` events, or trigger consent workflow messages.
+The agent shell SHALL rely on shared protocol validation for generated, inbound, and public-send `hello` capability metadata. `hello` capability metadata that is blank, untrimmed, duplicate after trimming, contains ASCII control characters, or contains Unicode bidirectional or zero-width formatting controls including `U+FEFF` MUST be rejected before it can create peer presence, authorize public sends, emit trusted local `received` or `sent` events, or trigger consent workflow messages.
 
 #### Scenario: Inbound untrimmed capability is rejected
 - **WHEN** the runtime receives a `hello`-shaped payload whose capability entry has leading or trailing whitespace
+- **THEN** the runtime rejects it before local `received` protocol event emission or peer presence handling
+
+#### Scenario: Inbound unsafe capability is rejected
+- **WHEN** the runtime receives a `hello`-shaped payload whose capability entry contains an ASCII control character or Unicode bidirectional or zero-width formatting control including `U+FEFF`
 - **THEN** the runtime rejects it before local `received` protocol event emission or peer presence handling
 
 #### Scenario: Inbound trim-duplicate capability is rejected
@@ -36,6 +40,11 @@ The agent shell SHALL rely on shared protocol validation for generated, inbound,
 
 #### Scenario: Public hello with untrimmed capability is blocked
 - **WHEN** caller code invokes public runtime `send()` with a same-session `hello` whose capability entry has leading or trailing whitespace
+- **THEN** the runtime rejects the send before writing to the socket
+- **AND** the runtime MUST NOT emit a local `sent` event for that blocked hello
+
+#### Scenario: Public hello with unsafe capability is blocked
+- **WHEN** caller code invokes public runtime `send()` with a same-session `hello` whose capability entry contains an ASCII control character or Unicode bidirectional or zero-width formatting control including `U+FEFF`
 - **THEN** the runtime rejects the send before writing to the socket
 - **AND** the runtime MUST NOT emit a local `sent` event for that blocked hello
 

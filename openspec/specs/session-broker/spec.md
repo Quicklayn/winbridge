@@ -50,7 +50,7 @@ The relay SHALL reject a join attempt before registration when the target sessio
 - **THEN** a later join using the same `peerId` MAY be accepted through the normal pairing and room constraints
 
 ### Requirement: Message schema validation
-The relay and agents SHALL validate protocol envelopes before accepting or forwarding messages, protocol display-name metadata SHALL be non-blank, already trimmed, 120 characters or less, contain no ASCII control characters, and contain no Unicode bidirectional or zero-width formatting controls, `hello` capability metadata SHALL be non-blank, already trimmed, and unique after trimming, and relay rejection errors for malformed protocol input SHALL use bounded secret-safe reasons.
+The relay and agents SHALL validate protocol envelopes before accepting or forwarding messages, protocol display-name metadata SHALL be non-blank, already trimmed, 120 characters or less, contain no ASCII control characters, and contain no Unicode bidirectional or zero-width formatting controls, `hello` capability metadata SHALL be non-blank, already trimmed, unique after trimming, contain no ASCII control characters, and contain no Unicode bidirectional or zero-width formatting controls including `U+FEFF`, and relay rejection errors for malformed protocol input SHALL use bounded secret-safe reasons.
 
 #### Scenario: Invalid protocol message
 - **WHEN** a peer sends malformed JSON or an unknown protocol message
@@ -78,6 +78,14 @@ The relay and agents SHALL validate protocol envelopes before accepting or forwa
 
 #### Scenario: Untrimmed hello capability
 - **WHEN** a peer sends a `hello` protocol message with a capability entry that has leading or trailing whitespace
+- **THEN** the receiver rejects the message before accepting or forwarding it as trusted peer metadata
+
+#### Scenario: Control-character hello capability
+- **WHEN** a peer sends a `hello` protocol message whose capability entry contains an ASCII control character
+- **THEN** the receiver rejects the message before accepting or forwarding it as trusted peer metadata
+
+#### Scenario: Unicode format-control hello capability
+- **WHEN** a peer sends a `hello` protocol message whose capability entry contains a Unicode bidirectional or zero-width formatting control including `U+FEFF`
 - **THEN** the receiver rejects the message before accepting or forwarding it as trusted peer metadata
 
 #### Scenario: Duplicate hello capability
