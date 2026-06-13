@@ -1933,6 +1933,7 @@ The managed agent shell runtime SHALL expose an explicit viewer-only local leave
 - **WHEN** a viewer runtime has active visible authorization
 - **AND** local leave closes the viewer connection
 - **THEN** the viewer status snapshot reports inactive local state, `visibleToHost: false`, and permission count `0`
+- **AND** it MUST NOT include optional authorization id or authorization status metadata from the left connection scope
 - **AND** reading status after leave MUST NOT send protocol messages, emit workflow audit events, grant permissions, start signaling, invoke host controls, reconnect peers, or change authorization lifecycle state
 
 #### Scenario: Viewer leave is viewer-only

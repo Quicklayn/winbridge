@@ -2786,11 +2786,14 @@ describe("agent shell consent workflow", () => {
       (message) => message.type === "peer-disconnected" && message.peerId === "viewer-1"
     );
 
-    expect(viewer.getViewerStatus()).toEqual({
+    const statusAfterLeave = viewer.getViewerStatus();
+    expect(statusAfterLeave).toEqual({
       state: "inactive",
       visibleToHost: false,
       permissionCount: 0
     });
+    expect(statusAfterLeave).not.toHaveProperty("authorizationId");
+    expect(statusAfterLeave).not.toHaveProperty("authorizationStatus");
     expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(
       viewerSentBeforeLeave
     );
