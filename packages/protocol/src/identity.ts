@@ -163,12 +163,26 @@ export function createPairedDevice(input: {
   viewerDeviceId: string;
   pairedAt?: Date;
 }): PairedDevice {
+  const ticket = PairingTicketSchema.parse(input.ticket);
+  const pairedAt = input.pairedAt ?? new Date();
+  const pairedAtTime = pairedAt.getTime();
+  const createdAtTime = Date.parse(ticket.createdAt);
+  const expiresAtTime = Date.parse(ticket.expiresAt);
+
+  if (pairedAtTime < createdAtTime) {
+    throw new Error("Paired device timestamp must not be before pairing ticket creation");
+  }
+
+  if (pairedAtTime >= expiresAtTime) {
+    throw new Error("Paired device timestamp must be before pairing ticket expiration");
+  }
+
   return PairedDeviceSchema.parse({
-    pairingId: input.ticket.pairingId,
-    sessionId: input.ticket.sessionId,
-    hostDeviceId: input.ticket.hostDeviceId,
+    pairingId: ticket.pairingId,
+    sessionId: ticket.sessionId,
+    hostDeviceId: ticket.hostDeviceId,
     viewerDeviceId: input.viewerDeviceId,
-    pairedAt: (input.pairedAt ?? new Date()).toISOString()
+    pairedAt: pairedAt.toISOString()
   });
 }
 

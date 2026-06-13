@@ -161,7 +161,7 @@ The implementation must reject:
 
 ## Development Relay Pairing
 
-The relay stores salted hashed in-memory pairing tickets rather than raw pairing codes in peer state. Pairing ticket audit details may record safe metadata such as ticket presence, mismatch/expired/consumed booleans, and remaining use counts.
+The relay stores salted hashed in-memory pairing tickets rather than raw pairing codes in peer state. Paired-device relationships are recorded only within the source ticket validity window, at or after ticket creation and before ticket expiration. Pairing ticket audit details may record safe metadata such as ticket presence, mismatch/expired/consumed booleans, and remaining use counts.
 
 Pairing ticket salts are not secrets, but they prevent the same development pairing code from producing a stable hash across tickets.
 

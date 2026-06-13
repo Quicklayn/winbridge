@@ -286,16 +286,80 @@ describe("pairing tickets", () => {
     ).toThrow("does not match");
   });
 
+  it("binds paired-device records to the ticket validity window", () => {
+    const ticket = createPairingTicket({
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456",
+      ttlMs: 1000,
+      now: new Date("2026-06-11T00:00:00.000Z")
+    });
+
+    expect(() =>
+      createPairedDevice({
+        ticket,
+        viewerDeviceId: "dev_viewer_1",
+        pairedAt: new Date("2026-06-10T23:59:59.999Z")
+      })
+    ).toThrow("before pairing ticket creation");
+    expect(
+      createPairedDevice({
+        ticket,
+        viewerDeviceId: "dev_viewer_1",
+        pairedAt: new Date("2026-06-11T00:00:00.000Z")
+      })
+    ).toMatchObject({
+      pairedAt: "2026-06-11T00:00:00.000Z"
+    });
+    expect(
+      createPairedDevice({
+        ticket,
+        viewerDeviceId: "dev_viewer_1",
+        pairedAt: new Date("2026-06-11T00:00:00.999Z")
+      })
+    ).toMatchObject({
+      pairedAt: "2026-06-11T00:00:00.999Z"
+    });
+    expect(() =>
+      createPairedDevice({
+        ticket,
+        viewerDeviceId: "dev_viewer_1",
+        pairedAt: new Date("2026-06-11T00:00:01.000Z")
+      })
+    ).toThrow("before pairing ticket expiration");
+  });
+
+  it("does not create paired-device records from zero-TTL tickets", () => {
+    const ticket = createPairingTicket({
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456",
+      ttlMs: 0,
+      now: new Date("2026-06-11T00:00:00.000Z")
+    });
+
+    expect(() =>
+      createPairedDevice({
+        ticket,
+        viewerDeviceId: "dev_viewer_1",
+        pairedAt: new Date("2026-06-11T00:00:00.000Z")
+      })
+    ).toThrow("before pairing ticket expiration");
+  });
+
   it("creates a pair relationship without granting remote action permission", () => {
     const ticket = createPairingTicket({
       sessionId: "session-demo",
       hostDeviceId: "dev_host_1",
-      pairingCode: "123-456"
+      pairingCode: "123-456",
+      ttlMs: 1000,
+      now: new Date("2026-06-11T00:00:00.000Z")
     });
 
     const pair = createPairedDevice({
       ticket,
-      viewerDeviceId: "dev_viewer_1"
+      viewerDeviceId: "dev_viewer_1",
+      pairedAt: new Date("2026-06-11T00:00:00.500Z")
     });
 
     expect(pair.viewerDeviceId).toBe("dev_viewer_1");
