@@ -3024,6 +3024,286 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(inactiveIndicator)).not.toContain("private terminate reason");
   });
 
+  it("terminates a visible active session through direct host control", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostTerminateReason: "private direct terminate reason",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view", "input:pointer"], viewerEvents);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+
+    host.terminate();
+
+    const control = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-control" && message.action === "terminate"
+    );
+    const terminatedState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "terminated"
+    );
+    const terminateAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.terminated"
+    );
+    const inactiveIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "inactive" && event.cause === "terminated"
+    );
+
+    expect(control).toMatchObject({
+      type: "session-control",
+      authorizationId: activeState.type === "session-authorization-state" ? activeState.authorizationId : "",
+      action: "terminate",
+      actorPeerId: "host-1"
+    });
+    expect(terminatedState).toMatchObject({
+      type: "session-authorization-state",
+      authorizationId: activeState.type === "session-authorization-state" ? activeState.authorizationId : "",
+      status: "terminated",
+      visibleToHost: true,
+      permissions: []
+    });
+    expect(terminateAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        previouslyGrantedPermissionCount: 2,
+        visibleToHost: true,
+        terminated: true,
+        reasonConfigured: true
+      }
+    });
+    expect(inactiveIndicator).toMatchObject({
+      direction: "indicator",
+      state: "inactive",
+      authorizationId: activeState.type === "session-authorization-state" ? activeState.authorizationId : "",
+      authorizationStatus: "terminated",
+      visibleToHost: false,
+      permissionCount: 0,
+      cause: "terminated"
+    });
+    expect(hostAuditSink.records().map((record) => record.action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active",
+      "agent-shell.authorization.terminated"
+    ]);
+    expect(messageIndex(viewerEvents, control)).toBeLessThan(messageIndex(viewerEvents, terminatedState));
+    expect(messageIndex(viewerEvents, terminatedState)).toBeLessThan(messageIndex(viewerEvents, terminateAudit));
+    expect(JSON.stringify(terminateAudit)).not.toContain("private direct terminate reason");
+    expect(JSON.stringify(hostAuditSink.records())).not.toContain("private direct terminate reason");
+    expect(JSON.stringify(inactiveIndicator)).not.toContain("private direct terminate reason");
+    expect(JSON.stringify(hostAuditSink.records())).not.toContain("123-456");
+  });
+
+  it("terminates a visible paused session through direct host control", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostTerminateReason: "private paused terminate reason",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view", "input:pointer"], viewerEvents);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    host.pause();
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "paused"
+    );
+
+    host.terminate();
+
+    const control = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-control" && message.action === "terminate"
+    );
+    const terminatedState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "terminated"
+    );
+    const terminateAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.terminated"
+    );
+    const inactiveIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "inactive" && event.cause === "terminated"
+    );
+
+    expect(control).toMatchObject({
+      type: "session-control",
+      authorizationId: activeState.type === "session-authorization-state" ? activeState.authorizationId : "",
+      action: "terminate",
+      actorPeerId: "host-1"
+    });
+    expect(terminatedState).toMatchObject({
+      type: "session-authorization-state",
+      authorizationId: activeState.type === "session-authorization-state" ? activeState.authorizationId : "",
+      status: "terminated",
+      visibleToHost: true,
+      permissions: []
+    });
+    expect(terminateAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        previouslyGrantedPermissionCount: 2,
+        visibleToHost: true,
+        terminated: true,
+        reasonConfigured: true
+      }
+    });
+    expect(inactiveIndicator).toMatchObject({
+      direction: "indicator",
+      state: "inactive",
+      authorizationId: activeState.type === "session-authorization-state" ? activeState.authorizationId : "",
+      authorizationStatus: "terminated",
+      visibleToHost: false,
+      permissionCount: 0,
+      cause: "terminated"
+    });
+    expect(hostAuditSink.records().map((record) => record.action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active",
+      "agent-shell.authorization.paused",
+      "agent-shell.authorization.terminated"
+    ]);
+    expect(JSON.stringify(terminateAudit)).not.toContain("private paused terminate reason");
+    expect(JSON.stringify(hostAuditSink.records())).not.toContain("private paused terminate reason");
+  });
+
+  it("rejects direct host termination before visible authorization", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "host-1"
+    );
+    expect(() => host.terminate()).toThrow(
+      "Agent shell terminate control requires active or paused visible host authorization"
+    );
+
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    await delay(50);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-control" &&
+          event.message.action === "terminate"
+      )
+    ).toBe(false);
+    expect(hostAuditSink.records().map((record) => record.action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active"
+    ]);
+  });
+
+  it("rejects direct termination controls for viewer runtimes", async () => {
+    const { relay, viewerEvents } = await startRelayAndHost();
+    const viewer = await startViewer(relay.url(), [], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
+    );
+    expect(() => viewer.terminate()).toThrow(
+      "Agent shell terminate control is only valid for host runtimes"
+    );
+    await delay(50);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "sent" &&
+          event.message.type === "session-control" &&
+          event.message.action === "terminate"
+      )
+    ).toBe(false);
+  });
+
+  it("shares direct termination state with delayed terminate timers", async () => {
+    const { relay, host, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostTerminateAfterMs: 50,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    host.terminate();
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-control" && message.action === "terminate"
+    );
+    await delay(90);
+
+    const terminateControls = viewerEvents.filter(
+      (event) =>
+        event.direction === "received" &&
+        event.message.type === "session-control" &&
+        event.message.action === "terminate"
+    );
+    const terminatedStates = viewerEvents.filter(
+      (event) =>
+        event.direction === "received" &&
+        event.message.type === "session-authorization-state" &&
+        event.message.status === "terminated"
+    );
+    const terminateAudits = viewerEvents.filter(
+      (event) =>
+        event.direction === "received" &&
+        event.message.type === "audit-event" &&
+        event.message.action === "agent-shell.authorization.terminated"
+    );
+    expect(terminateControls).toHaveLength(1);
+    expect(terminatedStates).toHaveLength(1);
+    expect(terminateAudits).toHaveLength(1);
+  });
+
   it("does not send terminate messages when visible active state is withheld", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
@@ -3100,6 +3380,65 @@ describe("agent shell consent workflow", () => {
           event.message.action === "agent-shell.authorization.terminated"
       )
     ).toBe(false);
+  });
+
+  it("rejects direct host termination after authorization expires", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const { relay, host, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 1,
+      hostAuditSink,
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "expired"
+    );
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.expired"
+    );
+
+    expect(() => host.terminate()).toThrow(
+      "Agent shell terminate control requires active or paused visible host authorization"
+    );
+    await delay(40);
+
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-control" &&
+          event.message.action === "terminate"
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "terminated"
+      )
+    ).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "audit-event" &&
+          event.message.action === "agent-shell.authorization.terminated"
+      )
+    ).toBe(false);
+    expect(hostAuditSink.records().map((record) => record.action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active",
+      "agent-shell.authorization.expired"
+    ]);
   });
 
   it("does not send later revoke messages after termination", async () => {
@@ -3699,7 +4038,8 @@ describe("agent shell consent workflow", () => {
           detail: {
             previouslyGrantedPermissionCount: 1,
             visibleToHost: true,
-            terminated: true
+            terminated: true,
+            reasonConfigured: true
           }
         })
       ]);
@@ -9248,6 +9588,64 @@ describe("agent shell consent workflow", () => {
           (event.message.type === "session-control" && event.message.action === "resume") ||
           (event.message.type === "audit-event" &&
             event.message.action === "agent-shell.authorization.resumed")
+      )
+    ).toBe(false);
+  });
+
+  it("does not send direct terminate messages when terminate audit persistence fails", async () => {
+    const backingSink = new MemoryAuditSink();
+    const hostLogs: string[] = [];
+    const rawErrorMessage = "direct terminate audit sink failed with raw-token";
+    const failingSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.authorization.terminated") {
+          throw new Error(rawErrorMessage);
+        }
+
+        return backingSink.write(input);
+      }
+    };
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    expect(() => host.terminate()).toThrow("Agent shell runtime error");
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    await delay(50);
+
+    const protocolEvents = [...hostEvents, ...viewerEvents].filter(
+      (event): event is Extract<AgentShellEvent, { direction: "received" | "sent" }> =>
+        event.direction === "received" || event.direction === "sent"
+    );
+
+    expect(errorEvent.error.message).toBe("Agent shell runtime error");
+    expect(errorEvent.error.stack).toBeUndefined();
+    expect(errorEvent.messageBytes).toBe(Buffer.byteLength(rawErrorMessage));
+    expect(JSON.stringify(errorEvent)).not.toContain(rawErrorMessage);
+    expect(hostLogs.join("\n")).not.toContain(rawErrorMessage);
+    expect(hostLogs.join("\n")).not.toContain("raw-token");
+    expect(backingSink.records().map((record) => record.action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active"
+    ]);
+    expect(
+      protocolEvents.some(
+        (event) =>
+          (event.message.type === "session-control" && event.message.action === "terminate") ||
+          (event.message.type === "session-authorization-state" &&
+            event.message.status === "terminated") ||
+          (event.message.type === "audit-event" &&
+            event.message.action === "agent-shell.authorization.terminated")
       )
     ).toBe(false);
   });

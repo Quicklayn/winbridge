@@ -990,7 +990,7 @@ The host shell SHALL send permission revocation messages only when delayed revoc
 - **THEN** logs MUST NOT expose raw protocol payloads, tokens, pairing codes, private reasons, display names, signal payloads, keystrokes, screenshots, screen contents, or input contents
 
 ### Requirement: Host workflow audit-event simulation
-The host shell SHALL emit secret-safe development `audit-event` protocol messages for explicit host authorization decisions, visible activation, and delayed or direct permission revocation.
+The host shell SHALL emit secret-safe development `audit-event` protocol messages for explicit host authorization decisions, visible activation, delayed or direct permission revocation, and delayed or direct session termination.
 
 #### Scenario: Host approval audit event
 - **WHEN** the host shell approves an authorization request
@@ -1008,31 +1008,52 @@ The host shell SHALL emit secret-safe development `audit-event` protocol message
 - **WHEN** the host shell sends a delayed or direct permission revocation
 - **THEN** it sends an `audit-event` with accepted outcome, revoked permission identifier, and remaining permission count
 
+#### Scenario: Session termination audit event
+- **WHEN** the host shell sends delayed or direct session termination
+- **THEN** it sends an `audit-event` with accepted outcome, visible host metadata, and previously granted permission count
+
 #### Scenario: Agent shell audit-event details are secret-safe
 - **WHEN** the host shell sends development audit-event messages
-- **THEN** audit details MUST NOT contain raw tokens, raw pairing codes, credentials, display names, signal payloads, keystrokes, screenshots, screen contents, or raw denial/revocation reason text
+- **THEN** audit details MUST NOT contain raw tokens, raw pairing codes, credentials, display names, signal payloads, keystrokes, screenshots, screen contents, or raw denial/revocation/termination reason text
 
 ### Requirement: Host session terminate simulation
-The host shell SHALL send session termination simulation messages only when termination is explicitly configured, the host has already emitted an active visible session state for the same authorization, and the authorization is still unexpired when the terminate delay fires. Host-generated terminate `session-control` messages MUST include the authorization id of the visible active or paused session being controlled.
+The host shell SHALL send session termination messages only when delayed termination is explicitly configured or direct local host termination control is invoked. Host termination control MUST be available only to host runtimes with visible active or paused unexpired authorization. Host-generated terminate `session-control` messages MUST include the authorization id of the visible active or paused session being controlled.
 
 #### Scenario: Host terminates after visible activation
 - **WHEN** the host shell is explicitly configured to approve, visible session state is true, and a terminate delay is configured
 - **THEN** it sends an approved decision, sends active visible state, sends `session-control` with action `terminate` and the active authorization id after the delay, sends `session-authorization-state` with status `terminated`, and sends a secret-safe termination `audit-event`
+
+#### Scenario: Direct host termination terminates a visible active session
+- **WHEN** host runtime code invokes local termination control after visible active authorization
+- **THEN** it sends `session-control` with action `terminate`, sends `session-authorization-state` with status `terminated`, emits an inactive local host indicator, and sends a secret-safe termination `audit-event`
+
+#### Scenario: Direct host termination works while paused
+- **WHEN** host runtime code invokes local termination control after visible paused authorization
+- **THEN** it sends the same termination protocol and audit sequence
+- **AND** the terminal authorization state has status `terminated` and no permissions
+
+#### Scenario: Direct host termination requires active or paused visible authorization
+- **WHEN** runtime code invokes local termination control before visible active or paused host authorization
+- **THEN** the runtime MUST reject the control before sending session-control, authorization-state, or audit-event messages
+
+#### Scenario: Direct host termination is host-only
+- **WHEN** viewer runtime code invokes local termination control
+- **THEN** the runtime MUST reject the control before sending session-control, authorization-state, or audit-event messages
 
 #### Scenario: Terminate configured without visible activation
 - **WHEN** the host shell is configured to approve but visible session state is false
 - **THEN** it does not send terminate `session-control` and does not send active or terminated state updates
 
 #### Scenario: Termination suppresses later revoke simulation
-- **WHEN** termination and permission revocation are both configured and termination is sent first
+- **WHEN** delayed or direct termination is sent before a configured permission revocation
 - **THEN** the host shell does not send later revocation messages for the terminated authorization
 
-#### Scenario: Expiration suppresses delayed termination
-- **WHEN** a terminate delay is configured but the authorization reaches its expiration time before the terminate timer can send
+#### Scenario: Expiration suppresses delayed or direct termination
+- **WHEN** termination is scheduled or invoked and the authorization reaches expiration first
 - **THEN** the host shell sends the expired state and expiration audit, and does not send terminate `session-control`, terminated state, or termination audit for that expired authorization
 
 #### Scenario: Terminate simulation safety boundary
-- **WHEN** the host shell sends termination simulation messages
+- **WHEN** the host shell sends delayed or direct termination messages
 - **THEN** it MUST NOT start screen capture, send input, sync clipboard, transfer files, install services, configure startup persistence, collect credentials, or hide the session from the host
 
 #### Scenario: Terminate audit details are secret-safe
@@ -1370,6 +1391,7 @@ The host agent shell SHALL emit local secret-safe indicator events for visible h
 - **WHEN** the runtime emits or logs host indicator updates
 - **THEN** indicator events and logs MAY include bounded lifecycle metadata such as authorization id, authorization status, indicator state, visible flag, permission count, and cause
 - **AND** they MUST NOT expose raw protocol payloads, tokens, pairing codes, private reasons, display names, signal payloads, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, or input contents
+
 ### Requirement: Signal authorization-id binding
 The agent shell SHALL bind outbound and inbound `signal` messages to the current active visible authorization by requiring a payload authorization id that matches the runtime's active authorization snapshot. This binding is a consent-safety gate only and MUST NOT authorize screen capture, input, clipboard access, file transfer, diagnostics, reconnect, hidden sessions, or consent bypass.
 
