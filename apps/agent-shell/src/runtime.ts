@@ -167,6 +167,7 @@ export type AgentShellHostStatusSnapshot = {
   permissionCount: number;
   authorizationId?: string;
   authorizationStatus?: SessionAuthorizationStatus;
+  inactiveCause?: AgentShellHostIndicatorEvent["cause"];
 };
 
 export type AgentShellRemoteDisconnectReasonCode = Extract<
@@ -1852,6 +1853,17 @@ function getHostStatusSnapshot(
       state: "inactive",
       visibleToHost: false,
       permissionCount: 0
+    };
+  }
+
+  if (sessionState.hostIndicator?.state === "inactive") {
+    return {
+      state: "inactive",
+      authorizationId: sessionState.hostIndicator.authorizationId,
+      authorizationStatus: sessionState.hostIndicator.authorizationStatus,
+      visibleToHost: false,
+      permissionCount: 0,
+      inactiveCause: sessionState.hostIndicator.cause
     };
   }
 

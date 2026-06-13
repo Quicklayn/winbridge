@@ -108,6 +108,41 @@ describe("interactive host control prompt", () => {
     expect(output.text()).not.toContain("raw-token");
   });
 
+  it("prints inactive cause metadata without invoking controls or public sends", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getHostStatus).mockReturnValue({
+      state: "inactive",
+      authorizationStatus: "active",
+      authorizationId: "authz_status_1",
+      visibleToHost: false,
+      permissionCount: 0,
+      inactiveCause: "peer-disconnected"
+    });
+    const output = createCapturingOutput();
+
+    startInteractiveHostControlPrompt(runtime, {
+      input: PassThrough.from(["status\n"]),
+      output
+    });
+    await waitForText(output, (text) => text.includes("inactiveCause=peer-disconnected"));
+
+    expect(runtime.getHostStatus).toHaveBeenCalledTimes(1);
+    expect(runtime.pause).not.toHaveBeenCalled();
+    expect(runtime.resume).not.toHaveBeenCalled();
+    expect(runtime.revokePermission).not.toHaveBeenCalled();
+    expect(runtime.terminate).not.toHaveBeenCalled();
+    expect(runtime.disconnect).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.send).not.toHaveBeenCalled();
+    expect(output.text()).toContain("state=inactive");
+    expect(output.text()).toContain("visibleToHost=false");
+    expect(output.text()).toContain("permissionCount=0");
+    expect(output.text()).not.toContain("viewer-1");
+    expect(output.text()).not.toContain("Viewer Support");
+    expect(output.text()).not.toContain("Host closed session");
+    expect(output.text()).not.toContain("raw-token");
+  });
+
   it("prints host help without reading status, invoking controls, or public sends", async () => {
     const runtime = createRuntimeSpy();
     const output = createCapturingOutput();
@@ -140,6 +175,21 @@ describe("interactive host control prompt", () => {
         permissionCount: 0
       })
     ).toBe("[winbridge-agent] host status state=inactive visibleToHost=false permissionCount=0\n");
+  });
+
+  it("formats inactive host status with bounded inactive cause", () => {
+    expect(
+      formatHostControlStatus({
+        state: "inactive",
+        authorizationStatus: "active",
+        authorizationId: "authz_status_1",
+        visibleToHost: false,
+        permissionCount: 0,
+        inactiveCause: "peer-disconnected"
+      })
+    ).toBe(
+      "[winbridge-agent] host status state=inactive visibleToHost=false permissionCount=0 authorizationStatus=active authorizationId=authz_status_1 inactiveCause=peer-disconnected\n"
+    );
   });
 
   it("formats host help as a bounded static command list", () => {

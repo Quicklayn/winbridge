@@ -106,6 +106,10 @@ export function formatHostControlStatus(status: AgentShellHostStatusSnapshot): s
     parts.push(`authorizationId=${status.authorizationId}`);
   }
 
+  if (status.inactiveCause) {
+    parts.push(`inactiveCause=${status.inactiveCause}`);
+  }
+
   return `${parts.join(" ")}\n`;
 }
 

@@ -2636,7 +2636,8 @@ describe("agent shell consent workflow", () => {
       authorizationId: activeState.authorizationId,
       authorizationStatus: "terminated",
       visibleToHost: false,
-      permissionCount: 0
+      permissionCount: 0,
+      inactiveCause: "terminated"
     });
   });
 
@@ -9952,7 +9953,7 @@ describe("agent shell consent workflow", () => {
 
   it("suppresses delayed host workflow messages after the viewer disconnects", async () => {
     const hostLogs: string[] = [];
-    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       authorizationTtlMs: 200,
       hostDecision: "approve",
       hostLogger: captureLogger(hostLogs),
@@ -9992,6 +9993,16 @@ describe("agent shell consent workflow", () => {
       permissionCount: 0,
       cause: "peer-disconnected"
     });
+    const sentCountBeforeStatus = hostEvents.filter((event) => event.direction === "sent").length;
+    expect(host.getHostStatus()).toEqual({
+      state: "inactive",
+      authorizationId: inactiveIndicator.authorizationId,
+      authorizationStatus: "active",
+      visibleToHost: false,
+      permissionCount: 0,
+      inactiveCause: "peer-disconnected"
+    });
+    expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBeforeStatus);
     expect(hostLogs.join("\n")).toContain("skipped because peer disconnected");
   });
 
