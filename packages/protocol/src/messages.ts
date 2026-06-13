@@ -57,7 +57,12 @@ const ProtocolReasonSchema = z
   .min(1)
   .max(240)
   .refine((reason) => reason.trim().length > 0, "Reason must not be blank")
-  .refine((reason) => reason === reason.trim(), "Reason must be trimmed");
+  .refine((reason) => reason === reason.trim(), "Reason must be trimmed")
+  .refine((reason) => !hasAsciiControlCharacter(reason), "Reason must not contain ASCII control characters")
+  .refine(
+    (reason) => !hasUnsafeReasonFormatCharacter(reason),
+    "Reason must not contain Unicode bidi or zero-width formatting controls"
+  );
 const ProtocolAuditActionSchema = z
   .string()
   .min(1)
@@ -431,6 +436,40 @@ function rejectDuplicateCapabilities(capabilities: unknown[], context: z.Refinem
     message: "capabilities must be unique",
     path: ["capabilities"]
   });
+}
+
+function hasAsciiControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasUnsafeReasonFormatCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+
+    if (
+      codePoint === 0x061c ||
+      codePoint === 0x200b ||
+      codePoint === 0x200c ||
+      codePoint === 0x200d ||
+      codePoint === 0x200e ||
+      codePoint === 0x200f ||
+      codePoint === 0x2060 ||
+      codePoint === 0xfeff ||
+      (codePoint !== undefined && codePoint >= 0x202a && codePoint <= 0x202e) ||
+      (codePoint !== undefined && codePoint >= 0x2066 && codePoint <= 0x2069)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function measureSignalPayloadBytes(

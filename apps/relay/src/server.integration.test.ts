@@ -972,6 +972,69 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(rejected)).not.toContain(privateMarker);
   });
 
+  it("rejects registered authorization messages with unsafe reasons before forwarding", async () => {
+    const cases: Array<{
+      name: string;
+      reason: string;
+      privateMarker: string;
+    }> = [
+      {
+        name: "control-character reason",
+        reason: "Host\nrelay-private-reason-marker",
+        privateMarker: "relay-private-reason-marker"
+      },
+      {
+        name: "bidi-control reason",
+        reason: "Host\u202erelay-private-reason-marker",
+        privateMarker: "relay-private-reason-marker"
+      },
+      {
+        name: "zero-width reason",
+        reason: "Host\ufeffrelay-private-reason-marker",
+        privateMarker: "relay-private-reason-marker"
+      }
+    ];
+
+    for (const { name, privateMarker, reason } of cases) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+
+      host.send(
+        JSON.stringify({
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          authorizationId: "authz-demo",
+          actorPeerId: "host-1",
+          action: "pause",
+          reason
+        })
+      );
+
+      expect(await waitForJsonMessage(host, (message) => message.type === "relay-error"), name).toEqual({
+        type: "relay-error",
+        reason: "Invalid relay message"
+      });
+      await expectNoProtocolMessage(viewer, (message) => message.type === "session-control");
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) => record.action === "relay.message.rejected" && record.reason === "Invalid relay message"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        reason: "Invalid relay message",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain(privateMarker);
+      expect(JSON.stringify(rejected), name).not.toContain(reason);
+    }
+  });
+
   it("rejects hello messages with malformed capability metadata before forwarding", async () => {
     const cases: Array<{
       name: string;

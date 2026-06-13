@@ -1148,6 +1148,50 @@ describe("protocol envelopes", () => {
     }
   });
 
+  it("rejects workflow reasons with ASCII control characters", () => {
+    for (const message of authorizationReasonMessages("Host\nreason")) {
+      expect(() => parseProtocolEnvelope(message)).toThrow(
+        "Reason must not contain ASCII control characters"
+      );
+      expect(() =>
+        encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+      ).toThrow("Reason must not contain ASCII control characters");
+    }
+  });
+
+  it("rejects workflow reasons with Unicode bidi or zero-width controls", () => {
+    for (const reason of ["Host\u202ereason", "Host\u200breason", "Host\ufeffreason"]) {
+      for (const message of authorizationReasonMessages(reason)) {
+        expect(() => parseProtocolEnvelope(message)).toThrow(
+          "Reason must not contain Unicode bidi or zero-width formatting controls"
+        );
+        expect(() =>
+          encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+        ).toThrow("Reason must not contain Unicode bidi or zero-width formatting controls");
+      }
+    }
+  });
+
+  it("rejects unsafe workflow reasons without exposing raw private text", () => {
+    for (const reason of [
+      "protocol-private-reason-marker\n",
+      "protocol-private-reason-marker\u202e",
+      "protocol-private-reason-marker\u200b",
+      "protocol-private-reason-marker\ufeff"
+    ]) {
+      for (const message of authorizationReasonMessages(reason)) {
+        try {
+          parseProtocolEnvelope(message);
+          throw new Error("Expected unsafe protocol reason to be rejected");
+        } catch (error) {
+          expect(error).toBeInstanceOf(Error);
+          expect((error as Error).message).not.toContain("protocol-private-reason-marker");
+          expect((error as Error).message).not.toContain(reason);
+        }
+      }
+    }
+  });
+
   it("accepts authorization request messages that omit optional reason", () => {
     const parsed = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
@@ -2219,6 +2263,66 @@ describe("session grants", () => {
     ).toThrow();
   });
 });
+
+function authorizationReasonMessages(reason: string): unknown[] {
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+  return [
+    {
+      ...createMessageBase("session-demo"),
+      type: "host-consent-decision",
+      hostPeerId: "host-1",
+      viewerPeerId: "viewer-1",
+      approved: false,
+      grantedPermissions: [],
+      reason
+    },
+    {
+      ...createMessageBase("session-demo"),
+      type: "session-authorization-request",
+      viewerPeerId: "viewer-1",
+      requestedPermissions: ["screen:view"],
+      reason
+    },
+    {
+      ...createMessageBase("session-demo"),
+      type: "session-authorization-decision",
+      authorizationId: "authz-demo",
+      hostPeerId: "host-1",
+      viewerPeerId: "viewer-1",
+      decision: "denied",
+      grantedPermissions: [],
+      reason
+    },
+    {
+      ...createMessageBase("session-demo"),
+      type: "session-authorization-state",
+      authorizationId: "authz-demo",
+      actorPeerId: "host-1",
+      status: "revoked",
+      visibleToHost: true,
+      permissions: [],
+      expiresAt,
+      reason
+    },
+    {
+      ...createMessageBase("session-demo"),
+      type: "permission-revoked",
+      authorizationId: "authz-demo",
+      actorPeerId: "host-1",
+      revokedPermission: "input:keyboard",
+      reason
+    },
+    {
+      ...createMessageBase("session-demo"),
+      type: "session-control",
+      authorizationId: "authz-demo",
+      actorPeerId: "host-1",
+      action: "pause",
+      reason
+    }
+  ];
+}
 
 function createLateSensitiveSignalPayloadProxy(): Record<string, unknown> {
   let ownKeysCalls = 0;
