@@ -25,7 +25,11 @@ describe("interactive host consent prompt", () => {
     const output = createCapturingOutput();
     await expect(
       promptForHostConsentDecision(
-        { requestedPermissions: ["screen:view"], requestedPermissionCount: 1 },
+        {
+          viewerPeerId: "viewer-1",
+          requestedPermissions: ["screen:view"],
+          requestedPermissionCount: 1
+        },
         { input: Readable.from([]), output }
       )
     ).resolves.toBe("none");
@@ -40,7 +44,11 @@ describe("interactive host consent prompt", () => {
 
     await expect(
       promptForHostConsentDecision(
-        { requestedPermissions: ["screen:view"], requestedPermissionCount: 1 },
+        {
+          viewerPeerId: "viewer-1",
+          requestedPermissions: ["screen:view"],
+          requestedPermissionCount: 1
+        },
         { input, output: createCapturingOutput(), timeoutMs: 1 }
       )
     ).resolves.toBe("none");
@@ -55,7 +63,11 @@ describe("interactive host consent prompt", () => {
     });
 
     const decision = promptForHostConsentDecision(
-      { requestedPermissions: ["screen:view"], requestedPermissionCount: 1 },
+      {
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        requestedPermissionCount: 1
+      },
       { input, output: createCapturingOutput() }
     );
 
@@ -63,25 +75,54 @@ describe("interactive host consent prompt", () => {
     await expect(decision).resolves.toBe("none");
   });
 
-  it("renders only bounded permission metadata", async () => {
+  it("renders bounded viewer identity and permission metadata", async () => {
     const output = createCapturingOutput();
 
     await promptForHostConsentDecision(
-      { requestedPermissions: ["screen:view", "input:pointer"], requestedPermissionCount: 2 },
+      {
+        viewerPeerId: "viewer-1",
+        viewerDisplayName: "Viewer Support",
+        requestedPermissions: ["screen:view", "input:pointer"],
+        requestedPermissionCount: 2
+      },
       { input: Readable.from(["deny\n"]), output }
     );
 
     const renderedPrompt = output.text();
+    expect(renderedPrompt).toContain("Viewer peer: viewer-1");
+    expect(renderedPrompt).toContain("Viewer display name: Viewer Support");
     expect(renderedPrompt).toContain("Requested permissions (2): screen:view,input:pointer");
     expect(renderedPrompt).not.toContain("123-456");
     expect(renderedPrompt).not.toContain("raw-token");
     expect(renderedPrompt).not.toContain("protocol-payload");
   });
+
+  it("renders an unavailable display-name fallback", async () => {
+    const output = createCapturingOutput();
+
+    await promptForHostConsentDecision(
+      {
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        requestedPermissionCount: 1
+      },
+      { input: Readable.from(["deny\n"]), output }
+    );
+
+    const renderedPrompt = output.text();
+    expect(renderedPrompt).toContain("Viewer peer: viewer-1");
+    expect(renderedPrompt).toContain("Viewer display name: unavailable");
+  });
 });
 
 function promptWithInput(input: string) {
   return promptForHostConsentDecision(
-    { requestedPermissions: ["screen:view"], requestedPermissionCount: 1 },
+    {
+      viewerPeerId: "viewer-1",
+      viewerDisplayName: "Viewer Support",
+      requestedPermissions: ["screen:view"],
+      requestedPermissionCount: 1
+    },
     { input: Readable.from([input]), output: createCapturingOutput() }
   );
 }

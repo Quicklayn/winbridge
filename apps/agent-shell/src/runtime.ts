@@ -28,6 +28,8 @@ export type HostDecisionProvider = (
 ) => HostDecision | null | undefined | Promise<HostDecision | null | undefined>;
 
 export type HostDecisionProviderRequest = {
+  viewerPeerId: string;
+  viewerDisplayName?: string;
   requestedPermissions: Permission[];
   requestedPermissionCount: number;
 };
@@ -242,6 +244,7 @@ type AgentShellSessionState = {
   recipientAvailable: boolean;
   observedPeerId?: string;
   observedPeerRole?: SessionRole;
+  observedPeerDisplayName?: string;
   helloSent: boolean;
   hostAuthorization?: RuntimeAuthorizationSnapshot;
   hostWorkflowState?: HostWorkflowState;
@@ -581,6 +584,7 @@ function resetConnectionScopedSessionState(sessionState: AgentShellSessionState)
   sessionState.recipientAvailable = false;
   sessionState.observedPeerId = undefined;
   sessionState.observedPeerRole = undefined;
+  sessionState.observedPeerDisplayName = undefined;
   sessionState.helloSent = false;
   sessionState.hostAuthorization = undefined;
   sessionState.hostWorkflowState = undefined;
@@ -691,6 +695,7 @@ async function handleMessage(
       sessionState.recipientAvailable = false;
       sessionState.observedPeerId = undefined;
       sessionState.observedPeerRole = undefined;
+      sessionState.observedPeerDisplayName = undefined;
       deactivateHostIndicator(options, sessionState, "peer-disconnected");
     }
 
@@ -711,6 +716,7 @@ async function handleMessage(
       sessionState.recipientAvailable = true;
       sessionState.observedPeerId = envelope.peerId;
       sessionState.observedPeerRole = envelope.role;
+      sessionState.observedPeerDisplayName = envelope.displayName;
       sendHelloOnce(socket, options, sessionState);
     }
 
@@ -1479,7 +1485,7 @@ async function handleHostAuthorizationRequest(
   sessionState: AgentShellSessionState,
   scheduleTimer: (callback: () => void, delayMs: number) => void
 ): Promise<void> {
-  const decision = await resolveHostDecision(options, request);
+  const decision = await resolveHostDecision(options, request, sessionState);
   if (decision === "none") {
     options.logger?.log("[winbridge-agent] authorization request received; no host decision configured");
     return;
@@ -1634,14 +1640,15 @@ function canSendHostAuthorizationDecision(
 
 async function resolveHostDecision(
   options: AgentShellRuntimeOptions,
-  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>
+  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>,
+  sessionState: AgentShellSessionState
 ): Promise<HostDecision> {
   if (!options.hostDecisionProvider) {
     return options.hostDecision ?? "none";
   }
 
   try {
-    const result = await resolveHostDecisionProvider(options, request);
+    const result = await resolveHostDecisionProvider(options, request, sessionState);
     if (result.timedOut) {
       options.logger?.log(
         `[winbridge-agent] interactive host consent timed out timeoutMs=${result.timeoutMs}`
@@ -1666,7 +1673,8 @@ async function resolveHostDecision(
 
 async function resolveHostDecisionProvider(
   options: AgentShellRuntimeOptions,
-  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>
+  request: Extract<ProtocolEnvelope, { type: "session-authorization-request" }>,
+  sessionState: AgentShellSessionState
 ): Promise<
   | { timedOut: false; decision: HostDecision | null | undefined }
   | { timedOut: true; timeoutMs: number }
@@ -1684,6 +1692,11 @@ async function resolveHostDecisionProvider(
     const decision = await Promise.race([
       Promise.resolve(
         provider({
+          viewerPeerId: request.viewerPeerId,
+          viewerDisplayName:
+            sessionState.observedPeerId === request.viewerPeerId
+              ? sessionState.observedPeerDisplayName
+              : undefined,
           requestedPermissions: [...request.requestedPermissions],
           requestedPermissionCount: request.requestedPermissions.length
         })

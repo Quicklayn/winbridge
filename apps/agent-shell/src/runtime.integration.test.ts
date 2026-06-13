@@ -2000,6 +2000,8 @@ describe("agent shell consent workflow", () => {
     const { relay, viewerEvents } = await startRelayAndHost({
       hostDecisionProvider: (request) => {
         expect(request).toEqual({
+          viewerPeerId: "viewer-1",
+          viewerDisplayName: "Viewer Support",
           requestedPermissions: ["screen:view"],
           requestedPermissionCount: 1
         });
@@ -2007,7 +2009,7 @@ describe("agent shell consent workflow", () => {
       },
       visibleToHost: true
     });
-    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await startViewer(relay.url(), ["screen:view"], viewerEvents, silentLogger, undefined, "Viewer Support");
 
     const decision = await waitForMessage(
       viewerEvents,
@@ -2029,6 +2031,63 @@ describe("agent shell consent workflow", () => {
       visibleToHost: true,
       permissions: ["screen:view"]
     });
+  });
+
+  it("passes trusted viewer identity to interactive host consent without leaking it to authorization events or audit", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const hostLogs: string[] = [];
+    const providerRequests: unknown[] = [];
+    const viewerDisplayName = "Private Viewer Display";
+    const { relay, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostLogger: captureLogger(hostLogs),
+      hostDecisionProvider: (request) => {
+        providerRequests.push(request);
+        return "approve";
+      },
+      visibleToHost: true
+    });
+    await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      silentLogger,
+      undefined,
+      viewerDisplayName
+    );
+
+    const decision = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-decision"
+    );
+    const state = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state"
+    );
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.approved"
+    );
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.active"
+    );
+
+    expect(providerRequests).toEqual([
+      {
+        viewerPeerId: "viewer-1",
+        viewerDisplayName,
+        requestedPermissions: ["screen:view"],
+        requestedPermissionCount: 1
+      }
+    ]);
+    expect(JSON.stringify([decision, state])).not.toContain(viewerDisplayName);
+    expect(JSON.stringify(hostAuditSink.records())).not.toContain(viewerDisplayName);
+    expect(hostLogs.join("\n")).not.toContain(viewerDisplayName);
   });
 
   it("sends denied decision when interactive host consent denies", async () => {

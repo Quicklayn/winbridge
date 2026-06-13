@@ -1474,7 +1474,7 @@ The agent shell SHALL treat inbound and public-send protocol messages with unkno
 - **THEN** thrown errors, runtime events, and logs MUST NOT expose raw protocol payloads, unknown field values, tokens, pairing codes, private reasons, keystrokes, screenshots, screen contents, or input contents
 
 ### Requirement: Interactive host consent prompt
-The host agent shell SHALL support an opt-in interactive consent path that asks the host operator to approve or deny a received `session-authorization-request` before sending any authorization decision. Interactive prompt waiting SHALL be bounded by a positive host consent timeout with a default of `60000` milliseconds. This prompt path is a development host workflow only and MUST NOT authorize screen capture, input, clipboard access, file transfer, diagnostics, reconnect, hidden sessions, stealth persistence, or consent bypass.
+The host agent shell SHALL support an opt-in interactive consent path that asks the host operator to approve or deny a received `session-authorization-request` before sending any authorization decision. The prompt SHALL show the host operator the requesting viewer identity using bounded metadata from the observed viewer peer and SHALL show the requested permission names and count before accepting input. Interactive prompt waiting SHALL be bounded by a positive host consent timeout with a default of `60000` milliseconds. This prompt path is a development host workflow only and MUST NOT authorize screen capture, input, clipboard access, file transfer, diagnostics, reconnect, hidden sessions, stealth persistence, or consent bypass.
 
 #### Scenario: Host approves through interactive prompt
 - **WHEN** a host shell is configured for interactive consent and receives a same-session authorization request from the observed viewer
@@ -1487,6 +1487,11 @@ The host agent shell SHALL support an opt-in interactive consent path that asks 
 - **AND** the host operator explicitly enters the exact accepted denial response before the host consent timeout expires
 - **THEN** the shell sends the same denied authorization decision and denied audit event that the static deny workflow would send
 - **AND** it MUST NOT emit active visible state, grant permissions, start capture, send input, or enable signal authorization
+
+#### Scenario: Prompt shows viewer identity and requested permissions
+- **WHEN** a host shell is configured for interactive consent and receives a same-session authorization request from the observed viewer
+- **THEN** the host-facing prompt text MUST include the trusted viewer peer id, the validated viewer display name when available, the requested permission names, and the requested permission count before asking for `approve` or `deny`
+- **AND** it MUST NOT use unbound authorization request fields, unvalidated display names, raw protocol payloads, tokens, pairing codes, private reasons, signal payloads, screen contents, input contents, clipboard contents, file-transfer contents, diagnostics dumps, or credentials as prompt identity content
 
 #### Scenario: Prompt timeout fails closed
 - **WHEN** an interactive host consent prompt waits longer than the configured host consent timeout
@@ -1517,8 +1522,9 @@ The host agent shell SHALL support an opt-in interactive consent path that asks 
 
 #### Scenario: Interactive prompt diagnostics are secret-safe
 - **WHEN** the host shell prompts, resolves, cancels, times out, or rejects an interactive consent decision
-- **THEN** prompt text, runtime events, errors, and logs MAY include bounded metadata such as requested permission names, permission count, and timeout milliseconds
-- **AND** they MUST NOT expose raw protocol payloads, tokens, pairing codes, private reasons, display names, signal payloads, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, or input contents
+- **THEN** prompt text MAY include bounded host-facing consent metadata such as the trusted viewer peer id, validated viewer display name, requested permission names, requested permission count, and timeout milliseconds
+- **AND** authorization decision/state events, errors, logs, and audit records MUST NOT expose raw protocol payloads, tokens, pairing codes, private reasons, display names, signal payloads, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, or input contents
+- **AND** prompt text MUST NOT expose raw protocol payloads, tokens, pairing codes, private reasons, signal payloads, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, input contents, credentials, or unvalidated identity values
 
 ### Requirement: Host control prompt CLI validation
 The agent shell SHALL reject malformed, viewer-mode, or ambiguous host control prompt CLI configuration before starting the runtime. Host control prompt validation SHALL allow exact `true` or `false` values only for host runtimes and MUST reject host control prompt mode when interactive host consent prompt mode is also enabled.

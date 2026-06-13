@@ -99,7 +99,7 @@ The non-native agent shell can simulate consent messages for development:
 - Runtime startup sends `join-session` first and defers `hello` until a relay recipient is available through a two-peer `relay-ready` message or an inbound peer `hello`.
 - Viewer requests are explicit through requested permissions and a paired two-peer relay room.
 - Host approval is not automatic.
-- Host approval requires either static `--host-decision approve` or an opt-in `--host-consent-prompt true` response of exactly `approve` before the bounded host consent timeout expires.
+- Host approval requires either static `--host-decision approve` or an opt-in `--host-consent-prompt true` response of exactly `approve` before the bounded host consent timeout expires. The interactive prompt shows the observed viewer peer id, validated viewer display name when available, requested permission names, and permission count before accepting input; this is host-facing development peer metadata, not production account authentication.
 - Interactive host consent denial requires exactly `deny`; timeout, invalid input, cancellation, prompt failure, viewer prompt mode, or prompt mode combined with static approval/denial fails closed before granting access.
 - Active session state is withheld unless `--visible-session true` is set.
 - Inbound `relay-ready` messages that identify a peer other than the local runtime peer are ignored before local `received` protocol events or presence and authorization request workflow handling; ignored foreign relay-ready input is logged only as redacted summary metadata.
