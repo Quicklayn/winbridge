@@ -16,6 +16,9 @@ GitHub Actions runs the same verification stages on Windows with Node `20.19.0`
 and Node `24`, covering both the minimum supported runtime and the current
 project runtime.
 
+The CI workflow is verification-only: it requests read-only repository contents
+permission and bounds each Windows matrix job with a timeout.
+
 ## Initial GitHub Project Setup
 
 - Confirm Actions are enabled.
