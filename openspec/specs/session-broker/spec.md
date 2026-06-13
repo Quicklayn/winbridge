@@ -102,7 +102,7 @@ The relay and agents SHALL validate protocol envelopes before accepting or forwa
 - **THEN** the peer-facing relay error and audit reason MUST NOT include raw display names, raw protocol payloads, tokens, pairing codes, credentials, keystrokes, screenshots, screen contents, or full secrets
 
 ### Requirement: Signal payload safety
-The relay and agents SHALL reject `signal` protocol messages whose payload omits a top-level string `authorizationId`, carries a malformed payload `authorizationId`, is empty, exceeds the configured protocol payload size bound, contains property names with ASCII control characters or Unicode bidirectional or zero-width formatting controls including `U+FEFF`, or contains keys that indicate raw tokens, credentials, pairing codes, API keys, authorization headers, auth headers, cookies, private keys, keystrokes, keylogging content, screenshots, screen data, screen contents, clipboard contents, file-transfer contents/data/bytes, diagnostics content/dumps, or secrets. Non-secret lifecycle identifiers such as `authorizationId` MUST remain permitted.
+The relay and agents SHALL reject `signal` protocol messages whose payload omits a top-level string `authorizationId`, carries a malformed payload `authorizationId`, is empty, exceeds the configured protocol payload size bound, contains property names with ASCII control characters or Unicode bidirectional or zero-width formatting controls including `U+FEFF`, or contains keys that indicate raw tokens, credentials, passwords, passphrases, pairing codes, API keys, authorization headers, auth headers, cookies, private keys, keystrokes, keylogging content, screenshots, screen data, screen contents, clipboard contents, file-transfer contents/data/bytes, diagnostics content/dumps, or secrets. Non-secret lifecycle identifiers such as `authorizationId` MUST remain permitted.
 
 #### Scenario: Small signaling payload is accepted
 - **WHEN** a registered peer sends a `signal` message containing a non-empty small signaling payload with a valid top-level `authorizationId` and without sensitive key names
@@ -133,12 +133,17 @@ The relay and agents SHALL reject `signal` protocol messages whose payload omits
 - **AND** diagnostics MUST NOT expose the raw unsafe property name or payload value
 
 #### Scenario: Sensitive signal payload keys are rejected
-- **WHEN** a registered peer sends a `signal` message whose payload contains a token, credential, pairing code, API key, authorization header, auth header, cookie, private key, keystroke, screenshot, screen data, screen content, clipboard content, file-transfer content/data/bytes, diagnostics content/dump, or secret key at any nesting level
+- **WHEN** a registered peer sends a `signal` message whose payload contains a token, credential, password, passphrase, pairing code, API key, authorization header, auth header, cookie, private key, keystroke, screenshot, screen data, screen content, clipboard content, file-transfer content/data/bytes, diagnostics content/dump, or secret key at any nesting level
 - **THEN** the relay rejects the message before forwarding it and MUST NOT treat the payload as trusted remote-assistance data
 
 #### Scenario: Keylogging signal payload keys are rejected
 - **WHEN** a registered peer sends a `signal` message whose payload contains keylogging-related field names such as `keylog`, `rawKeylog`, `keylogger`, or `keyloggerOutput` at any nesting level
 - **THEN** the relay rejects the message before forwarding it and MUST NOT treat the payload as trusted remote-assistance data
+
+#### Scenario: Passphrase signal payload keys are rejected
+- **WHEN** a registered peer sends a `signal` message whose payload contains passphrase-bearing field names such as `passphrase`, `passPhrase`, `pass-phrase`, or `raw_passphrase` at any nesting level
+- **THEN** the relay and agents reject the message before forwarding, encoding, sending, receiving, or treating the payload as trusted remote-assistance signaling metadata
+- **AND** the rejection MUST NOT expose the raw passphrase value
 
 ### Requirement: Access-key and SSH-key signal payload rejection
 The protocol schema SHALL treat signal payload keys that indicate access keys or SSH keys as sensitive remote-assistance data and reject those `signal` messages before forwarding, encoding, sending, receiving, or treating the payload as trusted signaling metadata.

@@ -25,6 +25,7 @@ const SENSITIVE_SIGNAL_PAYLOAD_KEY_INDICATORS = [
   "token",
   "credential",
   "password",
+  "passphrase",
   "apikey",
   "authorizationheader",
   "authheader",

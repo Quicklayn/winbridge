@@ -800,6 +800,47 @@ describe("protocol envelopes", () => {
     }
   });
 
+  it("rejects signal payloads with passphrase credential keys", () => {
+    const unsafePayloads: Array<Record<string, unknown>> = [
+      { passphrase: "raw-passphrase" },
+      { passPhrase: "raw-camel-passphrase" },
+      { "pass-phrase": "raw-dashed-passphrase" },
+      { nested: [{ raw_passphrase: "raw-nested-passphrase" }] }
+    ];
+
+    for (const payload of unsafePayloads) {
+      const signalMessage = {
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          authorizationId: "authz-demo",
+          kind: "offer",
+          ...payload
+        }
+      } as const;
+
+      for (const operation of [
+        () => parseProtocolEnvelope(signalMessage),
+        () => encodeProtocolEnvelope(signalMessage as Parameters<typeof encodeProtocolEnvelope>[0])
+      ]) {
+        try {
+          operation();
+          throw new Error("Expected passphrase-bearing signal payload to be rejected");
+        } catch (error) {
+          expect(error).toBeInstanceOf(Error);
+          const message = (error as Error).message;
+          expect(message).toContain("must not contain sensitive remote-assistance data");
+          expect(message).not.toContain("raw-passphrase");
+          expect(message).not.toContain("raw-camel-passphrase");
+          expect(message).not.toContain("raw-dashed-passphrase");
+          expect(message).not.toContain("raw-nested-passphrase");
+        }
+      }
+    }
+  });
+
   it("rejects signal payloads with remote-assistance content keys", () => {
     const unsafePayloads: Array<Record<string, unknown>> = [
       { clipboardText: "raw-clipboard-text" },
