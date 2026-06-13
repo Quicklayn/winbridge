@@ -683,6 +683,29 @@ describe("protocol envelopes", () => {
     }
   });
 
+  it("rejects signal payloads with secret-bearing authorization identifiers", () => {
+    for (const authorizationId of [
+      "token:raw-signal-authz-secret",
+      "token-raw-signal-authz-secret",
+      "token_raw_signal_authz_secret",
+      "cookie.raw.signal.authz.secret",
+      "ssh-key-raw-signal-authz-secret"
+    ]) {
+      expect(() =>
+        parseProtocolEnvelope({
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: {
+            authorizationId,
+            kind: "offer"
+          }
+        })
+      ).toThrow("Signal payload authorizationId must be a valid protocol identifier");
+    }
+  });
+
   it("rejects empty signal payloads", () => {
     expect(() =>
       parseProtocolEnvelope({
@@ -1471,6 +1494,54 @@ describe("protocol envelopes", () => {
         grantedPermissions: ["screen:view"]
       })
     ).toThrow();
+  });
+
+  it("rejects authorization lifecycle and control messages with secret-bearing authorization ids", () => {
+    const secretAuthorizationId = "ssh-key-raw-lifecycle-authz-secret";
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const messages = [
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-decision",
+        authorizationId: secretAuthorizationId,
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        decision: "approved",
+        grantedPermissions: ["screen:view"],
+        expiresAt
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId: secretAuthorizationId,
+        actorPeerId: "host-1",
+        status: "active",
+        visibleToHost: true,
+        permissions: ["screen:view"],
+        expiresAt
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "permission-revoked",
+        authorizationId: secretAuthorizationId,
+        actorPeerId: "host-1",
+        revokedPermission: "screen:view",
+        reason: "Host revoked screen"
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-control",
+        authorizationId: secretAuthorizationId,
+        actorPeerId: "host-1",
+        action: "pause"
+      }
+    ] as const;
+
+    for (const message of messages) {
+      expect(() => parseProtocolEnvelope(message)).toThrow(
+        "Authorization id must not contain sensitive metadata"
+      );
+    }
   });
 
   it("accepts active visible session authorization state updates", () => {
@@ -2267,6 +2338,61 @@ describe("protocol envelopes", () => {
     expect(JSON.stringify(parsed)).not.toContain("raw-private-key");
     expect(JSON.stringify(parsed)).not.toContain("raw-ssh-key");
     expect(JSON.stringify(parsed)).not.toContain("array-ssh-key");
+  });
+
+  it("redacts secret-bearing audit-event authorization id detail values", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "audit-event",
+      eventId: "audit-demo",
+      actorPeerId: "host-1",
+      action: "agent-shell.test",
+      outcome: "accepted",
+      detail: {
+        authorizationId: "token-raw-audit-authz-secret",
+        nested: {
+          authorizationId: "cookie.raw.audit.authz.secret",
+          objectAttempt: {
+            authorizationId: {
+              value: "token-raw-object-authz-secret"
+            }
+          }
+        },
+        attempts: [
+          {
+            authorizationId: "ssh-key-raw-audit-authz-secret"
+          },
+          {
+            authorizationId: "authz-array"
+          }
+        ]
+      }
+    });
+
+    expect(parsed).toMatchObject({
+      type: "audit-event",
+      detail: {
+        authorizationId: "[REDACTED]",
+        nested: {
+          authorizationId: "[REDACTED]",
+          objectAttempt: {
+            authorizationId: "[REDACTED]"
+          }
+        },
+        attempts: [
+          {
+            authorizationId: "[REDACTED]"
+          },
+          {
+            authorizationId: "authz-array"
+          }
+        ]
+      }
+    });
+    expect(JSON.stringify(parsed)).not.toContain("token-raw-audit-authz-secret");
+    expect(JSON.stringify(parsed)).not.toContain("cookie.raw.audit.authz.secret");
+    expect(JSON.stringify(parsed)).not.toContain("ssh-key-raw-audit-authz-secret");
+    expect(JSON.stringify(parsed)).not.toContain("token-raw-object-authz-secret");
   });
 
   it("redacts audit-event display-name and private reason detail fields while preserving safe metadata", () => {

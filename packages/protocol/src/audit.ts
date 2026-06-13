@@ -185,6 +185,22 @@ const sensitiveReasonCredentialPattern = /\b(?:bearer|basic)\s+[a-z0-9._~+/=-]+/
 const sensitiveReasonPrivateKeyPattern = /-----BEGIN [A-Z ]*PRIVATE KEY-----/i;
 const sensitiveMetadataAssignmentPattern =
   /(?:^|[\s,.;()[\]{}])([A-Za-z][A-Za-z0-9 _-]{0,80}?)(?::|=|\s+)\s*\S+/g;
+const sensitiveProtocolIdentifierMarkers = [
+  "token",
+  "credential",
+  "password",
+  "secret",
+  "pairingcode",
+  "apikey",
+  "accesskey",
+  "cookie",
+  "privatekey",
+  "sshkey",
+  "authorization",
+  "authorizationheader",
+  "authheader",
+  "proxyauthorization"
+] as const;
 
 export function createAuditRecord(input: AuditRecordInput): AuditRecord {
   return AuditRecordSchema.parse({
@@ -202,6 +218,14 @@ export function redactAuditDetail(detail: Record<string, unknown>): AuditDetail 
 }
 
 function redactValue(value: unknown, key?: string): unknown {
+  if (
+    key &&
+    isAuthorizationIdAuditDetailKey(key) &&
+    (typeof value !== "string" || hasSecretBearingProtocolIdentifierMetadata(value))
+  ) {
+    return REDACTED_AUDIT_VALUE;
+  }
+
   if (key && isSensitiveAuditDetailKey(key)) {
     return REDACTED_AUDIT_VALUE;
   }
@@ -251,6 +275,12 @@ export function hasSecretBearingAuditMetadata(
     sensitiveReasonPrivateKeyPattern.test(value) ||
     (includeKeyAssignments && hasSensitiveAuditMetadataAssignment(value))
   );
+}
+
+export function hasSecretBearingProtocolIdentifierMetadata(value: string): boolean {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  return sensitiveProtocolIdentifierMarkers.some((marker) => normalized.includes(marker));
 }
 
 function isSensitiveAuditReason(reason: string): boolean {
@@ -351,4 +381,8 @@ function isSensitiveAuditDetailKey(key: string): boolean {
     sensitiveKeyExactMatches.has(normalizedKey) ||
     sensitiveKeySubstrings.some((sensitiveKey) => normalizedKey.includes(sensitiveKey))
   );
+}
+
+function isAuthorizationIdAuditDetailKey(key: string): boolean {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "") === "authorizationid";
 }

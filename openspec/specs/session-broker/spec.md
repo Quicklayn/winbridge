@@ -34,6 +34,7 @@ The relay SHALL limit each development session room to one host peer and one vie
 #### Scenario: Same-role join denial is secret-safe
 - **WHEN** the relay rejects a same-role live peer join
 - **THEN** the peer-facing relay error and audit reason MUST use bounded metadata-only text and MUST NOT include raw pairing codes, tokens, credentials, protocol payloads, private reasons, keystrokes, screenshots, screen contents, or full secrets
+
 ### Requirement: Live peer identity exclusivity
 The relay SHALL reject a join attempt before registration when the target session already has a live registered peer with the same `peerId`, and SHALL NOT replace the existing peer connection or treat the duplicate join as an authorized reconnect.
 
@@ -106,7 +107,6 @@ The relay and agents SHALL reject `signal` protocol messages whose payload omits
 #### Scenario: Small signaling payload is accepted
 - **WHEN** a registered peer sends a `signal` message containing a non-empty small signaling payload with a valid top-level `authorizationId` and without sensitive key names
 - **THEN** the relay accepts the message as schema-valid and may forward it to the remaining peer
-
 #### Scenario: Lifecycle authorization identifier is accepted
 - **WHEN** a registered peer sends a `signal` message containing `authorizationId` as a non-secret lifecycle identifier and no sensitive key names
 - **THEN** the relay accepts the message as schema-valid and may forward it to the remaining peer
@@ -341,3 +341,15 @@ The relay SHALL reject registered-peer messages before forwarding when no remain
 #### Scenario: Recipient targeting rejection is secret-safe
 - **WHEN** the relay rejects a message for missing recipient or target mismatch
 - **THEN** the peer-facing relay error and audit reason MUST use bounded metadata-only text and MUST NOT include raw pairing codes, tokens, credentials, protocol payloads, private reasons, keystrokes, screenshots, screen contents, or full secrets
+
+### Requirement: Signal authorization identifiers are non-secret metadata
+The relay and agents SHALL reject `signal` protocol messages whose top-level `payload.authorizationId` contains secret-bearing metadata such as token, credential, cookie, API key, access key, private key, SSH key, authorization header, or auth header markers. A secret-bearing `payload.authorizationId` MUST be treated as malformed signal metadata even when it otherwise satisfies the generic protocol identifier shape.
+
+#### Scenario: Secret-bearing signal authorization identifier is rejected
+- **WHEN** a registered peer sends a `signal` message whose payload contains a secret-bearing `authorizationId`
+- **THEN** the relay and agents reject the message before forwarding, encoding, sending, receiving, or treating the payload as trusted remote-assistance signaling metadata
+- **AND** diagnostics MUST NOT expose the raw `authorizationId` value
+
+#### Scenario: Non-secret signal authorization identifier remains valid
+- **WHEN** a registered peer sends a `signal` message containing `authorizationId` as a schema-valid non-secret lifecycle identifier and no sensitive key names
+- **THEN** the relay accepts the message as schema-valid and may forward it to the remaining peer

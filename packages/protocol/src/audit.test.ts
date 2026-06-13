@@ -801,6 +801,57 @@ describe("audit records", () => {
     expect(JSON.stringify(record)).not.toContain("array-access-key");
   });
 
+  it("redacts secret-bearing authorization id audit detail values", () => {
+    const record = createAuditRecord({
+      actor: { type: "relay", id: "relay-dev" },
+      action: "relay.message.forwarded",
+      outcome: "accepted",
+      detail: {
+        authorizationId: "token-raw-audit-authz-secret",
+        safeAuthorizationId: "authz-safe",
+        nested: {
+          authorizationId: "cookie.raw.audit.authz.secret",
+          objectAttempt: {
+            authorizationId: {
+              value: "token-raw-object-authz-secret"
+            }
+          }
+        },
+        attempts: [
+          {
+            authorizationId: "ssh-key-raw-audit-authz-secret"
+          },
+          {
+            authorizationId: "authz-array"
+          }
+        ]
+      }
+    });
+
+    expect(record.detail).toEqual({
+      authorizationId: "[REDACTED]",
+      safeAuthorizationId: "authz-safe",
+      nested: {
+        authorizationId: "[REDACTED]",
+        objectAttempt: {
+          authorizationId: "[REDACTED]"
+        }
+      },
+      attempts: [
+        {
+          authorizationId: "[REDACTED]"
+        },
+        {
+          authorizationId: "authz-array"
+        }
+      ]
+    });
+    expect(JSON.stringify(record)).not.toContain("token-raw-audit-authz-secret");
+    expect(JSON.stringify(record)).not.toContain("cookie.raw.audit.authz.secret");
+    expect(JSON.stringify(record)).not.toContain("ssh-key-raw-audit-authz-secret");
+    expect(JSON.stringify(record)).not.toContain("token-raw-object-authz-secret");
+  });
+
   it("redacts display-name and private reason detail keys while preserving safe metadata", () => {
     const redacted = redactAuditDetail({
       displayName: "Raw Host Name",

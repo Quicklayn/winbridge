@@ -224,6 +224,45 @@ describe("session authorization state machine", () => {
     ).toThrow();
   });
 
+  it("rejects secret-bearing authorization identifiers", () => {
+    expect(() =>
+      createPendingSessionAuthorization({
+        sessionId: "session-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        authorizationId: "token:raw-authz-secret",
+        now: baseTime
+      })
+    ).toThrow("Authorization id must not contain sensitive metadata");
+
+    for (const authorizationId of [
+      "sshKey:raw-authz-secret",
+      "token-raw-authz-secret",
+      "token_raw_authz_secret",
+      "cookie.raw.authz.secret",
+      "ssh-key-raw-authz-secret"
+    ]) {
+      expect(() =>
+        SessionAuthorizationSchema.parse({
+          ...pending(),
+          authorizationId
+        })
+      ).toThrow("Authorization id must not contain sensitive metadata");
+    }
+
+    expect(
+      createPendingSessionAuthorization({
+        sessionId: "session-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        authorizationId: "authz-public-metadata",
+        now: baseTime
+      }).authorizationId
+    ).toBe("authz-public-metadata");
+  });
+
   it("rejects authorization records and grants with unknown fixed fields", () => {
     expect(() =>
       SessionAuthorizationSchema.parse({

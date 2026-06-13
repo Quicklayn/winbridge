@@ -718,6 +718,93 @@ describe("relay runtime integration", () => {
     }
   });
 
+  it("rejects secret-bearing authorization lifecycle ids before forwarding", async () => {
+    const authorizationId = "token:raw-lifecycle-authz-secret";
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const messages = [
+      {
+        name: "decision",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId,
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt
+        }
+      },
+      {
+        name: "state",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId,
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt
+        }
+      },
+      {
+        name: "revocation",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "permission-revoked",
+          authorizationId,
+          actorPeerId: "host-1",
+          revokedPermission: "screen:view",
+          reason: "Host revoked screen"
+        }
+      },
+      {
+        name: "control",
+        message: {
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          authorizationId,
+          actorPeerId: "host-1",
+          action: "pause"
+        }
+      }
+    ] as const;
+
+    for (const { name, message } of messages) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+
+      host.send(JSON.stringify(message));
+
+      expect(await waitForJsonMessage(host, (relayMessage) => relayMessage.type === "relay-error"), name).toEqual({
+        type: "relay-error",
+        reason: "Invalid relay message"
+      });
+      await expectNoProtocolMessage(
+        viewer,
+        (forwarded) => forwarded.type === message.type && forwarded.messageId === message.messageId
+      );
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) => record.action === "relay.message.rejected" && record.reason === "Invalid relay message"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        reason: "Invalid relay message",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain(authorizationId);
+      expect(JSON.stringify(rejected), name).not.toContain("raw-lifecycle-authz-secret");
+    }
+  });
+
   it("audits forwarded hello messages without display or capability metadata", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
@@ -785,6 +872,8 @@ describe("relay runtime integration", () => {
     const rawScreenContent = "raw-forwarded-audit-screen-content";
     const rawNestedScreenContent = "raw-forwarded-audit-nested-screen";
     const safeMarker = "forwarded-audit-detail-safe-marker";
+    const rawAuthorizationId = "token-raw-forwarded-audit-authz-secret";
+    const rawNestedAuthorizationId = "cookie.raw.forwarded.audit.authz.secret";
     const auditEvent = {
       ...createMessageBase("session-demo"),
       type: "audit-event",
@@ -793,13 +882,16 @@ describe("relay runtime integration", () => {
       action: "agent-shell.forwarded.audit",
       outcome: "accepted",
       detail: {
-        authorizationId: "authz-forwarded-audit",
+        authorizationId: rawAuthorizationId,
         token: rawToken,
         displayName: rawDisplayName,
         terminationReason: rawTerminationReason,
         screenContent: rawScreenContent,
         safeMarker,
         nested: {
+          authorizationId: {
+            value: rawNestedAuthorizationId
+          },
           screenContent: rawNestedScreenContent
         }
       }
@@ -815,13 +907,14 @@ describe("relay runtime integration", () => {
       action: "agent-shell.forwarded.audit",
       outcome: "accepted",
       detail: {
-        authorizationId: "authz-forwarded-audit",
+        authorizationId: "[REDACTED]",
         token: "[REDACTED]",
         displayName: "[REDACTED]",
         terminationReason: "[REDACTED]",
         screenContent: "[REDACTED]",
         safeMarker,
         nested: {
+          authorizationId: "[REDACTED]",
           screenContent: "[REDACTED]"
         }
       }
@@ -831,6 +924,8 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(received)).not.toContain(rawTerminationReason);
     expect(JSON.stringify(received)).not.toContain(rawScreenContent);
     expect(JSON.stringify(received)).not.toContain(rawNestedScreenContent);
+    expect(JSON.stringify(received)).not.toContain(rawAuthorizationId);
+    expect(JSON.stringify(received)).not.toContain(rawNestedAuthorizationId);
 
     const forwarded = await waitForAuditRecord(
       auditSink,
@@ -861,7 +956,8 @@ describe("relay runtime integration", () => {
     });
     expect(JSON.stringify(forwarded)).not.toContain("audit_forwarded_detail");
     expect(JSON.stringify(forwarded)).not.toContain("agent-shell.forwarded.audit");
-    expect(JSON.stringify(forwarded)).not.toContain("authz-forwarded-audit");
+    expect(JSON.stringify(forwarded)).not.toContain(rawAuthorizationId);
+    expect(JSON.stringify(forwarded)).not.toContain(rawNestedAuthorizationId);
     expect(JSON.stringify(forwarded)).not.toContain(rawToken);
     expect(JSON.stringify(forwarded)).not.toContain(rawDisplayName);
     expect(JSON.stringify(forwarded)).not.toContain(rawTerminationReason);
@@ -2005,6 +2101,15 @@ describe("relay runtime integration", () => {
           safeMarker: "malformed-signal-auth-id-private-marker"
         },
         privateMarker: "malformed-signal-auth-id-private-marker"
+      },
+      {
+        name: "secret-bearing authorization id",
+        payload: {
+          authorizationId: "token:raw-signal-authz-secret",
+          kind: "offer",
+          safeMarker: "secret-signal-auth-id-private-marker"
+        },
+        privateMarker: "raw-signal-authz-secret"
       }
     ];
 
@@ -2041,8 +2146,13 @@ describe("relay runtime integration", () => {
           registered: true
         }
       });
-      expect(JSON.stringify(rejected), name).not.toContain(privateMarker);
-      expect(JSON.stringify(rejected), name).not.toContain("authz/unsafe");
+      const serialized = JSON.stringify(rejected);
+      const rawAuthorizationId =
+        typeof payload.authorizationId === "string" ? payload.authorizationId : undefined;
+      expect(serialized, name).not.toContain(privateMarker);
+      if (rawAuthorizationId) {
+        expect(serialized, name).not.toContain(rawAuthorizationId);
+      }
     }
   });
 

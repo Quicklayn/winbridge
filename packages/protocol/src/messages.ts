@@ -7,7 +7,7 @@ import {
   hasSecretBearingAuditMetadata,
   redactAuditDetail
 } from "./audit.js";
-import { SessionAuthorizationStatusSchema } from "./authorization.js";
+import { AuthorizationIdSchema, SessionAuthorizationStatusSchema } from "./authorization.js";
 import { DeviceDisplayNameSchema, DeviceIdentitySchema } from "./identity.js";
 import { createJsonObjectSchema, stringifyJson, type JsonObject, type JsonValue } from "./json.js";
 import {
@@ -177,7 +177,7 @@ export const SessionAuthorizationRequestMessageSchema = BaseMessageSchema.extend
 
 export const SessionAuthorizationDecisionMessageSchema = BaseMessageSchema.extend({
   type: z.literal("session-authorization-decision"),
-  authorizationId: ProtocolIdentifierSchema.min(8),
+  authorizationId: AuthorizationIdSchema,
   hostPeerId: PeerIdSchema,
   viewerPeerId: PeerIdSchema,
   decision: z.enum(["approved", "denied"]),
@@ -239,7 +239,7 @@ export const SessionAuthorizationDecisionMessageSchema = BaseMessageSchema.exten
 
 export const SessionAuthorizationStateMessageSchema = BaseMessageSchema.extend({
   type: z.literal("session-authorization-state"),
-  authorizationId: ProtocolIdentifierSchema.min(8),
+  authorizationId: AuthorizationIdSchema,
   actorPeerId: PeerIdSchema,
   status: SessionAuthorizationStatusSchema,
   visibleToHost: z.boolean(),
@@ -310,7 +310,7 @@ export const SessionAuthorizationStateMessageSchema = BaseMessageSchema.extend({
 
 export const PermissionRevokedMessageSchema = BaseMessageSchema.extend({
   type: z.literal("permission-revoked"),
-  authorizationId: ProtocolIdentifierSchema.min(8),
+  authorizationId: AuthorizationIdSchema,
   actorPeerId: PeerIdSchema,
   revokedPermission: PermissionSchema,
   reason: ProtocolReasonSchema
@@ -358,7 +358,7 @@ export const SignalMessageSchema = BaseMessageSchema.extend({
       path: ["payload", "authorizationId"]
     });
   } else {
-    const parsedAuthorizationId = ProtocolIdentifierSchema.min(8).safeParse(authorizationId);
+    const parsedAuthorizationId = AuthorizationIdSchema.safeParse(authorizationId);
     if (!parsedAuthorizationId.success) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -397,7 +397,7 @@ export const SignalMessageSchema = BaseMessageSchema.extend({
 
 export const SessionControlMessageSchema = BaseMessageSchema.extend({
   type: z.literal("session-control"),
-  authorizationId: ProtocolIdentifierSchema.min(8),
+  authorizationId: AuthorizationIdSchema,
   actorPeerId: PeerIdSchema,
   action: z.enum(["pause", "resume", "terminate", "revoke-permission"]),
   permission: PermissionSchema.optional(),
