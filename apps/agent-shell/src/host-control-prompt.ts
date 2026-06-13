@@ -16,6 +16,7 @@ export type HostControlPromptHandle = {
 };
 
 type HostControlCommand =
+  | { action: "help" }
   | { action: "status" }
   | { action: "pause" }
   | { action: "resume" }
@@ -23,14 +24,19 @@ type HostControlCommand =
   | { action: "disconnect" }
   | { action: "revoke"; permission: Permission };
 
-type HostLifecycleControlCommand = Exclude<HostControlCommand, { action: "status" }>;
+type HostLifecycleControlCommand = Exclude<
+  HostControlCommand,
+  { action: "help" } | { action: "status" }
+>;
 
 const HOST_CONTROL_PROMPT_TEXT =
-  "[winbridge-agent] Host controls: status | pause | resume | revoke <permission> | terminate | disconnect\n";
+  "[winbridge-agent] Host controls: help | status | pause | resume | revoke <permission> | terminate | disconnect\n";
 const HOST_CONTROL_ACCEPTED_PREFIX = "[winbridge-agent] host control accepted";
 const HOST_CONTROL_REJECTED_MESSAGE = "[winbridge-agent] host control rejected";
 const HOST_CONTROL_STOPPED_MESSAGE = "[winbridge-agent] host control prompt stopped\n";
 const HOST_CONTROL_STATUS_PREFIX = "[winbridge-agent] host status";
+const HOST_CONTROL_HELP_TEXT =
+  "[winbridge-agent] host control help commands=help,status,pause,resume,revoke screen:view,terminate,disconnect\n";
 
 export function startInteractiveHostControlPrompt(
   runtime: AgentShellRuntime,
@@ -67,6 +73,8 @@ export function startInteractiveHostControlPrompt(
 
 export function parseHostControlCommand(line: string): HostControlCommand | undefined {
   switch (line) {
+    case "help":
+      return { action: "help" };
     case "status":
       return { action: "status" };
     case "pause":
@@ -101,6 +109,10 @@ export function formatHostControlStatus(status: AgentShellHostStatusSnapshot): s
   return `${parts.join(" ")}\n`;
 }
 
+export function formatHostControlHelp(): string {
+  return HOST_CONTROL_HELP_TEXT;
+}
+
 function parseRevokeCommand(line: string): HostControlCommand | undefined {
   const match = /^revoke ([^\s]+)$/.exec(line);
   if (!match) {
@@ -126,6 +138,11 @@ function handleHostControlLine(
   }
 
   try {
+    if (command.action === "help") {
+      output.write(formatHostControlHelp());
+      return;
+    }
+
     if (command.action === "status") {
       output.write(formatHostControlStatus(runtime.getHostStatus()));
       return;

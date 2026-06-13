@@ -1,6 +1,7 @@
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import {
+  formatHostControlHelp,
   formatHostControlStatus,
   parseHostControlCommand,
   startInteractiveHostControlPrompt
@@ -9,6 +10,7 @@ import type { AgentShellRuntime } from "./runtime.js";
 
 describe("interactive host control prompt", () => {
   it("parses exact host control commands", () => {
+    expect(parseHostControlCommand("help")).toEqual({ action: "help" });
     expect(parseHostControlCommand("status")).toEqual({ action: "status" });
     expect(parseHostControlCommand("pause")).toEqual({ action: "pause" });
     expect(parseHostControlCommand("resume")).toEqual({ action: "resume" });
@@ -23,6 +25,10 @@ describe("interactive host control prompt", () => {
   it("rejects malformed or unsafe command lines", () => {
     for (const line of [
       "",
+      " help",
+      "help ",
+      "Help",
+      "help raw-token",
       " status",
       "status ",
       "Status",
@@ -102,6 +108,30 @@ describe("interactive host control prompt", () => {
     expect(output.text()).not.toContain("raw-token");
   });
 
+  it("prints host help without reading status, invoking controls, or public sends", async () => {
+    const runtime = createRuntimeSpy();
+    const output = createCapturingOutput();
+
+    startInteractiveHostControlPrompt(runtime, {
+      input: PassThrough.from(["help\n"]),
+      output
+    });
+    await waitForText(output, (text) => text.includes("[winbridge-agent] host control help"));
+
+    expect(runtime.getHostStatus).not.toHaveBeenCalled();
+    expect(runtime.pause).not.toHaveBeenCalled();
+    expect(runtime.resume).not.toHaveBeenCalled();
+    expect(runtime.revokePermission).not.toHaveBeenCalled();
+    expect(runtime.terminate).not.toHaveBeenCalled();
+    expect(runtime.disconnect).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.send).not.toHaveBeenCalled();
+    expect(output.text()).toContain("commands=help,status,pause,resume,revoke screen:view,terminate,disconnect");
+    expect(output.text()).not.toContain("123-456");
+    expect(output.text()).not.toContain("Viewer Support");
+    expect(output.text()).not.toContain("raw-token");
+  });
+
   it("formats inactive host status without undefined fields", () => {
     expect(
       formatHostControlStatus({
@@ -112,19 +142,29 @@ describe("interactive host control prompt", () => {
     ).toBe("[winbridge-agent] host status state=inactive visibleToHost=false permissionCount=0\n");
   });
 
+  it("formats host help as a bounded static command list", () => {
+    expect(formatHostControlHelp()).toBe(
+      "[winbridge-agent] host control help commands=help,status,pause,resume,revoke screen:view,terminate,disconnect\n"
+    );
+  });
+
   it("rejects malformed commands without invoking runtime controls or echoing input", async () => {
     const runtime = createRuntimeSpy();
     const output = createCapturingOutput();
     const input = PassThrough.from([
+      " help\n",
+      "Help\n",
       " pause\n",
       "revoke input:keylogger\n",
       "disconnect raw-token\n",
+      "help raw-token\n",
       "raw-token\n"
     ]);
 
     startInteractiveHostControlPrompt(runtime, { input, output });
-    await waitForText(output, (text) => countMatches(text, "host control rejected") === 4);
+    await waitForText(output, (text) => countMatches(text, "host control rejected") === 7);
 
+    expect(runtime.getHostStatus).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
     expect(runtime.resume).not.toHaveBeenCalled();
     expect(runtime.revokePermission).not.toHaveBeenCalled();
