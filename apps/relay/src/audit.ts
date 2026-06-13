@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { ConsoleAuditSink, FileAuditSink, type AuditSink } from "@winbridge/audit-log";
+import {
+  assertAuditLogPath,
+  ConsoleAuditSink,
+  FileAuditSink,
+  type AuditSink
+} from "@winbridge/audit-log";
 import {
   PROTOCOL_IDENTIFIER_MAX_LENGTH,
   type AuditActor,
@@ -10,6 +15,8 @@ import {
 
 const relayActor = { type: "relay", id: "development-relay" } as const;
 const boundedRelayPeerActorPrefix = `${relayActor.id}:peer`;
+const RELAY_AUDIT_LOG_PATH_ERROR_MESSAGE =
+  "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters";
 
 export function createRelayAuditSink(env: NodeJS.ProcessEnv = process.env): AuditSink {
   const auditLogPath = env.WINBRIDGE_RELAY_AUDIT_LOG_PATH;
@@ -18,10 +25,7 @@ export function createRelayAuditSink(env: NodeJS.ProcessEnv = process.env): Audi
     return new ConsoleAuditSink((line) => console.log(`[winbridge-audit] ${line}`));
   }
 
-  if (auditLogPath.trim().length === 0 || auditLogPath !== auditLogPath.trim()) {
-    throw new Error("WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank and already trimmed");
-  }
-
+  assertAuditLogPath(auditLogPath, RELAY_AUDIT_LOG_PATH_ERROR_MESSAGE);
   return new FileAuditSink(auditLogPath);
 }
 

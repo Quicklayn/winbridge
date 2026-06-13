@@ -1,3 +1,4 @@
+import { assertAuditLogPath } from "@winbridge/audit-log";
 import {
   DeviceIdentitySchema,
   PairingCodeSchema,
@@ -340,7 +341,9 @@ function parseOptionalAuditLogPath(raw: string | undefined): string | undefined 
     return undefined;
   }
 
-  if (raw.trim().length === 0 || raw !== raw.trim()) {
+  try {
+    assertAuditLogPath(raw);
+  } catch {
     throw new AgentShellUsageError();
   }
 

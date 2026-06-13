@@ -119,27 +119,40 @@ describe("relay audit", () => {
   });
 
   it("rejects malformed WINBRIDGE_RELAY_AUDIT_LOG_PATH values", () => {
-    for (const auditLogPath of ["", "   ", " logs/relay-audit.jsonl", "logs/relay-audit.jsonl "]) {
+    for (const auditLogPath of [
+      "",
+      "   ",
+      " logs/relay-audit.jsonl",
+      "logs/relay-audit.jsonl ",
+      "logs/relay-audit\npath.jsonl",
+      "x".repeat(1025)
+    ]) {
       expect(() =>
         createRelayAuditSink({
           WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
         })
-      ).toThrow("WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank and already trimmed");
+      ).toThrow(
+        "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters"
+      );
     }
   });
 
-  it("rejects untrimmed WINBRIDGE_RELAY_AUDIT_LOG_PATH without exposing raw path text", () => {
-    const auditLogPath = " logs/relay-audit-private-marker.jsonl ";
-
-    try {
-      createRelayAuditSink({
-        WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
-      });
-      throw new Error("Expected untrimmed relay audit log path to be rejected");
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).not.toContain("relay-audit-private-marker");
-      expect((error as Error).message).not.toContain(auditLogPath);
+  it("rejects invalid WINBRIDGE_RELAY_AUDIT_LOG_PATH without exposing raw path text", () => {
+    for (const auditLogPath of [
+      " logs/relay-audit-private-marker.jsonl ",
+      "logs/relay-audit-private-marker\n.jsonl",
+      `logs/${"relay-audit-private-marker".repeat(43)}.jsonl`
+    ]) {
+      try {
+        createRelayAuditSink({
+          WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
+        });
+        throw new Error("Expected relay audit log path to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain("relay-audit-private-marker");
+        expect((error as Error).message).not.toContain(auditLogPath);
+      }
     }
   });
 });

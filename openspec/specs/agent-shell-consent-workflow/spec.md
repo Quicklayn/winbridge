@@ -635,7 +635,7 @@ The agent shell CLI SHALL report unexpected startup and shutdown failures withou
 - **AND** stderr output MUST NOT include raw user-provided argument values
 
 ### Requirement: Agent shell CLI argument validation
-The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime, including duplicate requested permissions and requested permission entries that are not exact canonical permission tokens. Relay URLs MUST NOT contain embedded credentials/userinfo, canonical `token` query parameters, or case-variant `token` query parameters, and relay shared-token values MUST be supplied through `--token` rather than embedded in `--relay` URLs. CLI token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. CLI audit log path values MUST be non-blank and already trimmed. Authorization TTL validation SHALL require `--authorization-ttl-ms` values to be positive integers from `1` through the safe timer delay bound. Lifecycle workflow timer validation SHALL allow `--revoke-after-ms`, `--pause-after-ms`, `--resume-after-ms`, `--terminate-after-ms`, and `--disconnect-after-ms` values from `0` through the safe timer delay bound.
+The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments before starting the runtime, including duplicate requested permissions and requested permission entries that are not exact canonical permission tokens. Relay URLs MUST NOT contain embedded credentials/userinfo, canonical `token` query parameters, or case-variant `token` query parameters, and relay shared-token values MUST be supplied through `--token` rather than embedded in `--relay` URLs. CLI token values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. CLI audit log path values MUST be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters. Authorization TTL validation SHALL require `--authorization-ttl-ms` values to be positive integers from `1` through the safe timer delay bound. Lifecycle workflow timer validation SHALL allow `--revoke-after-ms`, `--pause-after-ms`, `--resume-after-ms`, `--terminate-after-ms`, and `--disconnect-after-ms` values from `0` through the safe timer delay bound.
 
 #### Scenario: Unknown CLI option is rejected
 - **WHEN** the agent shell is started with an option name that is not part of the documented CLI
@@ -704,6 +704,16 @@ The agent shell SHALL reject malformed, unknown, or ambiguous CLI arguments befo
 #### Scenario: Untrimmed audit log path option is rejected
 - **WHEN** the agent shell is started with a `--audit-log` value containing leading or trailing whitespace
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
+
+#### Scenario: Control-character audit log path option is rejected
+- **WHEN** the agent shell is started with a `--audit-log` value containing an ASCII control character or `WINBRIDGE_AGENT_AUDIT_LOG_PATH` contains an ASCII control character
+- **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
+- **AND** stderr output MUST NOT include the raw configured path value
+
+#### Scenario: Oversized audit log path option is rejected
+- **WHEN** the agent shell is started with a `--audit-log` value whose UTF-8 byte length exceeds 1024 bytes or `WINBRIDGE_AGENT_AUDIT_LOG_PATH` exceeds 1024 UTF-8 bytes
+- **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
+- **AND** stderr output MUST NOT include the raw configured path value
 
 #### Scenario: Valid omitted options keep safe defaults
 - **WHEN** the agent shell is started with only a valid role

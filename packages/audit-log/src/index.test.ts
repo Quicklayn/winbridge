@@ -227,23 +227,34 @@ describe("ConsoleAuditSink", () => {
 
 describe("FileAuditSink", () => {
   it("rejects malformed paths before writing records", () => {
-    for (const path of ["", "   ", " logs/audit.jsonl", "logs/audit.jsonl "]) {
+    for (const path of [
+      "",
+      "   ",
+      " logs/audit.jsonl",
+      "logs/audit.jsonl ",
+      "logs/audit\npath.jsonl",
+      "x".repeat(1025)
+    ]) {
       expect(() => new FileAuditSink(path)).toThrow(
-        "Audit log path must be non-blank and already trimmed"
+        "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, and contain no ASCII control characters"
       );
     }
   });
 
-  it("rejects untrimmed paths without exposing raw path text", () => {
-    const path = " logs/audit-private-marker.jsonl ";
-
-    try {
-      new FileAuditSink(path);
-      throw new Error("Expected untrimmed audit log path to be rejected");
-    } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).not.toContain("audit-private-marker");
-      expect((error as Error).message).not.toContain(path);
+  it("rejects invalid paths without exposing raw path text", () => {
+    for (const path of [
+      " logs/audit-private-marker.jsonl ",
+      "logs/audit-private-marker\n.jsonl",
+      `logs/${"audit-private-marker".repeat(58)}.jsonl`
+    ]) {
+      try {
+        new FileAuditSink(path);
+        throw new Error("Expected audit log path to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain("audit-private-marker");
+        expect((error as Error).message).not.toContain(path);
+      }
     }
   });
 
