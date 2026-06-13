@@ -37,6 +37,7 @@
 ## Phase 4: Windows Viewer
 
 - Viewer UI.
+- Viewer local status surface.
 - Remote pointer/keyboard UX.
 - Permission request UX.
 - Session logs.

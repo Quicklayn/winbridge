@@ -89,6 +89,7 @@ npm run dev:relay
 ```
 
 Omit `WINBRIDGE_RELAY_AUDIT_LOG_PATH` to keep console audit output. Do not set it to an empty, whitespace-only, untrimmed, control-character, bidi/zero-width-control, or oversized value.
+Relay audit attribution remains secret-safe: raw attempted protocol identifiers are omitted or redacted when they contain pairing codes or obvious token, credential, cookie, or key secret-marker families, including marker words separated by `.`, `_`, `-`, or `:`.
 
 Development relay heartbeat is enabled by default. For local tuning:
 
@@ -159,7 +160,7 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 The prompt shows the host the observed viewer peer id, validated viewer display name when available, requested permission names, and permission count before accepting input. It accepts only exact `approve` or `deny` responses before the host consent timeout expires. Prompt mode defaults to a 60000 ms timeout; use `--host-consent-timeout-ms 30000` with `--host-consent-prompt true` to configure a shorter or longer bounded wait. Static `--host-decision approve|deny` remains for deterministic automation and is mutually exclusive with `--host-consent-prompt true`. The displayed viewer identity is development peer metadata, not production account authentication.
 
-This still does not capture the screen or send input. It only sends session authorization protocol messages and local secret-safe host indicator events for development UI wiring. Signaling payloads must be JSON-compatible objects; JavaScript-only values that JSON would drop or coerce are rejected before forwarding.
+This still does not capture the screen or send input. It only sends session authorization protocol messages and exposes local secret-safe host indicator events plus bounded viewer status snapshots for development UI wiring. Signaling payloads must be JSON-compatible objects; JavaScript-only values that JSON would drop or coerce are rejected before forwarding.
 
 Exercise the consent-bound development signal path with a static viewer probe:
 
@@ -187,6 +188,8 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 ```
 
 Host control prompt mode accepts exact commands: `status`, `pause`, `resume`, `revoke screen:view`, `terminate`, and `disconnect`. It is host-only and mutually exclusive with `--host-consent-prompt true` so only one stdin prompt is active. `status` prints bounded local host status metadata such as indicator state, visibility, permission count, and authorization id/status when available; it does not send protocol messages or invoke controls. Other commands call the same managed runtime controls as tests, so invisible sessions, expired grants, terminal sessions, disconnected peers, and missing permissions still fail closed before lifecycle protocol messages.
+
+Managed viewer runtimes also expose a read-only `getViewerStatus()` snapshot for future viewer UI wiring. It reports only bounded lifecycle metadata such as `state`, `visibleToHost`, `permissionCount`, and optional authorization id/status. It is viewer-only and does not send protocol messages, emit workflow audit events, grant permissions, start signaling, or invoke host controls.
 
 Persist development host workflow audit records as JSONL:
 
