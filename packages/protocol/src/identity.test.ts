@@ -284,6 +284,33 @@ describe("pairing tickets", () => {
     expect(() =>
       consumePairingTicket(ticket, "999-000", new Date("2026-06-11T00:00:00.500Z"))
     ).toThrow("does not match");
+    expect(ticket.remainingUses).toBe(1);
+    expect(JSON.stringify(ticket)).not.toContain("999-000");
+  });
+
+  it("rejects malformed stored pairing hashes before consuming tickets", () => {
+    const ticket = createPairingTicket({
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456",
+      now: new Date("2026-06-11T00:00:00.000Z")
+    });
+    const malformedTicket = {
+      ...ticket,
+      pairingCodeHash: `sha256:${"0".repeat(63)}`
+    } as unknown as Parameters<typeof consumePairingTicket>[0];
+
+    let thrown: unknown;
+    try {
+      consumePairingTicket(malformedTicket, "123-456", new Date("2026-06-11T00:00:00.500Z"));
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).not.toContain("123-456");
+    expect((thrown as Error).message).not.toContain(ticket.pairingCodeHash);
+    expect(ticket.remainingUses).toBe(1);
   });
 
   it("binds paired-device records to the ticket validity window", () => {

@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import {
   PairingCodeSchema,
@@ -148,7 +148,12 @@ export function consumePairingTicket(
     throw new Error("Pairing ticket has no remaining uses");
   }
 
-  if (parsed.pairingCodeHash !== hashPairingCode(pairingCode, parsed.pairingCodeSalt)) {
+  if (
+    !pairingCodeHashesMatch(
+      parsed.pairingCodeHash,
+      hashPairingCode(pairingCode, parsed.pairingCodeSalt)
+    )
+  ) {
     throw new Error("Pairing code does not match ticket");
   }
 
@@ -200,6 +205,16 @@ export function assertRemoteActionAuthorized(input: {
   if (!grant.permissions.includes(PermissionSchema.parse(input.permission))) {
     throw new Error("Session grant does not include requested permission");
   }
+}
+
+function pairingCodeHashesMatch(storedHash: string, candidateHash: string): boolean {
+  return timingSafeEqual(pairingCodeHashDigest(storedHash), pairingCodeHashDigest(candidateHash));
+}
+
+function pairingCodeHashDigest(hash: string): Buffer {
+  const parsed = z.string().regex(/^sha256:[a-f0-9]{64}$/).parse(hash);
+
+  return Buffer.from(parsed.slice("sha256:".length), "hex");
 }
 
 function assertBoundedInteger(
