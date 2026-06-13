@@ -45,7 +45,7 @@ The system SHALL provide reusable development audit sinks for tests and local de
 - **THEN** each record is serialized as one JSON line
 
 ### Requirement: Audit schema validation
-The system SHALL validate audit records before storing or emitting them through audit sinks. Audit records MUST reject blank, whitespace-only, oversized, or untrimmed semantic metadata fields, including action, optional reason, and target type.
+The system SHALL validate audit records before storing or emitting them through audit sinks. Audit records MUST reject blank, whitespace-only, oversized, untrimmed, ASCII control-character, or Unicode bidirectional or zero-width formatting-control semantic metadata fields, including action, optional reason, and target type.
 
 #### Scenario: Audit record misses required actor
 - **WHEN** a component writes an audit record without required actor metadata
@@ -59,6 +59,10 @@ The system SHALL validate audit records before storing or emitting them through 
 - **WHEN** a component writes an audit record with an action containing leading or trailing whitespace
 - **THEN** the audit sink rejects the record before storing or emitting ambiguous action metadata
 
+#### Scenario: Audit record action contains unsafe characters
+- **WHEN** a component writes an audit record with an action containing an ASCII control character or Unicode bidirectional or zero-width formatting control including `U+FEFF`
+- **THEN** the audit sink rejects the record before storing or emitting ambiguous action metadata
+
 #### Scenario: Audit record reason is blank
 - **WHEN** a component writes an audit record with a whitespace-only reason
 - **THEN** the audit sink rejects the record instead of storing meaningless reason metadata
@@ -67,12 +71,20 @@ The system SHALL validate audit records before storing or emitting them through 
 - **WHEN** a component writes an audit record with a top-level reason containing leading or trailing whitespace
 - **THEN** the audit sink rejects the record instead of storing ambiguous reason metadata
 
+#### Scenario: Audit record reason contains unsafe characters
+- **WHEN** a component writes an audit record with a top-level reason containing an ASCII control character or Unicode bidirectional or zero-width formatting control including `U+FEFF`
+- **THEN** the audit sink rejects the record instead of storing ambiguous reason metadata
+
 #### Scenario: Audit record target type is blank
 - **WHEN** a component writes an audit record with a whitespace-only target type
 - **THEN** the audit sink rejects the record before storing ambiguous target metadata
 
 #### Scenario: Audit record target type is untrimmed
 - **WHEN** a component writes an audit record with a target type containing leading or trailing whitespace
+- **THEN** the audit sink rejects the record before storing ambiguous target metadata
+
+#### Scenario: Audit record target type contains unsafe characters
+- **WHEN** a component writes an audit record with a target type containing an ASCII control character or Unicode bidirectional or zero-width formatting control including `U+FEFF`
 - **THEN** the audit sink rejects the record before storing ambiguous target metadata
 
 ### Requirement: Audit fixed fields reject unknown metadata
@@ -151,7 +163,7 @@ The audit layer SHALL treat audit detail keys that indicate access keys or SSH k
 - **THEN** the audit layer MUST preserve the non-secret `authorizationId` and redact only the secret-key fields
 
 ### Requirement: Protocol audit-event detail redaction
-The system SHALL redact sensitive fields in protocol `audit-event` message details during schema parsing and encoding before the message is emitted, forwarded, or stored by development components. Protocol `audit-event` messages MUST reject blank, whitespace-only, oversized, or untrimmed action metadata before parsing, forwarding, encoding, or persistence.
+The system SHALL redact sensitive fields in protocol `audit-event` message details during schema parsing and encoding before the message is emitted, forwarded, or stored by development components. Protocol `audit-event` messages MUST reject blank, whitespace-only, oversized, untrimmed, ASCII control-character, or Unicode bidirectional or zero-width formatting-control action metadata before parsing, forwarding, encoding, or persistence.
 
 #### Scenario: Audit-event detail includes sensitive fields
 - **WHEN** an `audit-event` protocol message detail includes fields named token, credential, password, pairingCode, keystroke, screenshot, screenData, screenContent, clipboardText, clipboardContents, fileContent, fileData, fileBytes, fileTransfer, diagnosticDump, diagnostics, secret, apiKey, authorization, authHeader, cookie, setCookie, sessionCookie, or privateKey
@@ -175,6 +187,10 @@ The system SHALL redact sensitive fields in protocol `audit-event` message detai
 
 #### Scenario: Audit-event action is untrimmed
 - **WHEN** an `audit-event` protocol message includes an action containing leading or trailing whitespace
+- **THEN** the protocol schema rejects the message before it can be forwarded, encoded, emitted, or persisted with ambiguous action metadata
+
+#### Scenario: Audit-event action contains unsafe characters
+- **WHEN** an `audit-event` protocol message includes an action containing an ASCII control character or Unicode bidirectional or zero-width formatting control including `U+FEFF`
 - **THEN** the protocol schema rejects the message before it can be forwarded, encoded, emitted, or persisted with ambiguous action metadata
 
 ### Requirement: Access-key and SSH-key audit-event redaction

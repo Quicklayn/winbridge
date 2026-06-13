@@ -20,19 +20,43 @@ const AuditActionSchema = z
   .min(1)
   .max(160)
   .refine((action) => action.trim().length > 0, "Audit action must not be blank")
-  .refine((action) => action === action.trim(), "Audit action must be trimmed");
+  .refine((action) => action === action.trim(), "Audit action must be trimmed")
+  .refine(
+    (action) => !hasAsciiControlCharacter(action),
+    "Audit action must not contain ASCII control characters"
+  )
+  .refine(
+    (action) => !hasUnsafeFormatCharacter(action),
+    "Audit action must not contain Unicode bidi or zero-width formatting controls"
+  );
 const AuditReasonSchema = z
   .string()
   .min(1)
   .max(240)
   .refine((reason) => reason.trim().length > 0, "Audit reason must not be blank")
-  .refine((reason) => reason === reason.trim(), "Audit reason must be trimmed");
+  .refine((reason) => reason === reason.trim(), "Audit reason must be trimmed")
+  .refine(
+    (reason) => !hasAsciiControlCharacter(reason),
+    "Audit reason must not contain ASCII control characters"
+  )
+  .refine(
+    (reason) => !hasUnsafeFormatCharacter(reason),
+    "Audit reason must not contain Unicode bidi or zero-width formatting controls"
+  );
 const AuditTargetTypeSchema = z
   .string()
   .min(1)
   .max(80)
   .refine((type) => type.trim().length > 0, "Audit target type must not be blank")
-  .refine((type) => type === type.trim(), "Audit target type must be trimmed");
+  .refine((type) => type === type.trim(), "Audit target type must be trimmed")
+  .refine(
+    (type) => !hasAsciiControlCharacter(type),
+    "Audit target type must not contain ASCII control characters"
+  )
+  .refine(
+    (type) => !hasUnsafeFormatCharacter(type),
+    "Audit target type must not contain Unicode bidi or zero-width formatting controls"
+  );
 
 export const AuditDetailSchema = createJsonObjectSchema(
   "Audit detail must be JSON-compatible"
@@ -191,6 +215,40 @@ function isSensitiveAuditReason(reason: string): boolean {
     sensitiveReasonCredentialPattern.test(reason) ||
     sensitiveReasonPrivateKeyPattern.test(reason)
   );
+}
+
+function hasAsciiControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasUnsafeFormatCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+
+    if (
+      codePoint === 0x061c ||
+      codePoint === 0x200b ||
+      codePoint === 0x200c ||
+      codePoint === 0x200d ||
+      codePoint === 0x200e ||
+      codePoint === 0x200f ||
+      codePoint === 0x2060 ||
+      codePoint === 0xfeff ||
+      (codePoint !== undefined && codePoint >= 0x202a && codePoint <= 0x202e) ||
+      (codePoint !== undefined && codePoint >= 0x2066 && codePoint <= 0x2069)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function isSensitiveAuditDetailKey(key: string): boolean {

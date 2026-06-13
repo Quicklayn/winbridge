@@ -60,7 +60,7 @@ const ProtocolReasonSchema = z
   .refine((reason) => reason === reason.trim(), "Reason must be trimmed")
   .refine((reason) => !hasAsciiControlCharacter(reason), "Reason must not contain ASCII control characters")
   .refine(
-    (reason) => !hasUnsafeReasonFormatCharacter(reason),
+    (reason) => !hasUnsafeFormatCharacter(reason),
     "Reason must not contain Unicode bidi or zero-width formatting controls"
   );
 const ProtocolAuditActionSchema = z
@@ -68,7 +68,15 @@ const ProtocolAuditActionSchema = z
   .min(1)
   .max(120)
   .refine((action) => action.trim().length > 0, "Audit event action must not be blank")
-  .refine((action) => action === action.trim(), "Audit event action must be trimmed");
+  .refine((action) => action === action.trim(), "Audit event action must be trimmed")
+  .refine(
+    (action) => !hasAsciiControlCharacter(action),
+    "Audit event action must not contain ASCII control characters"
+  )
+  .refine(
+    (action) => !hasUnsafeFormatCharacter(action),
+    "Audit event action must not contain Unicode bidi or zero-width formatting controls"
+  );
 const ProtocolCapabilitySchema = z
   .string()
   .min(1)
@@ -449,7 +457,7 @@ function hasAsciiControlCharacter(value: string): boolean {
   return false;
 }
 
-function hasUnsafeReasonFormatCharacter(value: string): boolean {
+function hasUnsafeFormatCharacter(value: string): boolean {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
 

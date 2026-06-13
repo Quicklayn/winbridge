@@ -1035,6 +1035,72 @@ describe("relay runtime integration", () => {
     }
   });
 
+  it("rejects registered audit-event messages with unsafe actions before forwarding", async () => {
+    const cases: Array<{
+      name: string;
+      action: string;
+      privateMarker: string;
+    }> = [
+      {
+        name: "control-character action",
+        action: "agent-shell\nrelay-private-action-marker",
+        privateMarker: "relay-private-action-marker"
+      },
+      {
+        name: "bidi-control action",
+        action: "agent-shell\u202erelay-private-action-marker",
+        privateMarker: "relay-private-action-marker"
+      },
+      {
+        name: "zero-width action",
+        action: "agent-shell\ufeffrelay-private-action-marker",
+        privateMarker: "relay-private-action-marker"
+      }
+    ];
+
+    for (const { action, name, privateMarker } of cases) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+
+      host.send(
+        JSON.stringify({
+          ...createMessageBase("session-demo"),
+          type: "audit-event",
+          eventId: "audit-demo",
+          actorPeerId: "host-1",
+          action,
+          outcome: "failed",
+          detail: {
+            reasonCode: "peer-closed"
+          }
+        })
+      );
+
+      expect(await waitForJsonMessage(host, (message) => message.type === "relay-error"), name).toEqual({
+        type: "relay-error",
+        reason: "Invalid relay message"
+      });
+      await expectNoProtocolMessage(viewer, (message) => message.type === "audit-event");
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) => record.action === "relay.message.rejected" && record.reason === "Invalid relay message"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        reason: "Invalid relay message",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain(privateMarker);
+      expect(JSON.stringify(rejected), name).not.toContain(action);
+    }
+  });
+
   it("rejects hello messages with malformed capability metadata before forwarding", async () => {
     const cases: Array<{
       name: string;

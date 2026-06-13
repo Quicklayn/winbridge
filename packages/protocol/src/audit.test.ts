@@ -238,6 +238,116 @@ describe("audit records", () => {
     ).toThrow("Audit target type must be trimmed");
   });
 
+  it("rejects audit metadata fields with ASCII control characters", () => {
+    expect(() =>
+      createAuditRecord({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay\nmessage.rejected",
+        outcome: "failed"
+      })
+    ).toThrow("Audit action must not contain ASCII control characters");
+    expect(() =>
+      createAuditRecord({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay.message.rejected",
+        outcome: "failed",
+        reason: "Invalid\nrelay message"
+      })
+    ).toThrow("Audit reason must not contain ASCII control characters");
+    expect(() =>
+      createAuditRecord({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay.message.forwarded",
+        outcome: "accepted",
+        target: {
+          type: "pe\ner",
+          id: "viewer-1"
+        }
+      })
+    ).toThrow("Audit target type must not contain ASCII control characters");
+  });
+
+  it("rejects audit metadata fields with Unicode bidi or zero-width controls", () => {
+    expect(() =>
+      createAuditRecord({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay\u202emessage.rejected",
+        outcome: "failed"
+      })
+    ).toThrow("Audit action must not contain Unicode bidi or zero-width formatting controls");
+    expect(() =>
+      createAuditRecord({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay.message.rejected",
+        outcome: "failed",
+        reason: "Invalid\u200brelay message"
+      })
+    ).toThrow("Audit reason must not contain Unicode bidi or zero-width formatting controls");
+    expect(() =>
+      createAuditRecord({
+        actor: { type: "relay", id: "relay-dev" },
+        action: "relay.message.forwarded",
+        outcome: "accepted",
+        target: {
+          type: "pe\ufeffer",
+          id: "viewer-1"
+        }
+      })
+    ).toThrow("Audit target type must not contain Unicode bidi or zero-width formatting controls");
+  });
+
+  it("rejects unsafe audit metadata without exposing raw private text", () => {
+    const cases: Array<{
+      name: string;
+      buildRecord: (value: string) => Parameters<typeof createAuditRecord>[0];
+      value: string;
+    }> = [
+      {
+        name: "action",
+        value: "audit-private-marker\n",
+        buildRecord: (value) => ({
+          actor: { type: "relay", id: "relay-dev" },
+          action: value,
+          outcome: "failed"
+        })
+      },
+      {
+        name: "reason",
+        value: "audit-private-marker\u202e",
+        buildRecord: (value) => ({
+          actor: { type: "relay", id: "relay-dev" },
+          action: "relay.message.rejected",
+          outcome: "failed",
+          reason: value
+        })
+      },
+      {
+        name: "target type",
+        value: "audit-private-marker\ufeff",
+        buildRecord: (value) => ({
+          actor: { type: "relay", id: "relay-dev" },
+          action: "relay.message.forwarded",
+          outcome: "accepted",
+          target: {
+            type: value,
+            id: "viewer-1"
+          }
+        })
+      }
+    ];
+
+    for (const { buildRecord, name, value } of cases) {
+      try {
+        createAuditRecord(buildRecord(value));
+        throw new Error(`Expected unsafe audit ${name} metadata to be rejected`);
+      } catch (error) {
+        expect(error, name).toBeInstanceOf(Error);
+        expect((error as Error).message, name).not.toContain("audit-private-marker");
+        expect((error as Error).message, name).not.toContain(value);
+      }
+    }
+  });
+
   it("rejects audit records with malformed identifiers", () => {
     expect(() =>
       createAuditRecord({

@@ -2173,6 +2173,75 @@ describe("protocol envelopes", () => {
       encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
     ).toThrow("Audit event action must be trimmed");
   });
+
+  it("rejects audit-event actions with ASCII control characters", () => {
+    const message = {
+      ...createMessageBase("session-demo"),
+      type: "audit-event",
+      eventId: "audit-demo",
+      actorPeerId: "host-1",
+      action: "agent-shell\nprivate-action-marker",
+      outcome: "failed"
+    } as const;
+
+    expect(() => parseProtocolEnvelope(message)).toThrow(
+      "Audit event action must not contain ASCII control characters"
+    );
+    expect(() =>
+      encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+    ).toThrow("Audit event action must not contain ASCII control characters");
+  });
+
+  it("rejects audit-event actions with Unicode bidi or zero-width controls", () => {
+    for (const action of [
+      "agent-shell\u202eprivate-action-marker",
+      "agent-shell\u200bprivate-action-marker",
+      "agent-shell\ufeffprivate-action-marker"
+    ]) {
+      const message = {
+        ...createMessageBase("session-demo"),
+        type: "audit-event",
+        eventId: "audit-demo",
+        actorPeerId: "host-1",
+        action,
+        outcome: "failed"
+      } as const;
+
+      expect(() => parseProtocolEnvelope(message)).toThrow(
+        "Audit event action must not contain Unicode bidi or zero-width formatting controls"
+      );
+      expect(() =>
+        encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+      ).toThrow("Audit event action must not contain Unicode bidi or zero-width formatting controls");
+    }
+  });
+
+  it("rejects unsafe audit-event actions without exposing raw private text", () => {
+    for (const action of [
+      "agent-shell-private-action-marker\n",
+      "agent-shell-private-action-marker\u202e",
+      "agent-shell-private-action-marker\u200b",
+      "agent-shell-private-action-marker\ufeff"
+    ]) {
+      const message = {
+        ...createMessageBase("session-demo"),
+        type: "audit-event",
+        eventId: "audit-demo",
+        actorPeerId: "host-1",
+        action,
+        outcome: "failed"
+      } as const;
+
+      try {
+        parseProtocolEnvelope(message);
+        throw new Error("Expected unsafe audit-event action to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain("agent-shell-private-action-marker");
+        expect((error as Error).message).not.toContain(action);
+      }
+    }
+  });
 });
 
 describe("session grants", () => {
