@@ -319,6 +319,72 @@ describe("agent shell consent workflow", () => {
         { visibleToHost: "false" as unknown as boolean },
         "Runtime visibleToHost"
       ],
+      [
+        "viewer static host approval",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          hostDecision: "approve"
+        },
+        "Runtime host workflow options"
+      ],
+      [
+        "viewer visible host state",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          visibleToHost: true
+        },
+        "Runtime host workflow options"
+      ],
+      [
+        "viewer authorization TTL",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          authorizationTtlMs: 600000
+        },
+        "Runtime host workflow options"
+      ],
+      [
+        "viewer host lifecycle timer",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          hostPauseAfterMs: 0
+        },
+        "Runtime host workflow options"
+      ],
+      [
+        "viewer host revoke permission",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          hostRevokePermission: "screen:view"
+        },
+        "Runtime host workflow options"
+      ],
+      [
+        "viewer host workflow reason",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          hostTerminateReason: "Host terminated session"
+        },
+        "Runtime host workflow options"
+      ],
       ["zero authorization TTL", { authorizationTtlMs: 0 }, "Runtime authorization TTL"],
       ["unsafe workflow timer", { hostPauseAfterMs: 2_147_483_648 }, "Runtime workflow timer"],
       [

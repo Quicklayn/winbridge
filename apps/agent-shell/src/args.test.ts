@@ -175,6 +175,58 @@ describe("agent shell arguments", () => {
     ).toBe(2147483647);
   });
 
+  it("rejects explicit host workflow options for viewer runtimes", () => {
+    const hostWorkflowOptions = [
+      ["grant", "screen:view"],
+      ["host-decision", "none"],
+      ["host-decision", "approve"],
+      ["host-consent-prompt", "false"],
+      ["host-consent-timeout-ms", "5000"],
+      ["host-control-prompt", "false"],
+      ["host-status-after-ms", "0"],
+      ["host-signal-probe-ack", "false"],
+      ["visible-session", "false"],
+      ["authorization-ttl-ms", "600000"],
+      ["revoke-after-ms", "0"],
+      ["revoke-permission", "screen:view"],
+      ["revoke-reason", "Host revoked screen"],
+      ["pause-after-ms", "0"],
+      ["pause-reason", "Host paused"],
+      ["resume-after-ms", "0"],
+      ["resume-reason", "Host resumed"],
+      ["terminate-after-ms", "0"],
+      ["terminate-reason", "Host terminated"],
+      ["disconnect-after-ms", "0"],
+      ["disconnect-reason", "Host local close"]
+    ] as const;
+
+    for (const [option, value] of hostWorkflowOptions) {
+      expect(() => parseArgs(["viewer", `--${option}`, value], {}, 42), option).toThrow(
+        AgentShellUsageError
+      );
+    }
+  });
+
+  it("keeps viewer-only workflow options available for viewer runtimes", () => {
+    expect(
+      parseArgs(
+        ["viewer", "--request", "screen:view", "--viewer-signal-probe-after-ms", "0"],
+        {},
+        42
+      )
+    ).toMatchObject({
+      requestedPermissions: ["screen:view"],
+      viewerSignalProbeAfterMs: 0
+    });
+    expect(parseArgs(["viewer", "--viewer-status-after-ms", "0"], {}, 42).viewerStatusAfterMs).toBe(
+      0
+    );
+    expect(parseArgs(["viewer", "--viewer-disconnect-after-ms", "0"], {}, 42).viewerDisconnectAfterMs).toBe(
+      0
+    );
+    expect(parseArgs(["viewer", "--viewer-control-prompt", "true"], {}, 42).viewerControlPrompt).toBe(true);
+  });
+
   it("parses host disconnect reason for host runtimes", () => {
     expect(
       parseArgs(["host", "--disconnect-reason", "Host local close"], {}, 42)

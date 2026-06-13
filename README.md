@@ -142,6 +142,7 @@ Clipboard permissions `clipboard:read` and `clipboard:write` are intentionally r
 File transfer permission `file-transfer` is intentionally rejected until a future OpenSpec change and security review define a consent-first file-transfer capability.
 Diagnostics-shaped permission `diagnostics:view` is intentionally rejected until a future OpenSpec change and security review define a consent-first diagnostics capability.
 Optional workflow reason values such as `--revoke-reason`, `--pause-reason`, `--resume-reason`, `--terminate-reason`, and `--disconnect-reason` must be non-blank, already trimmed, at most 240 characters, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, and contain no secret-bearing metadata such as raw tokens, credentials, pairing codes, authorization headers, cookies, private keys, screen contents, clipboard contents, file-transfer contents, or diagnostics dumps. `--disconnect-reason` is host-only and is additionally capped to 123 UTF-8 bytes so it fits WebSocket close reason metadata.
+Host workflow options such as `--host-decision`, `--host-consent-prompt`, `--visible-session`, `--authorization-ttl-ms`, `--grant`, host lifecycle timers/reasons, host status/control options, and host signal acknowledgement are host-only. Viewer invocations reject those explicit options before runtime startup, including no-op values such as `--host-decision none`, `--host-consent-prompt false`, and `--visible-session false`.
 
 Exercise the development consent workflow:
 

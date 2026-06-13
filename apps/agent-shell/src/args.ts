@@ -94,6 +94,30 @@ const knownOptions = new Set([
   "viewer-status-after-ms",
   "viewer-disconnect-after-ms"
 ]);
+
+const viewerRejectedHostWorkflowOptions = [
+  "grant",
+  "host-decision",
+  "host-consent-prompt",
+  "host-consent-timeout-ms",
+  "host-control-prompt",
+  "host-status-after-ms",
+  "host-signal-probe-ack",
+  "visible-session",
+  "authorization-ttl-ms",
+  "revoke-after-ms",
+  "revoke-permission",
+  "revoke-reason",
+  "pause-after-ms",
+  "pause-reason",
+  "resume-after-ms",
+  "resume-reason",
+  "terminate-after-ms",
+  "terminate-reason",
+  "disconnect-after-ms",
+  "disconnect-reason"
+] as const;
+
 export class AgentShellUsageError extends Error {
   constructor() {
     super(AGENT_SHELL_USAGE);
@@ -113,6 +137,7 @@ export function parseArgs(
   }
 
   const options = parseOptionMap(raw.slice(1));
+  assertNoViewerHostWorkflowOptions(role, options);
   const sessionId = parseSessionId(options.get("session") ?? "demo");
   const pairingCode = parsePairingCode(options.get("pairing") ?? "123-456");
   const peerId = parsePeerId(options.get("peer") ?? `${role}-${processId}`);
@@ -195,6 +220,18 @@ export function parseArgs(
     viewerStatusAfterMs,
     viewerDisconnectAfterMs
   };
+}
+
+function assertNoViewerHostWorkflowOptions(role: SessionRole, options: Map<string, string>): void {
+  if (role !== "viewer") {
+    return;
+  }
+
+  for (const optionName of viewerRejectedHostWorkflowOptions) {
+    if (options.has(optionName)) {
+      throw new AgentShellUsageError();
+    }
+  }
 }
 
 function parseOptionMap(rawOptions: string[]): Map<string, string> {

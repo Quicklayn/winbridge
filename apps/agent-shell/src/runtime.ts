@@ -223,6 +223,8 @@ const RUNTIME_VIEWER_SIGNAL_PROBE_ERROR_MESSAGE =
   "Runtime viewer signal probe requires a viewer runtime with requested screen:view permission";
 const RUNTIME_HOST_SIGNAL_PROBE_ACK_ERROR_MESSAGE =
   "Runtime host signal probe acknowledgement is only valid for host runtimes";
+const RUNTIME_HOST_WORKFLOW_OPTIONS_ERROR_MESSAGE =
+  "Runtime host workflow options are only valid for host runtimes";
 const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
 const AGENT_SHELL_RUNTIME_ALREADY_STARTED_ERROR_MESSAGE = "Agent shell runtime is already started";
 const AGENT_SHELL_LOCAL_PEER_DISCONNECTED_ERROR_MESSAGE = "Agent shell local peer is disconnected";
@@ -2137,6 +2139,7 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
     options.hostDisconnectReason
   ]);
   assertRuntimeHostDisconnectReason(options);
+  assertRuntimeViewerHasNoHostWorkflowOptions(options);
 
   return relayUrl;
 }
@@ -2363,6 +2366,31 @@ function assertRuntimeHostSignalProbeAck(options: AgentShellRuntimeOptions): voi
 
   if (typeof options.hostSignalProbeAck !== "boolean" || options.role !== "host") {
     throw new Error(RUNTIME_HOST_SIGNAL_PROBE_ACK_ERROR_MESSAGE);
+  }
+}
+
+function assertRuntimeViewerHasNoHostWorkflowOptions(options: AgentShellRuntimeOptions): void {
+  if (options.role !== "viewer") {
+    return;
+  }
+
+  if (
+    (options.hostDecision !== undefined && options.hostDecision !== "none") ||
+    options.visibleToHost === true ||
+    options.authorizationTtlMs !== undefined ||
+    options.hostRevokeAfterMs !== undefined ||
+    options.hostRevokePermission !== undefined ||
+    options.hostRevokeReason !== undefined ||
+    options.hostPauseAfterMs !== undefined ||
+    options.hostPauseReason !== undefined ||
+    options.hostResumeAfterMs !== undefined ||
+    options.hostResumeReason !== undefined ||
+    options.hostTerminateAfterMs !== undefined ||
+    options.hostTerminateReason !== undefined ||
+    options.hostDisconnectAfterMs !== undefined ||
+    options.decisionReason !== undefined
+  ) {
+    throw new Error(RUNTIME_HOST_WORKFLOW_OPTIONS_ERROR_MESSAGE);
   }
 }
 
