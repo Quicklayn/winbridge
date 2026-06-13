@@ -223,6 +223,7 @@ type RuntimeAuthorizationSnapshot = {
   status: SessionAuthorizationStatus;
   visibleToHost: boolean;
   permissions: Permission[];
+  revokedPermissions?: Permission[];
   expiresAt?: string;
 };
 
@@ -779,15 +780,22 @@ function updateViewerAuthorizationState(
         return;
       }
 
-      sessionState.viewerAuthorization = {
-        authorizationId: envelope.authorizationId,
-        authorityPeerId: envelope.hostPeerId,
-        remotePeerId: envelope.hostPeerId,
-        status: envelope.decision === "approved" ? "approved" : "denied",
-        visibleToHost: false,
-        permissions: [...envelope.grantedPermissions],
-        expiresAt: envelope.expiresAt
-      };
+      sessionState.viewerAuthorization = applyViewerAuthorizationRevocationFloor(
+        {
+          authorizationId: envelope.authorizationId,
+          authorityPeerId: envelope.hostPeerId,
+          remotePeerId: envelope.hostPeerId,
+          status: envelope.decision === "approved" ? "approved" : "denied",
+          visibleToHost: false,
+          permissions: [...envelope.grantedPermissions],
+          expiresAt: envelope.expiresAt
+        },
+        viewerRevokedPermissionsForAuthorization(
+          sessionState.viewerAuthorization,
+          envelope.authorizationId,
+          envelope.hostPeerId
+        )
+      );
       return;
     case "session-authorization-state":
       if (
@@ -801,15 +809,22 @@ function updateViewerAuthorizationState(
         return;
       }
 
-      sessionState.viewerAuthorization = {
-        authorizationId: envelope.authorizationId,
-        authorityPeerId: envelope.actorPeerId,
-        remotePeerId: envelope.actorPeerId,
-        status: envelope.status,
-        visibleToHost: envelope.visibleToHost,
-        permissions: [...envelope.permissions],
-        expiresAt: envelope.expiresAt
-      };
+      sessionState.viewerAuthorization = applyViewerAuthorizationRevocationFloor(
+        {
+          authorizationId: envelope.authorizationId,
+          authorityPeerId: envelope.actorPeerId,
+          remotePeerId: envelope.actorPeerId,
+          status: envelope.status,
+          visibleToHost: envelope.visibleToHost,
+          permissions: [...envelope.permissions],
+          expiresAt: envelope.expiresAt
+        },
+        viewerRevokedPermissionsForAuthorization(
+          sessionState.viewerAuthorization,
+          envelope.authorizationId,
+          envelope.actorPeerId
+        )
+      );
       return;
     case "permission-revoked":
       updateViewerAuthorizationAfterPermissionRevoke(
@@ -880,11 +895,52 @@ function removeViewerAuthorizationPermission(
   permission: Permission
 ): RuntimeAuthorizationSnapshot {
   const permissions = snapshot.permissions.filter((existing) => existing !== permission);
+  const revokedPermissions = snapshot.revokedPermissions?.includes(permission)
+    ? [...snapshot.revokedPermissions]
+    : [...(snapshot.revokedPermissions ?? []), permission];
 
   return {
     ...snapshot,
     permissions,
+    revokedPermissions,
     status: permissions.length === 0 ? "revoked" : snapshot.status
+  };
+}
+
+function viewerRevokedPermissionsForAuthorization(
+  snapshot: RuntimeAuthorizationSnapshot | undefined,
+  authorizationId: string,
+  authorityPeerId: string
+): Permission[] {
+  if (!isBoundViewerAuthorizationAuthority(snapshot, authorizationId, authorityPeerId)) {
+    return [];
+  }
+
+  return [...(snapshot.revokedPermissions ?? [])];
+}
+
+function applyViewerAuthorizationRevocationFloor(
+  snapshot: RuntimeAuthorizationSnapshot,
+  revokedPermissions: Permission[]
+): RuntimeAuthorizationSnapshot {
+  if (revokedPermissions.length === 0) {
+    return snapshot;
+  }
+
+  const permissions = snapshot.permissions.filter(
+    (permission) => !revokedPermissions.includes(permission)
+  );
+  const removedByFloor = permissions.length !== snapshot.permissions.length;
+  const status =
+    removedByFloor && permissions.length === 0 && !isTerminalAuthorizationStatus(snapshot.status)
+      ? "revoked"
+      : snapshot.status;
+
+  return {
+    ...snapshot,
+    permissions,
+    revokedPermissions: [...revokedPermissions],
+    status
   };
 }
 

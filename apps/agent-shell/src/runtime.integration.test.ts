@@ -5765,6 +5765,435 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("keeps viewer signal blocked when stale active state follows a partial revoke control", async () => {
+    const revocationFloorServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "relay-ready",
+          peerId: "viewer-1",
+          roomSize: 2
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_floor_control",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view", "input:pointer"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_floor_control",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view", "input:pointer"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-control",
+          authorizationId: "authz_floor_control",
+          actorPeerId: "host-1",
+          action: "revoke-permission",
+          permission: "screen:view",
+          reason: "private floor control reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_floor_control",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view", "input:pointer"],
+          expiresAt
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        revocationFloorServer.url,
+        ["screen:view", "input:pointer"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForMessage(
+        viewerEvents,
+        (message) =>
+          message.type === "session-control" &&
+          message.authorizationId === "authz_floor_control" &&
+          message.action === "revoke-permission"
+      );
+      const activeStates = await waitForReceivedMessageCount(
+        viewerEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.authorizationId === "authz_floor_control" &&
+          message.status === "active",
+        2
+      );
+
+      expect(activeStates[1]).toMatchObject({
+        type: "session-authorization-state",
+        authorizationId: "authz_floor_control",
+        actorPeerId: "host-1",
+        status: "active",
+        visibleToHost: true,
+        permissions: ["screen:view", "input:pointer"]
+      });
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-stale-revoke-control-state",
+        viewerLogs
+      );
+      expect(JSON.stringify(viewerEvents)).not.toContain("revokedPermissions");
+      expect(JSON.stringify(viewerEvents)).not.toContain("private floor control reason");
+      expect(viewerLogs.join("\n")).not.toContain("private floor control reason");
+      expect(viewerLogs.join("\n")).not.toContain("raw-token");
+    } finally {
+      await viewer?.stop();
+      await revocationFloorServer.stop();
+    }
+  });
+
+  it("keeps viewer signal blocked when stale active state follows a revoke confirmation", async () => {
+    const confirmationFloorServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "relay-ready",
+          peerId: "viewer-1",
+          roomSize: 2
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_floor_confirmation",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view", "input:pointer"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_floor_confirmation",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view", "input:pointer"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "permission-revoked",
+          authorizationId: "authz_floor_confirmation",
+          actorPeerId: "host-1",
+          revokedPermission: "screen:view",
+          reason: "private floor confirmation reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_floor_confirmation",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view", "input:pointer"],
+          expiresAt
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        confirmationFloorServer.url,
+        ["screen:view", "input:pointer"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForMessage(
+        viewerEvents,
+        (message) =>
+          message.type === "permission-revoked" &&
+          message.authorizationId === "authz_floor_confirmation"
+      );
+      await waitForReceivedMessageCount(
+        viewerEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.authorizationId === "authz_floor_confirmation" &&
+          message.status === "active",
+        2
+      );
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-stale-revoke-confirmation-state",
+        viewerLogs
+      );
+      expect(JSON.stringify(viewerEvents)).not.toContain("revokedPermissions");
+      expect(JSON.stringify(viewerEvents)).not.toContain("private floor confirmation reason");
+      expect(viewerLogs.join("\n")).not.toContain("private floor confirmation reason");
+      expect(viewerLogs.join("\n")).not.toContain("raw-token");
+    } finally {
+      await viewer?.stop();
+      await confirmationFloorServer.stop();
+    }
+  });
+
+  it("preserves the revocation floor for same-id decisions and resets it for a new authorization id", async () => {
+    const resetFloorServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "relay-ready",
+          peerId: "viewer-1",
+          roomSize: 2
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_floor_same",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view", "input:pointer"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_floor_same",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view", "input:pointer"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "permission-revoked",
+          authorizationId: "authz_floor_same",
+          actorPeerId: "host-1",
+          revokedPermission: "screen:view",
+          reason: "private same-id reset reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_floor_same",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view", "input:pointer"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_floor_same",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view", "input:pointer"],
+          expiresAt
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        resetFloorServer.url,
+        ["screen:view", "input:pointer"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForReceivedMessageCount(
+        viewerEvents,
+        (message) =>
+          message.type === "session-authorization-decision" &&
+          message.authorizationId === "authz_floor_same",
+        2
+      );
+      await waitForReceivedMessageCount(
+        viewerEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.authorizationId === "authz_floor_same" &&
+          message.status === "active",
+        2
+      );
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-same-id-decision-reset",
+        viewerLogs
+      );
+      expect(JSON.stringify(viewerEvents)).not.toContain("revokedPermissions");
+      expect(JSON.stringify(viewerEvents)).not.toContain("private same-id reset reason");
+      expect(viewerLogs.join("\n")).not.toContain("private same-id reset reason");
+      expect(viewerLogs.join("\n")).not.toContain("raw-token");
+    } finally {
+      await viewer?.stop();
+      await resetFloorServer.stop();
+    }
+
+    const newAuthorizationServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "relay-ready",
+          peerId: "viewer-1",
+          roomSize: 2
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_floor_old",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view", "input:pointer"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_floor_old",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view", "input:pointer"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "permission-revoked",
+          authorizationId: "authz_floor_old",
+          actorPeerId: "host-1",
+          revokedPermission: "screen:view",
+          reason: "private new-id reset reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_floor_new",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_floor_new",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt
+        }
+      ];
+    });
+    const newViewerEvents: AgentShellEvent[] = [];
+    const newViewerLogs: string[] = [];
+    let newViewer: AgentShellRuntime | undefined;
+
+    try {
+      newViewer = await startViewer(
+        newAuthorizationServer.url,
+        ["screen:view", "input:pointer"],
+        newViewerEvents,
+        captureLogger(newViewerLogs)
+      );
+
+      await waitForMessage(
+        newViewerEvents,
+        (message) =>
+          message.type === "permission-revoked" &&
+          message.authorizationId === "authz_floor_old"
+      );
+      await waitForMessage(
+        newViewerEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.authorizationId === "authz_floor_new" &&
+          message.status === "active"
+      );
+
+      const signalPayload = {
+        authorizationId: "authz_floor_new",
+        kind: "viewer-offer",
+        safeMarker: "allowed-after-new-authorization-id"
+      };
+      newViewer.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: signalPayload
+      });
+
+      const sentSignal = await waitForSentMessage(
+        newViewerEvents,
+        (message) =>
+          message.type === "signal" &&
+          message.fromPeerId === "viewer-1" &&
+          message.toPeerId === "host-1"
+      );
+
+      expect(sentSignal).toMatchObject({
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(JSON.stringify(signalPayload))
+        }
+      });
+      expect(JSON.stringify(newViewerEvents)).not.toContain("allowed-after-new-authorization-id");
+      expect(JSON.stringify(newViewerEvents)).not.toContain("revokedPermissions");
+      expect(JSON.stringify(newViewerEvents)).not.toContain("private new-id reset reason");
+      expect(newViewerLogs.join("\n")).not.toContain("private new-id reset reason");
+      expect(newViewerLogs.join("\n")).not.toContain("raw-token");
+    } finally {
+      await newViewer?.stop();
+      await newAuthorizationServer.stop();
+    }
+  });
+
   it("fails closed for viewer signal sends after revoke, pause, termination, or expiration", async () => {
     const scenarios: Array<{
       name: string;
@@ -7764,6 +8193,28 @@ function waitForMessage(
         if (match?.direction === "received") {
           clearInterval(interval);
           resolve(match.message);
+        }
+      }, 5);
+    })
+  );
+}
+
+function waitForReceivedMessageCount(
+  events: AgentShellEvent[],
+  predicate: (message: AgentShellReceivedProtocolEnvelope) => boolean,
+  count: number
+): Promise<AgentShellReceivedProtocolEnvelope[]> {
+  return withTimeout(
+    new Promise((resolve) => {
+      const interval = setInterval(() => {
+        const matches = events.filter(
+          (event): event is Extract<AgentShellEvent, { direction: "received" }> =>
+            event.direction === "received" && predicate(event.message)
+        );
+
+        if (matches.length >= count) {
+          clearInterval(interval);
+          resolve(matches.slice(0, count).map((event) => event.message));
         }
       }, 5);
     })
