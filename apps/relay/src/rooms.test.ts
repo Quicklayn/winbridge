@@ -15,6 +15,7 @@ function peer(overrides: Partial<RelayPeer>): RelayPeer {
     sessionId: "session-demo",
     deviceId: "dev_host_1",
     send: () => true,
+    close: () => undefined,
     ...overrides
   };
 }
@@ -167,6 +168,53 @@ describe("RoomRegistry", () => {
       )
     ).toMatchObject({
       ticketConsumed: true
+    });
+  });
+
+  it("clears stale viewer membership when the host leaves a paired room", () => {
+    const rooms = new RoomRegistry();
+
+    rooms.join(joinPeer({ peerId: "host-1", role: "host" }));
+    rooms.join(joinPeer({ peerId: "viewer-1", role: "viewer", deviceId: "dev_viewer_1" }));
+
+    const leaveResult = rooms.leave("session-demo", "host-1");
+
+    expect(leaveResult.remainingPeers.map((existing) => existing.peerId)).toEqual(["viewer-1"]);
+    expect(leaveResult.removedPeers.map((existing) => existing.peerId)).toEqual(["viewer-1"]);
+    expect(rooms.size("session-demo")).toBe(0);
+    expect(rooms.hasPeer("session-demo", "viewer-1")).toBe(false);
+
+    expect(
+      rooms.join(joinPeer({ peerId: "host-2", role: "host", pairingCode: "999-000" }))
+    ).toMatchObject({
+      ticketCreated: true,
+      ticketConsumed: false,
+      ticketRemainingUses: 1
+    });
+    expect(rooms.size("session-demo")).toBe(1);
+    expect(rooms.peers("session-demo").map((existing) => existing.peerId)).toEqual(["host-2"]);
+    expect(() =>
+      rooms.join(
+        joinPeer({
+          peerId: "viewer-1",
+          role: "viewer",
+          deviceId: "dev_viewer_1",
+          pairingCode: "123-456"
+        })
+      )
+    ).toThrow("Pairing code mismatch");
+    expect(
+      rooms.join(
+        joinPeer({
+          peerId: "viewer-1",
+          role: "viewer",
+          deviceId: "dev_viewer_1",
+          pairingCode: "999-000"
+        })
+      )
+    ).toMatchObject({
+      ticketConsumed: true,
+      ticketRemainingUses: 0
     });
   });
 

@@ -43,6 +43,8 @@ export const MAX_RELAY_SHARED_TOKEN_BYTES = 1024;
 const RELAY_MESSAGE_TOO_LARGE_REASON = `Relay message exceeds ${MAX_RELAY_MESSAGE_BYTES} bytes`;
 const GENERIC_RELAY_REJECTION_REASON = "Invalid relay message";
 const RELAY_TOKEN_NOT_CONFIGURED_CLOSE_REASON = "Relay token is not configured";
+const ORPHANED_VIEWER_CLOSE_REASON = "Host disconnected";
+const STALE_REGISTERED_PEER_REASON = "Registered peer is no longer in room";
 const RELAY_SHARED_TOKEN_ERROR_MESSAGE =
   "WINBRIDGE_RELAY_SHARED_TOKEN must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
 const SAFE_RELAY_REJECTION_REASONS = new Set([
@@ -61,6 +63,7 @@ const SAFE_RELAY_REJECTION_REASONS = new Set([
   "Message role does not match registered peer",
   "No recipient peer is registered",
   "Message target does not match registered recipient",
+  STALE_REGISTERED_PEER_REASON,
   "Peer disconnect notices are relay-originated",
   "Signal payload must not be empty",
   "Signal payload must be 16384 bytes or less",
@@ -178,14 +181,23 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
         if (!registeredPeer) {
           let joinResult: RelayJoinResult | undefined;
           try {
-            const registeredJoin = registerFirstMessage(rooms, envelope, (payload) => {
-              if (socket.readyState !== WebSocket.OPEN) {
-                return false;
-              }
+            const registeredJoin = registerFirstMessage(
+              rooms,
+              envelope,
+              (payload) => {
+                if (socket.readyState !== WebSocket.OPEN) {
+                  return false;
+                }
 
-              socket.send(payload);
-              return true;
-            });
+                socket.send(payload);
+                return true;
+              },
+              (code, reason) => {
+                if (socket.readyState === WebSocket.OPEN) {
+                  socket.close(code, reason);
+                }
+              }
+            );
             registeredPeer = registeredJoin.peer;
             joinResult = registeredJoin.result;
           } catch (error) {
@@ -241,6 +253,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
           throw new Error("Message session does not match registered peer");
         }
 
+        assertRegisteredPeerStillInRoom(rooms, registeredPeer);
         assertRegisteredPeerCanForward(envelope, registeredPeer);
 
         const recipientPeers = rooms.peers(registeredPeer.sessionId, registeredPeer.peerId);
@@ -310,7 +323,6 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
     socket.on("close", () => {
       stopHeartbeat();
       if (registeredPeer) {
-        const remainingPeers = rooms.peers(registeredPeer.sessionId, registeredPeer.peerId);
         const reasonCode = disconnectReasonCode;
         const notification = encodeProtocolEnvelope({
           ...createMessageBase(registeredPeer.sessionId),
@@ -320,7 +332,8 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
           reasonCode
         });
 
-        rooms.leave(registeredPeer.sessionId, registeredPeer.peerId);
+        const leaveResult = rooms.leave(registeredPeer.sessionId, registeredPeer.peerId);
+        const { remainingPeers, removedPeers } = leaveResult;
 
         let notificationSentCount = 0;
         let notificationFailedCount = 0;
@@ -337,6 +350,10 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
           }
         }
 
+        for (const peer of removedPeers) {
+          peer.close(1000, ORPHANED_VIEWER_CLOSE_REASON);
+        }
+
         writeRelayAudit(auditSink, {
           action: "relay.peer.disconnect",
           outcome: "accepted",
@@ -347,7 +364,8 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
             reasonCode,
             notificationTargetCount: remainingPeers.length,
             notificationSentCount,
-            notificationFailedCount
+            notificationFailedCount,
+            orphanedPeerDisconnectCount: removedPeers.length
           }
         });
       }
@@ -536,7 +554,8 @@ function startPeerHeartbeat(options: {
 function registerFirstMessage(
   rooms: RoomRegistry,
   envelope: ProtocolEnvelope,
-  send: (data: string) => boolean
+  send: (data: string) => boolean,
+  close: (code: number, reason: string) => void
 ): { peer: RelayPeer; result: RelayJoinResult } {
   const join = JoinSessionMessageSchema.parse(envelope);
   const peer = {
@@ -545,7 +564,8 @@ function registerFirstMessage(
     sessionId: join.sessionId,
     deviceId: join.deviceIdentity?.deviceId ?? developmentDeviceIdForPeer(join.peerId),
     pairingCode: join.pairingCode,
-    send
+    send,
+    close
   };
 
   const result = rooms.join(peer);
@@ -556,6 +576,12 @@ function registerFirstMessage(
   }
 
   return { peer: registeredPeer, result };
+}
+
+function assertRegisteredPeerStillInRoom(rooms: RoomRegistry, peer: RelayPeer): void {
+  if (!rooms.hasPeer(peer.sessionId, peer.peerId)) {
+    throw new Error(STALE_REGISTERED_PEER_REASON);
+  }
 }
 
 function assertRegisteredPeerCanForward(envelope: ProtocolEnvelope, peer: RelayPeer): void {

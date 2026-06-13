@@ -17,7 +17,7 @@ import {
   type RelayRuntime,
   type RelayRuntimeOptions
 } from "./server.js";
-import { SAME_ROLE_RELAY_PEER_JOIN_REASON } from "./rooms.js";
+import { RoomRegistry, SAME_ROLE_RELAY_PEER_JOIN_REASON } from "./rooms.js";
 
 const runtimes: RelayRuntime[] = [];
 const silentLogger = {
@@ -25,6 +25,20 @@ const silentLogger = {
   warn: () => undefined
 };
 const INHERITED_TO_JSON_PRIVATE_MARKER = "inherited-to-json-private-marker";
+
+class RaceWindowRoomRegistry extends RoomRegistry {
+  override leave(sessionId: string, peerId: string) {
+    const result = super.leave(sessionId, peerId);
+
+    return {
+      remainingPeers: result.remainingPeers,
+      removedPeers: result.removedPeers.map((peer) => ({
+        ...peer,
+        close: () => undefined
+      }))
+    };
+  }
+}
 
 afterEach(async () => {
   await Promise.all(runtimes.splice(0).map((runtime) => runtime.stop()));
@@ -791,6 +805,169 @@ describe("relay runtime integration", () => {
       peerId: "viewer-1",
       roomSize: 2
     });
+  });
+
+  it("disconnects stale viewers before replacement host pairing can reuse them", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    const viewerDisconnectNotice = waitForProtocolMessage(
+      viewer,
+      (message) => message.type === "peer-disconnected"
+    );
+    const viewerClosed = waitForClose(viewer);
+
+    host.close();
+
+    expect(await viewerDisconnectNotice).toMatchObject({
+      type: "peer-disconnected",
+      sessionId: "session-demo",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+    expect(await viewerClosed).toEqual({ code: 1000, reason: "Host disconnected" });
+
+    const disconnect = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.peer.disconnect" && record.actor.id.endsWith(":host-1")
+    );
+    expect(disconnect).toMatchObject({
+      action: "relay.peer.disconnect",
+      outcome: "accepted",
+      sessionId: "session-demo",
+      detail: {
+        role: "host",
+        reasonCode: "peer-closed",
+        notificationTargetCount: 1,
+        notificationSentCount: 1,
+        notificationFailedCount: 0,
+        orphanedPeerDisconnectCount: 1
+      }
+    });
+
+    const replacementHost = await openSocket(runtime.url());
+    replacementHost.send(joinMessage("session-demo", "host-1", "host", "999-000"));
+    expect(await waitForProtocolMessage(replacementHost, (message) => message.type === "relay-ready")).toMatchObject({
+      type: "relay-ready",
+      peerId: "host-1",
+      roomSize: 1
+    });
+
+    replacementHost.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: { authorizationId: "authz-demo", kind: "stale-viewer-probe" }
+      })
+    );
+    expect(await waitForJsonMessage(replacementHost, (message) => message.type === "relay-error")).toEqual({
+      type: "relay-error",
+      reason: "No recipient peer is registered"
+    });
+
+    const replacementViewer = await openSocket(runtime.url());
+    replacementViewer.send(joinMessage("session-demo", "viewer-1", "viewer", "999-000"));
+    expect(await waitForProtocolMessage(replacementViewer, (message) => message.type === "relay-ready")).toMatchObject({
+      type: "relay-ready",
+      peerId: "viewer-1",
+      roomSize: 2
+    });
+
+    replacementHost.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: { authorizationId: "authz-demo", kind: "fresh-viewer-after-rejoin" }
+      })
+    );
+    expect(
+      await waitForProtocolMessage(replacementViewer, (message) => message.type === "signal")
+    ).toMatchObject({
+      type: "signal",
+      fromPeerId: "host-1",
+      payload: { authorizationId: "authz-demo", kind: "fresh-viewer-after-rejoin" }
+    });
+    expect(JSON.stringify(auditSink.records())).not.toContain("123-456");
+    expect(JSON.stringify(auditSink.records())).not.toContain("999-000");
+  });
+
+  it("rejects stale viewer sends after host disconnect cleanup before transport close completes", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink, rooms: new RaceWindowRoomRegistry() });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    const viewerDisconnectNotice = waitForProtocolMessage(
+      viewer,
+      (message) => message.type === "peer-disconnected"
+    );
+
+    host.close();
+
+    expect(await viewerDisconnectNotice).toMatchObject({
+      type: "peer-disconnected",
+      sessionId: "session-demo",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+    await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.disconnect" &&
+        record.actor.id.endsWith(":host-1") &&
+        record.detail.orphanedPeerDisconnectCount === 1
+    );
+
+    const replacementHost = await openSocket(runtime.url());
+    replacementHost.send(joinMessage("session-demo", "host-1", "host", "999-000"));
+    expect(await waitForProtocolMessage(replacementHost, (message) => message.type === "relay-ready")).toMatchObject({
+      type: "relay-ready",
+      peerId: "host-1",
+      roomSize: 1
+    });
+
+    viewer.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: { authorizationId: "authz-demo", kind: "stale-viewer-after-cleanup" }
+      })
+    );
+    expect(await waitForJsonMessage(viewer, (message) => message.type === "relay-error")).toEqual({
+      type: "relay-error",
+      reason: "Registered peer is no longer in room"
+    });
+    await expectNoProtocolMessage(replacementHost, (message) => message.type === "signal");
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.rejected" &&
+        record.reason === "Registered peer is no longer in room"
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      reason: "Registered peer is no longer in room",
+      actor: {
+        id: "development-relay:viewer-1"
+      },
+      detail: {
+        registered: true
+      }
+    });
+    expect(JSON.stringify(rejected)).not.toContain("123-456");
+    expect(JSON.stringify(rejected)).not.toContain("999-000");
+    expect(JSON.stringify(rejected)).not.toContain("stale-viewer-after-cleanup");
   });
 
   it("rejects unsafe signal payloads before forwarding", async () => {

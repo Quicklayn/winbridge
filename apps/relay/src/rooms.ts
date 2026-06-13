@@ -13,6 +13,7 @@ export type RelayPeer = {
   sessionId: string;
   deviceId: string;
   send: (data: string) => boolean;
+  close: (code: number, reason: string) => void;
 };
 
 export type RelayPeerJoin = RelayPeer & {
@@ -31,6 +32,11 @@ export type RelayJoinResult = {
   ticketConsumed: boolean;
   ticketRemainingUses?: number;
   pairedDevice?: PairedDevice;
+};
+
+export type RelayLeaveResult = {
+  remainingPeers: RelayPeer[];
+  removedPeers: RelayPeer[];
 };
 
 type RelayRoom = {
@@ -122,7 +128,8 @@ export class RoomRegistry {
       role: peer.role,
       sessionId: peer.sessionId,
       deviceId: peer.deviceId,
-      send: peer.send
+      send: peer.send,
+      close: peer.close
     };
     room.peers.set(peer.peerId, registeredPeer);
     this.rooms.set(peer.sessionId, room);
@@ -136,17 +143,33 @@ export class RoomRegistry {
     };
   }
 
-  leave(sessionId: string, peerId: string): void {
+  leave(sessionId: string, peerId: string): RelayLeaveResult {
     const room = this.rooms.get(sessionId);
     if (!room) {
-      return;
+      return { remainingPeers: [], removedPeers: [] };
     }
 
+    const leavingPeer = room.peers.get(peerId);
+    if (!leavingPeer) {
+      return { remainingPeers: [...room.peers.values()], removedPeers: [] };
+    }
+
+    const remainingPeers = [...room.peers.values()].filter((peer) => peer.peerId !== peerId);
+    const removedPeers: RelayPeer[] = [];
     room.peers.delete(peerId);
+
+    if (leavingPeer.role === "host") {
+      for (const peer of remainingPeers) {
+        room.peers.delete(peer.peerId);
+        removedPeers.push(peer);
+      }
+    }
 
     if (room.peers.size === 0) {
       this.rooms.delete(sessionId);
     }
+
+    return { remainingPeers, removedPeers };
   }
 
   peers(sessionId: string, exceptPeerId?: string): RelayPeer[] {
@@ -161,6 +184,10 @@ export class RoomRegistry {
 
   size(sessionId: string): number {
     return this.rooms.get(sessionId)?.peers.size ?? 0;
+  }
+
+  hasPeer(sessionId: string, peerId: string): boolean {
+    return this.rooms.get(sessionId)?.peers.has(peerId) ?? false;
   }
 }
 
