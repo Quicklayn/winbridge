@@ -106,6 +106,7 @@ Provides a CLI exerciser for protocol and relay behavior. It intentionally does 
 
 The shell has a managed runtime shared by CLI and tests. Development consent workflow behavior:
 
+- The runtime rejects duplicate active `start()` calls before opening another WebSocket or sending another join, while allowing explicit restart after the previous connection is fully closed or stopped.
 - The runtime sends `join-session` on socket open and defers `hello` until the relay reports a two-peer room or a peer `hello` is received.
 - Viewer mode can send `session-authorization-request` when explicit `--request` permissions are provided and the relay has reported a paired two-peer room.
 - Host mode does nothing by default when a request is received.

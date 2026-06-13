@@ -9469,9 +9469,67 @@ describe("agent shell consent workflow", () => {
         role: "host",
         capabilities: ["agent-shell:restart"]
       });
+
+      await host.stop();
+      await host.start();
+      await waitForReceivedMessageCount(
+        hostEvents,
+        (message) => message.type === "relay-ready" && message.peerId === "host-1",
+        3
+      );
+      expect(
+        hostEvents.filter(
+          (event) => event.direction === "sent" && event.message.type === "join-session"
+        )
+      ).toHaveLength(3);
     } finally {
       await host?.stop();
       await socketRestartServer.stop();
+    }
+  });
+
+  it("rejects duplicate active runtime start without opening a second transport", async () => {
+    const startServer = await startConnectionCountingServer();
+    const hostEvents: AgentShellEvent[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: startServer.url,
+        logger: silentLogger,
+        onEvent: (event) => hostEvents.push(event)
+      }));
+
+      const firstStart = host.start();
+      await expect(host.start()).rejects.toThrow("Agent shell runtime is already started");
+      await firstStart;
+      await waitForSentMessage(hostEvents, (message) => message.type === "join-session");
+      await delay(50);
+
+      expect(startServer.connectionCount()).toBe(1);
+      expect(
+        hostEvents.filter(
+          (event) => event.direction === "sent" && event.message.type === "join-session"
+        )
+      ).toHaveLength(1);
+      expect(
+        hostEvents.some(
+          (event) =>
+            event.direction === "sent" &&
+            (event.message.type === "hello" ||
+              event.message.type === "session-authorization-request" ||
+              event.message.type === "session-authorization-decision" ||
+              event.message.type === "session-authorization-state" ||
+              event.message.type === "session-control" ||
+              event.message.type === "permission-revoked" ||
+              event.message.type === "audit-event" ||
+              event.message.type === "signal")
+        )
+      ).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+    } finally {
+      await host?.stop();
+      await startServer.stop();
     }
   });
 
@@ -12018,6 +12076,44 @@ async function startFirstSocketCloseThenReadyServer(): Promise<{
 
   return {
     url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        for (const client of wss.clients) {
+          client.close();
+        }
+
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startConnectionCountingServer(): Promise<{
+  url: string;
+  connectionCount(): number;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  let connections = 0;
+  wss.on("connection", () => {
+    connections += 1;
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Connection counting test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    connectionCount: () => connections,
     stop: () =>
       new Promise<void>((resolve, reject) => {
         for (const client of wss.clients) {

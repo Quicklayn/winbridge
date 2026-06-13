@@ -223,6 +223,7 @@ const RUNTIME_VIEWER_SIGNAL_PROBE_ERROR_MESSAGE =
 const RUNTIME_HOST_SIGNAL_PROBE_ACK_ERROR_MESSAGE =
   "Runtime host signal probe acknowledgement is only valid for host runtimes";
 const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
+const AGENT_SHELL_RUNTIME_ALREADY_STARTED_ERROR_MESSAGE = "Agent shell runtime is already started";
 const AGENT_SHELL_LOCAL_PEER_DISCONNECTED_ERROR_MESSAGE = "Agent shell local peer is disconnected";
 const AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE = "Agent shell peer is disconnected";
 const AGENT_SHELL_LOCAL_DISCONNECT_ROLE_ERROR_MESSAGE =
@@ -324,6 +325,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
 
   const logger = options.logger ?? console;
   let socket: WebSocket | undefined;
+  let lifecycleSocket: WebSocket | undefined;
   let suppressNextViewerSocketCloseInactiveCause = false;
   const timers = new Set<ReturnType<typeof setTimeout>>();
   const sessionState: AgentShellSessionState = {
@@ -377,16 +379,22 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
 
   return {
     async start() {
+      assertRuntimeStartAllowed(lifecycleSocket);
       resetConnectionScopedSessionState(sessionState);
-      socket = new WebSocket(relayUrl);
+      const runtimeSocket = new WebSocket(relayUrl);
+      socket = runtimeSocket;
+      lifecycleSocket = runtimeSocket;
 
-      socket.on("message", (data) => {
-        void handleMessage(rawDataToInboundMessage(data), socket, options, sessionState, scheduleTimer).catch(
+      runtimeSocket.on("message", (data) => {
+        void handleMessage(rawDataToInboundMessage(data), runtimeSocket, options, sessionState, scheduleTimer).catch(
           (error) => reportRuntimeError(options, error)
         );
       });
 
-      socket.on("close", (code, reason) => {
+      runtimeSocket.on("close", (code, reason) => {
+        if (lifecycleSocket === runtimeSocket) {
+          lifecycleSocket = undefined;
+        }
         const reasonBytes = closeReasonByteLength(reason);
         const suppressViewerSocketClosedStatus = suppressNextViewerSocketCloseInactiveCause;
         suppressNextViewerSocketCloseInactiveCause = false;
@@ -399,12 +407,12 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         logger.log(`[winbridge-agent] disconnected code=${code} reasonBytes=${reasonBytes}`);
       });
 
-      socket.on("error", (error) => {
+      runtimeSocket.on("error", (error) => {
         logger.error(formatAgentShellErrorLog("socket", error));
       });
 
       await new Promise<void>((resolve, reject) => {
-        socket?.once("open", () => {
+        runtimeSocket.once("open", () => {
           logger.log(`[winbridge-agent] ${options.role} connected to ${relayUrl.origin}`);
           logger.log("[winbridge-agent] Native screen capture and remote input are not implemented.");
           logger.log("[winbridge-agent] This shell only exercises the consent/session protocol.");
@@ -415,7 +423,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
             deviceId: options.deviceId
           });
 
-          sendProtocol(socket, options, {
+          sendProtocol(runtimeSocket, options, {
             ...createMessageBase(options.sessionId),
             type: "join-session",
             peerId: options.peerId,
@@ -426,7 +434,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
 
           resolve();
         });
-        socket?.once("error", reject);
+        runtimeSocket.once("error", reject);
       });
     },
 
@@ -609,6 +617,12 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       sendPublicRuntimeMessage(socket, options, sessionState, message);
     }
   };
+}
+
+function assertRuntimeStartAllowed(lifecycleSocket: WebSocket | undefined): void {
+  if (lifecycleSocket && lifecycleSocket.readyState !== WebSocket.CLOSED) {
+    throw new Error(AGENT_SHELL_RUNTIME_ALREADY_STARTED_ERROR_MESSAGE);
+  }
 }
 
 function closeReasonByteLength(reason: Buffer | string): number {
