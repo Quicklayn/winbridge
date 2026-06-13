@@ -3,6 +3,7 @@ import { parseArgs } from "./args.js";
 import { reportAgentShellCliError } from "./cli-diagnostics.js";
 import { createInteractiveHostDecisionProvider } from "./host-consent-prompt.js";
 import { startInteractiveHostControlPrompt, type HostControlPromptHandle } from "./host-control-prompt.js";
+import { scheduleHostStatusPrint, type HostStatusPrintHandle } from "./host-status.js";
 import { createAgentShellRuntime } from "./runtime.js";
 import {
   startInteractiveViewerControlPrompt,
@@ -14,6 +15,7 @@ import { scheduleViewerStatusPrint, type ViewerStatusPrintHandle } from "./viewe
 try {
   const args = parseArgs(process.argv.slice(2));
   let hostControlPrompt: HostControlPromptHandle | undefined;
+  let hostStatusPrint: HostStatusPrintHandle | undefined;
   let viewerControlPrompt: ViewerControlPromptHandle | undefined;
   let viewerLocalDisconnect: ViewerLocalDisconnectHandle | undefined;
   let viewerStatusPrint: ViewerStatusPrintHandle | undefined;
@@ -27,6 +29,7 @@ try {
 
   const shutdown = async () => {
     hostControlPrompt?.stop();
+    hostStatusPrint?.stop();
     viewerControlPrompt?.stop();
     viewerLocalDisconnect?.stop();
     viewerStatusPrint?.stop();
@@ -56,6 +59,10 @@ try {
     .then(() => {
       if (args.hostControlPrompt) {
         hostControlPrompt = startInteractiveHostControlPrompt(runtime);
+      }
+
+      if (args.hostStatusAfterMs !== undefined) {
+        hostStatusPrint = scheduleHostStatusPrint(runtime, args.hostStatusAfterMs);
       }
 
       if (args.viewerControlPrompt) {

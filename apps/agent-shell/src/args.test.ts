@@ -40,6 +40,7 @@ describe("agent shell arguments", () => {
       hostDecision: "none",
       hostConsentPrompt: false,
       hostControlPrompt: false,
+      hostStatusAfterMs: undefined,
       viewerControlPrompt: false,
       hostSignalProbeAck: false,
       visibleToHost: false
@@ -72,6 +73,44 @@ describe("agent shell arguments", () => {
   it("parses interactive host control prompt mode for host runtimes", () => {
     expect(parseArgs(["host", "--host-control-prompt", "true"], {}, 42).hostControlPrompt).toBe(true);
     expect(parseArgs(["host", "--host-control-prompt", "false"], {}, 42).hostControlPrompt).toBe(false);
+  });
+
+  it("parses host status print mode for host runtimes without requested permissions", () => {
+    expect(parseArgs(["host", "--host-status-after-ms", "0"], {}, 42).hostStatusAfterMs).toBe(
+      0
+    );
+    expect(
+      parseArgs(["host", "--host-status-after-ms", "2147483647"], {}, 42)
+        .hostStatusAfterMs
+    ).toBe(2147483647);
+  });
+
+  it("allows host status print with ordinary host workflow options", () => {
+    const args = parseArgs(
+      [
+        "host",
+        "--host-status-after-ms",
+        "0",
+        "--host-decision",
+        "approve",
+        "--visible-session",
+        "true",
+        "--request",
+        "screen:view",
+        "--pause-after-ms",
+        "1000"
+      ],
+      {},
+      42
+    );
+
+    expect(args).toMatchObject({
+      hostStatusAfterMs: 0,
+      hostDecision: "approve",
+      visibleToHost: true,
+      requestedPermissions: ["screen:view"],
+      hostPauseAfterMs: 1000
+    });
   });
 
   it("parses interactive viewer control prompt mode for viewer runtimes", () => {
@@ -208,6 +247,14 @@ describe("agent shell arguments", () => {
     );
   });
 
+  it("rejects malformed host status delay values", () => {
+    for (const delayMs of ["-1", "1.5", "Infinity", "01", "2147483648"]) {
+      expect(() =>
+        parseArgs(["host", "--host-status-after-ms", delayMs], {}, 42)
+      ).toThrow(AgentShellUsageError);
+    }
+  });
+
   it("rejects malformed interactive viewer control prompt values", () => {
     for (const value of ["yes", "1", "TRUE", "False", ""]) {
       expect(() => parseArgs(["viewer", "--viewer-control-prompt", value], {}, 42)).toThrow(
@@ -278,6 +325,13 @@ describe("agent shell arguments", () => {
         42
       )
     ).toThrow(AgentShellUsageError);
+    expect(() =>
+      parseArgs(
+        ["host", "--host-control-prompt", "true", "--host-status-after-ms", "0"],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
   });
 
   it("rejects interactive viewer control prompt for host runtimes or one-shot viewer helpers", () => {
@@ -330,6 +384,12 @@ describe("agent shell arguments", () => {
 
   it("rejects viewer status print mode for host runtimes", () => {
     expect(() => parseArgs(["host", "--viewer-status-after-ms", "0"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+  });
+
+  it("rejects host status print mode for viewer runtimes", () => {
+    expect(() => parseArgs(["viewer", "--host-status-after-ms", "0"], {}, 42)).toThrow(
       AgentShellUsageError
     );
   });
