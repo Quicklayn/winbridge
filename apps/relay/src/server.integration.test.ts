@@ -1,4 +1,4 @@
-import { MemoryAuditSink } from "@winbridge/audit-log";
+import { MemoryAuditSink, type AuditSink } from "@winbridge/audit-log";
 import {
   type AuditRecord,
   createMessageBase,
@@ -64,6 +64,99 @@ describe("relay runtime integration", () => {
     runtimes.push(runtime);
 
     expect(runtime.url()).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+  });
+
+  it("audits development-mode startup only after successful listener bind", async () => {
+    const auditSink = new MemoryAuditSink();
+    const logger = createMemoryLogger();
+    const runtime = createRelayRuntime({
+      port: 0,
+      auditSink,
+      heartbeat: false,
+      logger
+    });
+
+    await runtime.start();
+    runtimes.push(runtime);
+
+    expect(runtime.url()).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+    expect(auditSink.records().filter((record) => record.action === "relay.start.development-mode")).toEqual([
+      expect.objectContaining({
+        action: "relay.start.development-mode",
+        outcome: "accepted",
+        detail: {
+          sharedAccessConfigured: false
+        }
+      })
+    ]);
+    expect(logger.warns).toEqual([
+      "[winbridge-relay] Development mode: WINBRIDGE_RELAY_SHARED_TOKEN is not set. Do not use this as production authorization."
+    ]);
+    expect(logger.logs).toEqual([expect.stringMatching(/^\[winbridge-relay\] Listening on ws:\/\/127\.0\.0\.1:\d+$/)]);
+  });
+
+  it("does not write accepted development-mode start audit when listener bind fails", async () => {
+    const firstRuntime = await startRuntime();
+    const occupiedPort = Number.parseInt(new URL(firstRuntime.url()).port, 10);
+    const auditSink = new MemoryAuditSink();
+    const logger = createMemoryLogger();
+    const secondRuntime = createRelayRuntime({
+      port: occupiedPort,
+      auditSink,
+      heartbeat: false,
+      logger
+    });
+
+    await expect(secondRuntime.start()).rejects.toBeInstanceOf(Error);
+
+    expect(auditSink.records().some((record) => record.action === "relay.start.development-mode")).toBe(
+      false
+    );
+    expect(logger.warns).toHaveLength(0);
+    expect(logger.logs).toHaveLength(0);
+  });
+
+  it("closes the listener when development-mode start audit emission fails", async () => {
+    const auditSink: AuditSink = {
+      write: () => {
+        throw new Error("Relay startup audit unavailable");
+      }
+    };
+    const logger = createMemoryLogger();
+    const runtime = createRelayRuntime({
+      port: 0,
+      auditSink,
+      heartbeat: false,
+      logger
+    });
+
+    await expect(runtime.start()).rejects.toThrow("Relay startup audit unavailable");
+
+    expect(runtime.url()).toBe("ws://127.0.0.1:0");
+    expect(logger.logs).toHaveLength(0);
+  });
+
+  it("rejects duplicate active start before development-mode audit or log side effects", async () => {
+    const auditSink = new MemoryAuditSink();
+    const logger = createMemoryLogger();
+    const runtime = createRelayRuntime({
+      port: 0,
+      auditSink,
+      heartbeat: false,
+      logger
+    });
+
+    await runtime.start();
+    runtimes.push(runtime);
+    const auditRecordCount = auditSink.records().length;
+    const warnCount = logger.warns.length;
+    const logCount = logger.logs.length;
+
+    await expect(runtime.start()).rejects.toThrow("Relay runtime is already started");
+
+    expect(auditSink.records()).toHaveLength(auditRecordCount);
+    expect(logger.warns).toHaveLength(warnCount);
+    expect(logger.logs).toHaveLength(logCount);
   });
 
   it("accepts host and viewer joins and forwards protocol messages", async () => {
@@ -4058,6 +4151,22 @@ async function startRuntime(
   await runtime.start();
   runtimes.push(runtime);
   return runtime;
+}
+
+function createMemoryLogger() {
+  const logs: string[] = [];
+  const warns: string[] = [];
+
+  return {
+    logs,
+    warns,
+    log: (message: string) => {
+      logs.push(message);
+    },
+    warn: (message: string) => {
+      warns.push(message);
+    }
+  };
 }
 
 function joinMessage(

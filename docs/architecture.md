@@ -65,6 +65,7 @@ Audit detail redaction preserves non-secret lifecycle identifiers such as `autho
 Provides a development WebSocket relay:
 
 - Starts through a managed runtime with explicit `start()` and `stop()` lifecycle.
+- Emits the accepted development-mode startup audit only after the listener successfully binds, and rejects duplicate active `start()` calls before another listener attempt, warning, or startup audit write.
 - Validates environment-derived and injected local TCP ports before opening the listener.
 - Accepts host/viewer peers.
 - Requires session id, peer id, role, and pairing credential.

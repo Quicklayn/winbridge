@@ -47,6 +47,7 @@ const GENERIC_RELAY_REJECTION_REASON = "Invalid relay message";
 const RELAY_TOKEN_NOT_CONFIGURED_CLOSE_REASON = "Relay token is not configured";
 const ORPHANED_VIEWER_CLOSE_REASON = "Host disconnected";
 const STALE_REGISTERED_PEER_REASON = "Registered peer is no longer in room";
+const RELAY_RUNTIME_ALREADY_STARTED_ERROR_MESSAGE = "Relay runtime is already started";
 const RELAY_SHARED_TOKEN_ERROR_MESSAGE =
   "WINBRIDGE_RELAY_SHARED_TOKEN must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
 const SAFE_RELAY_REJECTION_REASONS = new Set([
@@ -102,6 +103,7 @@ type RelayJoinAuditDeviceIdentity = Pick<
   deviceIdLength?: number;
 };
 type RelayDeniedJoinAuditDeviceIdentity = RelayJoinAuditDeviceIdentity;
+type RelayRuntimeStartState = "idle" | "starting" | "started";
 
 export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRuntime {
   const port = normalizeRelayPort(options.port === undefined ? 8787 : options.port);
@@ -127,6 +129,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
   const logger = options.logger ?? console;
   const server = createServer();
   const wss = new WebSocketServer({ server, maxPayload: MAX_RELAY_MESSAGE_BYTES });
+  let startState: RelayRuntimeStartState = "idle";
 
   wss.on("connection", (socket, request) => {
     const requestUrl = new URL(request.url ?? "/", "ws://localhost");
@@ -391,18 +394,39 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
 
   return {
     async start() {
-      if (!sharedToken) {
-        logger.warn(
-          "[winbridge-relay] Development mode: WINBRIDGE_RELAY_SHARED_TOKEN is not set. Do not use this as production authorization."
-        );
-        writeRelayAudit(auditSink, {
-          action: "relay.start.development-mode",
-          outcome: "accepted",
-          detail: { sharedAccessConfigured: false }
-        });
+      if (startState !== "idle") {
+        throw new Error(RELAY_RUNTIME_ALREADY_STARTED_ERROR_MESSAGE);
       }
 
-      await listen(server, port);
+      startState = "starting";
+      try {
+        await listen(server, wss, port);
+        startState = "started";
+      } catch (error) {
+        startState = "idle";
+        throw error;
+      }
+
+      if (!sharedToken) {
+        try {
+          logger.warn(
+            "[winbridge-relay] Development mode: WINBRIDGE_RELAY_SHARED_TOKEN is not set. Do not use this as production authorization."
+          );
+          writeRelayAudit(auditSink, {
+            action: "relay.start.development-mode",
+            outcome: "accepted",
+            detail: { sharedAccessConfigured: false }
+          });
+        } catch (error) {
+          try {
+            await closeHttpServer(server);
+          } finally {
+            startState = "idle";
+          }
+          throw error;
+        }
+      }
+
       logger.log(`[winbridge-relay] Listening on ${serverUrl(server)}`);
     },
 
@@ -413,6 +437,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
 
       await closeWebSocketServer(wss);
       await closeHttpServer(server);
+      startState = "idle";
     },
 
     url() {
@@ -1025,13 +1050,37 @@ function pairingDeniedAuditDetail(reason: string) {
   };
 }
 
-function listen(server: Server, port: number): Promise<void> {
+function listen(server: Server, wss: WebSocketServer, port: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, "127.0.0.1", () => {
-      server.off("error", reject);
+    let settled = false;
+    const cleanup = () => {
+      server.off("error", onError);
+      server.off("listening", onListening);
+      wss.off("error", onError);
+    };
+    const onError = (error: Error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const onListening = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
       resolve();
-    });
+    };
+
+    server.once("error", onError);
+    server.once("listening", onListening);
+    wss.once("error", onError);
+    server.listen(port, "127.0.0.1");
   });
 }
 
