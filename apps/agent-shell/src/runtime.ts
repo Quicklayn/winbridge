@@ -440,6 +440,11 @@ async function handleMessage(
     return;
   }
 
+  if (isUntrustedPeerDisconnectNotice(envelope, options, sessionState)) {
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
+    return;
+  }
+
   if (isSelfHelloMessage(envelope, options)) {
     reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
@@ -537,6 +542,22 @@ function isSelfDisconnectNotice(
   options: AgentShellRuntimeOptions
 ): boolean {
   return envelope.type === "peer-disconnected" && envelope.peerId === options.peerId;
+}
+
+function isUntrustedPeerDisconnectNotice(
+  envelope: ProtocolEnvelope,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState
+): boolean {
+  if (envelope.type !== "peer-disconnected") {
+    return false;
+  }
+
+  return (
+    envelope.role === options.role ||
+    envelope.peerId !== sessionState.observedPeerId ||
+    envelope.role !== sessionState.observedPeerRole
+  );
 }
 
 function isSelfHelloMessage(

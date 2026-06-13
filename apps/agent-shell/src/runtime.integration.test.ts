@@ -6098,6 +6098,156 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("ignores unbound peer-disconnected notices before recording remote disconnect state", async () => {
+    const unboundDisconnectServer = await startUnboundPeerDisconnectNoticeServer();
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: unboundDisconnectServer.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(
+        hostEvents.some(
+          (event) => event.direction === "received" && event.message.type === "peer-disconnected"
+        )
+      ).toBe(false);
+
+      if (!host) {
+        throw new Error("Host runtime was not started");
+      }
+
+      const sentCountBefore = hostEvents.filter((event) => event.direction === "sent").length;
+      expect(() =>
+        host.send({
+          ...createMessageBase("session-demo"),
+          type: "hello",
+          peerId: "host-1",
+          role: "host",
+          displayName: "Host",
+          capabilities: ["agent-shell:test"]
+        })
+      ).toThrow("Agent shell public send requires an observed recipient peer");
+      expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBefore);
+
+      const serializedRawEvents = JSON.stringify(hostEvents.filter((event) => event.direction === "raw"));
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(logOutput).not.toContain("peer-disconnected");
+      expect(logOutput).not.toContain("viewer-1");
+      expect(logOutput).not.toContain("session-demo");
+      expect(serializedRawEvents).not.toContain("peer-disconnected");
+      expect(serializedRawEvents).not.toContain("viewer-1");
+      expect(serializedRawEvents).not.toContain("session-demo");
+    } finally {
+      await host?.stop();
+      await unboundDisconnectServer.stop();
+    }
+  });
+
+  it("ignores mismatched peer-disconnected notices without suppressing delayed host workflow", async () => {
+    const mismatchedDisconnectServer = await startMismatchedDisconnectAfterHostActiveServer();
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: mismatchedDisconnectServer.url,
+        hostDecision: "approve",
+        hostRevokeAfterMs: 80,
+        hostRevokePermission: "screen:view",
+        logger: captureLogger(hostLogs),
+        visibleToHost: true,
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      await waitForSentMessage(
+        hostEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.status === "active" &&
+          message.visibleToHost
+      );
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(40);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(
+        hostEvents.some(
+          (event) => event.direction === "received" && event.message.type === "peer-disconnected"
+        )
+      ).toBe(false);
+      expect(
+        hostEvents.some(
+          (event) =>
+            event.direction === "indicator" &&
+            event.state === "inactive" &&
+            event.cause === "peer-disconnected"
+        )
+      ).toBe(false);
+
+      const revokeControl = await waitForSentMessage(
+        hostEvents,
+        (message) => message.type === "session-control" && message.action === "revoke-permission"
+      );
+      const revoked = await waitForSentMessage(
+        hostEvents,
+        (message) => message.type === "permission-revoked"
+      );
+
+      expect(revokeControl).toMatchObject({
+        type: "session-control",
+        action: "revoke-permission",
+        permission: "screen:view"
+      });
+      expect(revoked).toMatchObject({
+        type: "permission-revoked",
+        revokedPermission: "screen:view"
+      });
+      expect(
+        hostEvents.some(
+          (event) =>
+            event.direction === "indicator" &&
+            event.state === "inactive" &&
+            event.cause === "revoked"
+        )
+      ).toBe(true);
+
+      const serializedRawEvents = JSON.stringify(hostEvents.filter((event) => event.direction === "raw"));
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(logOutput).not.toContain("peer-disconnected");
+      expect(logOutput).not.toContain("viewer-2");
+      expect(logOutput).not.toContain("session-demo");
+      expect(serializedRawEvents).not.toContain("peer-disconnected");
+      expect(serializedRawEvents).not.toContain("viewer-2");
+      expect(serializedRawEvents).not.toContain("session-demo");
+    } finally {
+      await host?.stop();
+      await mismatchedDisconnectServer.stop();
+    }
+  });
+
   it("suppresses delayed host workflow messages after the viewer disconnects", async () => {
     const hostLogs: string[] = [];
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -8142,6 +8292,128 @@ async function startSelfDisconnectNoticeServer(): Promise<{
     url: `ws://127.0.0.1:${address.port}`,
     stop: () =>
       new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startUnboundPeerDisconnectNoticeServer(): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    socket.once("message", () => {
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "peer-disconnected",
+        peerId: "viewer-1",
+        role: "viewer",
+        reasonCode: "peer-closed"
+      }));
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Unbound disconnect test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startMismatchedDisconnectAfterHostActiveServer(): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    let sentMismatchedDisconnect = false;
+
+    socket.once("message", () => {
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "relay-ready",
+        peerId: "host-1",
+        roomSize: 2
+      }));
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Viewer",
+        capabilities: ["session:visible", "consent:required", "audit:stdout"]
+      }));
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        reason: "Development viewer request"
+      }));
+    });
+
+    socket.on("message", (data) => {
+      if (sentMismatchedDisconnect) {
+        return;
+      }
+
+      const parsed = JSON.parse(data.toString()) as ProtocolEnvelope;
+      if (
+        parsed.type !== "session-authorization-state" ||
+        parsed.status !== "active" ||
+        !parsed.visibleToHost
+      ) {
+        return;
+      }
+
+      sentMismatchedDisconnect = true;
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "peer-disconnected",
+        peerId: "viewer-2",
+        role: "viewer",
+        reasonCode: "peer-closed"
+      }));
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Mismatched disconnect test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        for (const client of wss.clients) {
+          client.close();
+        }
+
         wss.close((error) => {
           if (error) {
             reject(error);
