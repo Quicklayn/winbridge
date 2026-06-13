@@ -567,6 +567,11 @@ describe("relay runtime integration", () => {
     expect(denied).toMatchObject({
       action: "relay.peer.join.denied",
       outcome: "denied",
+      actor: {
+        type: "relay",
+        id: "development-relay:host-1"
+      },
+      sessionId: "session-demo",
       detail: {
         messageType: "join-session",
         pairing: {
@@ -2603,13 +2608,54 @@ describe("relay runtime integration", () => {
     expect(denied).toMatchObject({
       action: "relay.peer.join.denied",
       outcome: "denied",
+      actor: {
+        type: "relay",
+        id: "development-relay:viewer-1"
+      },
+      sessionId: "session-demo",
       detail: {
+        messageType: "join-session",
         pairing: {
           ticketMissing: true
         }
       }
     });
     expect(JSON.stringify(denied)).not.toContain("123-456");
+  });
+
+  it("redacts join-denial attribution when attempted identifiers contain the pairing code", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const viewer = await openSocket(runtime.url());
+
+    viewer.send(joinMessage("123-456", "viewer-123-456", "viewer", "123-456"));
+
+    expect(await waitForJsonMessage(viewer, (message) => message.type === "relay-error")).toMatchObject({
+      type: "relay-error",
+      reason: "Host pairing ticket required"
+    });
+    const denied = auditSink.records().find((record) => record.action === "relay.peer.join.denied");
+    expect(denied).toMatchObject({
+      action: "relay.peer.join.denied",
+      outcome: "denied",
+      actor: {
+        type: "relay",
+        id: "development-relay"
+      },
+      detail: {
+        messageType: "join-session",
+        pairing: {
+          ticketMissing: true
+        },
+        attemptedSessionIdRedacted: true,
+        attemptedSessionIdLength: 7,
+        attemptedPeerIdRedacted: true,
+        attemptedPeerIdLength: 14
+      }
+    });
+    expect(denied?.sessionId).toBeUndefined();
+    expect(JSON.stringify(denied)).not.toContain("123-456");
+    expect(JSON.stringify(denied)).not.toContain("viewer-123-456");
   });
 
   it("rejects a viewer with mismatched pairing credentials", async () => {

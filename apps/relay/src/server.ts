@@ -190,13 +190,17 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
             joinResult = registeredJoin.result;
           } catch (error) {
             const reason = safeRelayRejectionReason(error);
+            const attribution = joinDenialAuditAttribution(envelope);
             writeRelayAudit(auditSink, {
               action: "relay.peer.join.denied",
               outcome: "denied",
+              sessionId: attribution.sessionId,
+              peerId: attribution.peerId,
               reason,
               detail: {
                 messageType: envelope.type,
-                pairing: pairingDeniedAuditDetail(reason)
+                pairing: pairingDeniedAuditDetail(reason),
+                ...attribution.detail
               }
             });
             throw error;
@@ -855,6 +859,40 @@ function developmentDeviceIdForPeer(peerId: string): string {
   const candidate = `dev_${peerId}`;
   const padded = candidate.length >= 8 ? candidate : `${candidate}_peer`;
   return padded.length <= 128 ? padded : padded.slice(0, 128);
+}
+
+function joinDenialAuditAttribution(envelope: ProtocolEnvelope): {
+  sessionId?: string;
+  peerId?: string;
+  detail: AuditDetail;
+} {
+  if (envelope.type !== "join-session") {
+    return { detail: {} };
+  }
+
+  const detail: AuditDetail = {};
+  const sessionIdSafe = isDeniedJoinIdentifierSafe(envelope.sessionId, envelope.pairingCode);
+  const peerIdSafe = isDeniedJoinIdentifierSafe(envelope.peerId, envelope.pairingCode);
+
+  if (!sessionIdSafe) {
+    detail.attemptedSessionIdRedacted = true;
+    detail.attemptedSessionIdLength = envelope.sessionId.length;
+  }
+
+  if (!peerIdSafe) {
+    detail.attemptedPeerIdRedacted = true;
+    detail.attemptedPeerIdLength = envelope.peerId.length;
+  }
+
+  return {
+    sessionId: sessionIdSafe ? envelope.sessionId : undefined,
+    peerId: peerIdSafe ? envelope.peerId : undefined,
+    detail
+  };
+}
+
+function isDeniedJoinIdentifierSafe(identifier: string, pairingCode: string): boolean {
+  return !identifier.includes(pairingCode);
 }
 
 function pairingDeniedAuditDetail(reason: string) {

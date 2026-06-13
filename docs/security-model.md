@@ -165,7 +165,7 @@ The relay stores salted hashed in-memory pairing tickets rather than raw pairing
 
 Pairing ticket salts are not secrets, but they prevent the same development pairing code from producing a stable hash across tickets.
 
-Relay pairing audit details must not include raw pairing codes, shared tokens, credentials, protocol payloads, keystrokes, screenshots, screen contents, or full secrets.
+Relay pairing audit details may include validated attempted session and peer attribution for decoded denied `join-session` attempts. If an attempted identifier contains the submitted pairing code, the relay must omit that raw identifier from top-level attribution and use only bounded redaction metadata instead. Relay pairing audit records must not include raw pairing codes, shared tokens, credentials, protocol payloads, keystrokes, screenshots, screen contents, or full secrets.
 
 This is not production identity. Production pairing needs durable storage, account binding, device trust, revocation, and reconnect semantics specified in a future OpenSpec change.
 
