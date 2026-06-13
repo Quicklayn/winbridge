@@ -8,6 +8,12 @@
 - Specs updated:
 - Tasks completed:
 
+## Risk Scope / Review Gate
+
+- [ ] No high-risk surfaces are touched.
+- [ ] High-risk surfaces are touched: capture, input, authentication, authorization, relay routing, tokens, logging/audit, installer behavior, startup behavior, privilege elevation, background services, or native Windows APIs.
+- Security review link:
+
 ## Safety Checklist
 
 - [ ] Host consent remains explicit.

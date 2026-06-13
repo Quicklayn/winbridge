@@ -24,6 +24,10 @@ permission and bounds each Windows matrix job with a timeout.
 - Confirm Actions are enabled.
 - Add branch protection for `main`.
 - Require CI before merge.
+- Require explicit security review before merging PRs that touch capture, input,
+  authentication, authorization, relay routing, tokens, logging/audit, installer
+  behavior, startup behavior, privilege elevation, background services, or
+  native Windows APIs.
 - Enable private vulnerability reporting if available.
 - Create labels:
   - `area:protocol`
