@@ -21,6 +21,13 @@ const unsafePermissionShapes = [
   "stealth:session",
   "windows-prompt:bypass"
 ] as const;
+const secretBearingReasons = [
+  "Authorization: Bearer raw-protocol-token",
+  "credential: raw-protocol-credential",
+  "pairing code: raw-protocol-pairing-code",
+  "diagnostics dump: raw-protocol-diagnostics",
+  "screen content: raw-protocol-screen"
+] as const;
 
 describe("protocol envelopes", () => {
   it("accepts a valid hello message", () => {
@@ -1397,6 +1404,27 @@ describe("protocol envelopes", () => {
     }
   });
 
+  it("rejects secret-bearing workflow reasons without exposing raw reason text", () => {
+    for (const reason of secretBearingReasons) {
+      for (const message of authorizationReasonMessages(reason)) {
+        for (const operation of [
+          () => parseProtocolEnvelope(message),
+          () => encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+        ]) {
+          try {
+            operation();
+            throw new Error("Expected secret-bearing protocol reason to be rejected");
+          } catch (error) {
+            expect(error).toBeInstanceOf(Error);
+            expect((error as Error).message).toContain("sensitive metadata");
+            expect((error as Error).message).not.toContain("raw-protocol");
+            expect((error as Error).message).not.toContain(reason);
+          }
+        }
+      }
+    }
+  });
+
   it("accepts authorization request messages that omit optional reason", () => {
     const parsed = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
@@ -1409,6 +1437,14 @@ describe("protocol envelopes", () => {
       type: "session-authorization-request",
       requestedPermissions: ["screen:view"]
     });
+  });
+
+  it("accepts safe non-secret workflow reasons", () => {
+    for (const message of authorizationReasonMessages("Host denied support request")) {
+      expect(parseProtocolEnvelope(message)).toMatchObject({
+        reason: "Host denied support request"
+      });
+    }
   });
 
   it("accepts approved session authorization decisions with expiration", () => {

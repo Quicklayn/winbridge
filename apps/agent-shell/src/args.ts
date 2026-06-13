@@ -1,6 +1,7 @@
 import { assertAuditLogPath } from "@winbridge/audit-log";
 import {
   DeviceIdentitySchema,
+  hasSecretBearingAuditMetadata,
   PairingCodeSchema,
   PeerIdSchema,
   PermissionSchema,
@@ -550,7 +551,8 @@ function parseOptionalReason(raw: string | undefined): string | undefined {
     raw !== raw.trim() ||
     raw.length > MAX_AGENT_SHELL_REASON_LENGTH ||
     hasAsciiControlCharacter(raw) ||
-    hasUnsafeFormatCharacter(raw)
+    hasUnsafeFormatCharacter(raw) ||
+    hasSecretBearingAuditMetadata(raw, { includeKeyAssignments: false })
   ) {
     throw new AgentShellUsageError();
   }

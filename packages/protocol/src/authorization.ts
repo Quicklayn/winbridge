@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { hasSecretBearingProtocolIdentifierMetadata } from "./audit.js";
+import {
+  hasSecretBearingAuditMetadata,
+  hasSecretBearingProtocolIdentifierMetadata
+} from "./audit.js";
 import { PeerIdSchema, PermissionSchema, type Permission, ProtocolIdentifierSchema, SessionIdSchema } from "./session.js";
 
 export const SessionAuthorizationStatusSchema = z.enum([
@@ -76,6 +79,10 @@ const AuthorizationReasonSchema = z
   .refine(
     (reason) => !hasUnsafeReasonFormatCharacter(reason),
     "Authorization reason must not contain Unicode bidi or zero-width formatting controls"
+  )
+  .refine(
+    (reason) => !hasSecretBearingAuditMetadata(reason, { includeKeyAssignments: false }),
+    "Authorization reason must not contain sensitive metadata"
   );
 export const AuthorizationIdSchema = ProtocolIdentifierSchema.min(8).refine(
   (authorizationId) => !hasSecretBearingProtocolIdentifierMetadata(authorizationId),

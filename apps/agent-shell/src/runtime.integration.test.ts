@@ -96,6 +96,13 @@ const UNSAFE_SIGNAL_PAYLOAD_KEY_CASES = [
   expectedMessage: string;
   rawValues: string[];
 }>;
+const SECRET_BEARING_REASON_CASES = [
+  "Authorization: Bearer raw-runtime-token",
+  "credential: raw-runtime-credential",
+  "pairing code: raw-runtime-pairing-code",
+  "diagnostics dump: raw-runtime-diagnostics",
+  "screen content: raw-runtime-screen"
+] as const;
 
 afterEach(async () => {
   await Promise.all(agentRuntimes.splice(0).map((runtime) => runtime.stop()));
@@ -331,6 +338,21 @@ describe("agent shell consent workflow", () => {
         "Runtime workflow reasons"
       ],
       [
+        "secret-bearing decision reason",
+        { decisionReason: "Authorization: Bearer raw-runtime-token" },
+        "Runtime workflow reasons"
+      ],
+      [
+        "secret-bearing revoke reason",
+        { hostRevokeReason: "credential: raw-runtime-credential" },
+        "Runtime workflow reasons"
+      ],
+      [
+        "secret-bearing disconnect reason",
+        { hostDisconnectReason: "diagnostics dump: raw-runtime-diagnostics" },
+        "Runtime workflow reasons"
+      ],
+      [
         "viewer host disconnect reason",
         {
           role: "viewer",
@@ -354,6 +376,47 @@ describe("agent shell consent workflow", () => {
         name
       ).toThrow(expectedMessage);
     }
+  });
+
+  it("rejects secret-bearing runtime workflow reasons without exposing raw reason text", () => {
+    const reasonOptions: Array<keyof AgentShellRuntimeOptions> = [
+      "decisionReason",
+      "hostRevokeReason",
+      "hostPauseReason",
+      "hostResumeReason",
+      "hostTerminateReason",
+      "hostDisconnectReason"
+    ];
+
+    for (const reason of SECRET_BEARING_REASON_CASES) {
+      for (const option of reasonOptions) {
+        try {
+          createAgentShellRuntime(createRuntimeOptions({
+            [option]: reason,
+            logger: silentLogger
+          }));
+          throw new Error("Expected secret-bearing runtime workflow reason to be rejected");
+        } catch (error) {
+          expect(error).toBeInstanceOf(Error);
+          expect((error as Error).message).toContain("Runtime workflow reasons");
+          expect((error as Error).message).not.toContain("raw-runtime");
+          expect((error as Error).message).not.toContain(reason);
+        }
+      }
+    }
+  });
+
+  it("accepts safe non-secret runtime workflow reasons before relay startup", async () => {
+    const runtime = createAgentShellRuntime(createRuntimeOptions({
+      decisionReason: "Host denied support request",
+      hostRevokeReason: "Host revoked screen",
+      hostPauseReason: "Host paused session",
+      hostResumeReason: "Host resumed session",
+      hostTerminateReason: "Host terminated session",
+      hostDisconnectReason: "Host closed session"
+    }));
+
+    await runtime.stop();
   });
 
   it("rejects unsafe runtime workflow reasons without exposing raw reason text", () => {
@@ -11471,7 +11534,7 @@ function sendRawViewerAuthorizationRequest(
     type: "session-authorization-request",
     viewerPeerId: "viewer-1",
     requestedPermissions,
-    reason: "Raw viewer authorization request"
+    reason: "Viewer requested support"
   }));
 }
 
@@ -12783,7 +12846,7 @@ async function startCrossSessionAuthorizationRequestServer(): Promise<{
         type: "session-authorization-request",
         viewerPeerId: "viewer-1",
         requestedPermissions: ["screen:view"],
-        reason: "private cross-session reason token raw-token"
+        reason: "private cross-session reason"
       }));
     });
   });
@@ -12822,7 +12885,7 @@ async function startSelfReferentialAuthorizationRequestServer(): Promise<{
         type: "session-authorization-request",
         viewerPeerId: "host-1",
         requestedPermissions: ["screen:view"],
-        reason: "private self-viewer reason token raw-token"
+        reason: "private self-viewer reason"
       }));
     });
   });
@@ -12861,7 +12924,7 @@ async function startUnboundHostAuthorizationRequestServer(): Promise<{
         type: "session-authorization-request",
         viewerPeerId: "viewer-1",
         requestedPermissions: ["screen:view"],
-        reason: "unbound request private reason token raw-token"
+        reason: "unbound request private reason"
       }));
     });
   });
@@ -12908,7 +12971,7 @@ async function startMismatchedHostAuthorizationRequestServer(): Promise<{
         type: "session-authorization-request",
         viewerPeerId: "viewer-2",
         requestedPermissions: ["screen:view"],
-        reason: "mismatched request private reason token raw-token"
+        reason: "mismatched request private reason"
       }));
     });
   });

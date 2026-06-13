@@ -7,6 +7,7 @@ import {
   decodeProtocolEnvelope,
   DeviceIdentitySchema,
   encodeProtocolEnvelope,
+  hasSecretBearingAuditMetadata,
   PairingCodeSchema,
   PeerIdSchema,
   PermissionSchema,
@@ -2377,7 +2378,8 @@ function assertRuntimeWorkflowReasons(values: unknown[]): void {
       value !== value.trim() ||
       value.length > MAX_AGENT_SHELL_REASON_LENGTH ||
       hasAsciiControlCharacter(value) ||
-      hasUnsafeFormatCharacter(value)
+      hasUnsafeFormatCharacter(value) ||
+      hasSecretBearingAuditMetadata(value, { includeKeyAssignments: false })
     ) {
       throw new Error(RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE);
     }

@@ -10,6 +10,13 @@ describe("agent shell arguments", () => {
     ["terminate-after-ms", "hostTerminateAfterMs"],
     ["disconnect-after-ms", "hostDisconnectAfterMs"]
   ] as const;
+  const secretBearingReasons = [
+    "Authorization: Bearer raw-cli-token",
+    "credential: raw-cli-credential",
+    "pairing code: raw-cli-pairing-code",
+    "diagnostics dump: raw-cli-diagnostics",
+    "screen content: raw-cli-screen"
+  ] as const;
 
   it("uses fail-closed defaults when optional consent flags are omitted", () => {
     const args = parseArgs(["viewer"], {}, 42);
@@ -510,6 +517,57 @@ describe("agent shell arguments", () => {
         }
       }
     }
+  });
+
+  it("rejects secret-bearing lifecycle reason values without exposing raw reason text", () => {
+    const reasonOptions = [
+      "revoke-reason",
+      "pause-reason",
+      "resume-reason",
+      "terminate-reason",
+      "disconnect-reason"
+    ];
+
+    for (const reason of secretBearingReasons) {
+      for (const option of reasonOptions) {
+        try {
+          parseArgs(["host", `--${option}`, reason], {}, 42);
+          throw new Error("Expected secret-bearing CLI lifecycle reason to be rejected");
+        } catch (error) {
+          expect(error).toBeInstanceOf(AgentShellUsageError);
+          expect((error as Error).message).not.toContain("raw-cli");
+          expect((error as Error).message).not.toContain(reason);
+        }
+      }
+    }
+  });
+
+  it("parses safe non-secret lifecycle reason values", () => {
+    const args = parseArgs(
+      [
+        "host",
+        "--revoke-reason",
+        "Host revoked screen",
+        "--pause-reason",
+        "Host paused session",
+        "--resume-reason",
+        "Host resumed session",
+        "--terminate-reason",
+        "Host terminated session",
+        "--disconnect-reason",
+        "Host closed session"
+      ],
+      {},
+      42
+    );
+
+    expect(args).toMatchObject({
+      hostRevokeReason: "Host revoked screen",
+      hostPauseReason: "Host paused session",
+      hostResumeReason: "Host resumed session",
+      hostTerminateReason: "Host terminated session",
+      hostDisconnectReason: "Host closed session"
+    });
   });
 
   it("parses bounded authorization ttl", () => {

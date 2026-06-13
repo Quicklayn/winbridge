@@ -68,6 +68,10 @@ const ProtocolReasonSchema = z
   .refine(
     (reason) => !hasUnsafeFormatCharacter(reason),
     "Reason must not contain Unicode bidi or zero-width formatting controls"
+  )
+  .refine(
+    (reason) => !hasSecretBearingAuditMetadata(reason, { includeKeyAssignments: false }),
+    "Reason must not contain sensitive metadata"
   );
 const ProtocolAuditActionSchema = z
   .string()

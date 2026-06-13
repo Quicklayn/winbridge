@@ -174,6 +174,7 @@ const sensitiveKeyExactMatches = new Set([
 const nonSensitiveKeyExactMatches = new Set(["authorizationid"]);
 const REDACTED_AUDIT_VALUE = "[REDACTED]";
 const safeAuditReasons = new Set([
+  "Authorization expired",
   "Invalid relay token",
   "Pairing code mismatch",
   "Relay token rate limit exceeded"

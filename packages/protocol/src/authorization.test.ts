@@ -29,6 +29,13 @@ const unsafePermissionShapes = [
   "stealth:session",
   "windows-prompt:bypass"
 ] as const;
+const secretBearingReasons = [
+  "Authorization: Bearer raw-authz-token",
+  "credential: raw-authz-credential",
+  "pairing code: raw-authz-pairing-code",
+  "diagnostics dump: raw-authz-diagnostics",
+  "screen content: raw-authz-screen"
+] as const;
 
 function pending() {
   return createPendingSessionAuthorization({
@@ -1021,6 +1028,80 @@ describe("session authorization state machine", () => {
         expect((error as Error).message).not.toContain(reason);
       }
     }
+  });
+
+  it("rejects secret-bearing lifecycle reasons without exposing raw reason text", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+    const paused = pauseSessionAuthorization(active, { now: baseTime });
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+
+    for (const reason of secretBearingReasons) {
+      const operations = [
+        () => denySessionAuthorization(pending(), { reason, now: baseTime }),
+        () =>
+          revokeSessionPermission(active, {
+            permission: "screen:view",
+            reason,
+            now: baseTime
+          }),
+        () => pauseSessionAuthorization(active, { reason, now: baseTime }),
+        () => resumeSessionAuthorization(paused, { reason, now: baseTime }),
+        () => terminateSessionAuthorization(active, { reason, now: baseTime }),
+        () =>
+          SessionAuthorizationSchema.parse({
+            ...denied,
+            reason
+          })
+      ];
+
+      for (const operation of operations) {
+        try {
+          operation();
+          throw new Error("Expected secret-bearing authorization reason to be rejected");
+        } catch (error) {
+          expect(error).toBeInstanceOf(Error);
+          expect((error as Error).message).toContain("sensitive metadata");
+          expect((error as Error).message).not.toContain("raw-authz");
+          expect((error as Error).message).not.toContain(reason);
+        }
+      }
+    }
+  });
+
+  it("accepts safe non-secret lifecycle reasons", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+    const paused = pauseSessionAuthorization(active, {
+      reason: "Host paused",
+      now: baseTime
+    });
+
+    expect(denied.reason).toBe("Host denied");
+    expect(paused.reason).toBe("Host paused");
+    expect(
+      SessionAuthorizationSchema.parse({
+        ...denied,
+        reason: "Host denied support request"
+      }).reason
+    ).toBe("Host denied support request");
   });
 
   it("authorizes granted actions only when active and visible", () => {
