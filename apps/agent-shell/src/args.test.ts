@@ -24,6 +24,12 @@ describe("agent shell arguments", () => {
     "diagnostics dump: raw-display-diagnostics",
     "screen content: raw-display-screen"
   ] as const;
+  const secretBearingDeviceIds = [
+    "token-raw-device-secret",
+    "credential-raw-device-value",
+    "cookie-raw-device-value",
+    "authorization-raw-device-value"
+  ] as const;
 
   it("uses fail-closed defaults when optional consent flags are omitted", () => {
     const args = parseArgs(["viewer"], {}, 42);
@@ -635,6 +641,25 @@ describe("agent shell arguments", () => {
     );
     expect(() => parseArgs(["viewer", "--device", "dev viewer 42"], {}, 42)).toThrow(
       AgentShellUsageError
+    );
+  });
+
+  it("rejects secret-bearing device identifiers without exposing raw text", () => {
+    for (const deviceId of secretBearingDeviceIds) {
+      try {
+        parseArgs(["viewer", "--device", deviceId], {}, 42);
+        throw new Error("Expected secret-bearing CLI device id to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(AgentShellUsageError);
+        expect((error as Error).message).not.toContain("raw-device");
+        expect((error as Error).message).not.toContain(deviceId);
+      }
+    }
+  });
+
+  it("parses safe custom device identifiers", () => {
+    expect(parseArgs(["viewer", "--device", "device-viewer-42"], {}, 42).deviceId).toBe(
+      "device-viewer-42"
     );
   });
 

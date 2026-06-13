@@ -110,6 +110,12 @@ const SECRET_BEARING_DISPLAY_NAME_CASES = [
   "diagnostics dump: raw-display-diagnostics",
   "screen content: raw-display-screen"
 ] as const;
+const SECRET_BEARING_DEVICE_ID_CASES = [
+  "token-raw-device-secret",
+  "credential-raw-device-value",
+  "cookie-raw-device-value",
+  "authorization-raw-device-value"
+] as const;
 
 afterEach(async () => {
   await Promise.all(agentRuntimes.splice(0).map((runtime) => runtime.stop()));
@@ -158,6 +164,11 @@ describe("agent shell consent workflow", () => {
       ["malformed pairing code", { pairingCode: "secret" }, "Runtime protocol identifiers"],
       ["malformed peer id", { peerId: "host/1" }, "Runtime protocol identifiers"],
       ["malformed device id", { deviceId: "dev1" }, "Runtime protocol identifiers"],
+      [
+        "secret-bearing device id",
+        { deviceId: "token-raw-device-secret" },
+        "Runtime protocol identifiers"
+      ],
       ["blank display name", { displayName: "   " }, "Runtime display name"],
       ["untrimmed display name", { displayName: " Host" }, "Runtime display name"],
       ["control-character display name", { displayName: "Host\nName" }, "Runtime display name"],
@@ -538,6 +549,23 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("rejects secret-bearing runtime device ids without exposing raw text", () => {
+    for (const deviceId of SECRET_BEARING_DEVICE_ID_CASES) {
+      try {
+        createAgentShellRuntime(createRuntimeOptions({
+          deviceId,
+          logger: silentLogger
+        }));
+        throw new Error("Expected secret-bearing runtime device id to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("Runtime protocol identifiers");
+        expect((error as Error).message).not.toContain("raw-device");
+        expect((error as Error).message).not.toContain(deviceId);
+      }
+    }
+  });
+
   it("rejects secret-bearing runtime workflow reasons without exposing raw reason text", () => {
     const reasonOptions: Array<keyof AgentShellRuntimeOptions> = [
       "decisionReason",
@@ -574,6 +602,14 @@ describe("agent shell consent workflow", () => {
       hostResumeReason: "Host resumed session",
       hostTerminateReason: "Host terminated session",
       hostDisconnectReason: "Host closed session"
+    }));
+
+    await runtime.stop();
+  });
+
+  it("accepts safe custom runtime device ids before relay startup", async () => {
+    const runtime = createAgentShellRuntime(createRuntimeOptions({
+      deviceId: "device-host-01"
     }));
 
     await runtime.stop();

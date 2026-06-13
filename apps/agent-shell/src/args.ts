@@ -2,6 +2,7 @@ import { assertAuditLogPath } from "@winbridge/audit-log";
 import {
   DeviceIdentitySchema,
   hasSecretBearingAuditMetadata,
+  hasSecretBearingProtocolIdentifierMetadata,
   PairingCodeSchema,
   PeerIdSchema,
   PermissionSchema,
@@ -190,7 +191,7 @@ export function parseArgs(
     peerId,
     displayName: parseDisplayName(options.get("name") ?? `${role} ${processId}`),
     token: parseOptionalToken(options.get("token")),
-    deviceId: parseProtocolIdentifier(options.get("device") ?? `dev_${role}_${processId}`),
+    deviceId: parseDeviceId(options.get("device") ?? `dev_${role}_${processId}`),
     auditLogPath: parseOptionalAuditLogPath(
       options.get("audit-log") ?? env.WINBRIDGE_AGENT_AUDIT_LOG_PATH
     ),
@@ -335,9 +336,14 @@ function parsePeerId(raw: string): string {
   }
 }
 
-function parseProtocolIdentifier(raw: string): string {
+function parseDeviceId(raw: string): string {
   try {
-    return ProtocolIdentifierSchema.min(8).parse(raw);
+    const deviceId = ProtocolIdentifierSchema.min(8).parse(raw);
+    if (hasSecretBearingProtocolIdentifierMetadata(deviceId)) {
+      throw new Error("Device id must not contain secret-bearing metadata");
+    }
+
+    return deviceId;
   } catch {
     throw new AgentShellUsageError();
   }

@@ -8,6 +8,7 @@ import {
   DeviceIdentitySchema,
   encodeProtocolEnvelope,
   hasSecretBearingAuditMetadata,
+  hasSecretBearingProtocolIdentifierMetadata,
   PairingCodeSchema,
   PeerIdSchema,
   PermissionSchema,
@@ -2211,7 +2212,10 @@ function assertRuntimeIdentifiers(options: AgentShellRuntimeOptions): void {
     SessionIdSchema.parse(options.sessionId);
     PairingCodeSchema.parse(options.pairingCode);
     PeerIdSchema.parse(options.peerId);
-    DeviceIdentitySchema.shape.deviceId.parse(options.deviceId);
+    const deviceId = DeviceIdentitySchema.shape.deviceId.parse(options.deviceId);
+    if (hasSecretBearingProtocolIdentifierMetadata(deviceId)) {
+      throw new Error("Device id must not contain secret-bearing metadata");
+    }
   } catch {
     throw new Error(RUNTIME_IDENTIFIER_ERROR_MESSAGE);
   }
