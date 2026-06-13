@@ -707,6 +707,38 @@ describe("agent shell consent workflow", () => {
     await runtime.stop();
   });
 
+  it("keeps empty host requested permissions non-authorizing after paired startup", async () => {
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostRequestedPermissions: []
+    });
+    await startViewer(relay.url(), [], viewerEvents);
+
+    await waitForSentMessage(hostEvents, (message) => message.type === "hello");
+    await waitForSentMessage(viewerEvents, (message) => message.type === "hello");
+    await delay(100);
+
+    const hostSentTypes = hostEvents
+      .filter((event) => event.direction === "sent")
+      .map((event) => event.message.type);
+    expect(hostSentTypes).toContain("join-session");
+    expect(hostSentTypes).toContain("hello");
+    expect(hostSentTypes).not.toContain("session-authorization-request");
+    expect(hostSentTypes).not.toContain("session-authorization-decision");
+    expect(hostSentTypes).not.toContain("session-authorization-state");
+    expect(hostSentTypes).not.toContain("permission-revoked");
+    expect(hostSentTypes).not.toContain("session-control");
+    expect(hostSentTypes).not.toContain("audit-event");
+    expect(viewerEvents.some(
+      (event) => event.direction === "sent" && event.message.type === "session-authorization-request"
+    )).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+    expect(host.getHostStatus()).toEqual({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0
+    });
+  });
+
   it("rejects untrimmed runtime tokens without exposing raw token text", () => {
     const token = " runtime-token-private-marker ";
 
@@ -11740,6 +11772,7 @@ async function startRelayAndHost(options: {
   hostOnEvent?: (event: AgentShellEvent) => void;
   hostPauseAfterMs?: number;
   hostPauseReason?: string;
+  hostRequestedPermissions?: Permission[];
   hostResumeAfterMs?: number;
   hostResumeReason?: string;
   hostRevokeAfterMs?: number;
@@ -11792,6 +11825,7 @@ async function startRelayAndHost(options: {
     hostSignalProbeAck: options.hostSignalProbeAck,
     hostTerminateAfterMs: options.hostTerminateAfterMs,
     hostTerminateReason: options.hostTerminateReason,
+    requestedPermissions: options.hostRequestedPermissions,
     visibleToHost: options.visibleToHost ?? false,
     logger: options.hostLogger ?? silentLogger,
     onEvent: (event) => {
