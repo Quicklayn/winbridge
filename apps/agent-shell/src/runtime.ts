@@ -620,7 +620,10 @@ function isUntrustedViewerAuthorizationLifecycleMessage(
 
   switch (envelope.type) {
     case "session-authorization-decision":
-      return envelope.viewerPeerId !== options.peerId;
+      return (
+        envelope.viewerPeerId !== options.peerId ||
+        !isObservedHostAuthority(sessionState, envelope.hostPeerId)
+      );
     case "session-authorization-state":
       return !hasBoundViewerAuthorizationStateAuthority(
         sessionState,
@@ -655,6 +658,13 @@ function isUnboundHostAuthorizationRequest(
     envelope.type === "session-authorization-request" &&
     (sessionState.observedPeerRole !== "viewer" || sessionState.observedPeerId !== envelope.viewerPeerId)
   );
+}
+
+function isObservedHostAuthority(
+  sessionState: AgentShellSessionState,
+  hostPeerId: string
+): boolean {
+  return sessionState.observedPeerRole === "host" && sessionState.observedPeerId === hostPeerId;
 }
 
 function hasBoundViewerAuthorizationStateAuthority(

@@ -4340,8 +4340,171 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("ignores viewer authorization decisions before observing host authority", async () => {
+    const unobservedDecisionServer = await startViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_unobserved_host",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt,
+          reason: "private unobserved decision reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_unobserved_host",
+          actorPeerId: "host-1",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt,
+          reason: "private unobserved state reason raw-token"
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        unobservedDecisionServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      const rawEvents = await waitForRawEventCount(viewerEvents, 2);
+      await delay(100);
+
+      expect(rawEvents).toHaveLength(2);
+      expect(
+        viewerEvents.some(
+          (event) =>
+            event.direction === "received" &&
+            (event.message.type === "session-authorization-decision" ||
+              event.message.type === "session-authorization-state")
+        )
+      ).toBe(false);
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-unobserved-decision-payload",
+        viewerLogs
+      );
+      const serializedRawEvents = JSON.stringify(rawEvents);
+      const logOutput = viewerLogs.join("\n");
+      expect(logOutput.match(/ignored unsafe inbound protocol message bytes=/g)).toHaveLength(2);
+      expect(logOutput).not.toContain("session-authorization-decision");
+      expect(logOutput).not.toContain("session-authorization-state");
+      expect(logOutput).not.toContain("host-1");
+      expect(logOutput).not.toContain("authz_unobserved_host");
+      expect(logOutput).not.toContain("screen:view");
+      expect(logOutput).not.toContain("private unobserved");
+      expect(logOutput).not.toContain("raw-token");
+      expect(serializedRawEvents).not.toContain("session-authorization-decision");
+      expect(serializedRawEvents).not.toContain("session-authorization-state");
+      expect(serializedRawEvents).not.toContain("host-1");
+      expect(serializedRawEvents).not.toContain("authz_unobserved_host");
+      expect(serializedRawEvents).not.toContain("screen:view");
+      expect(serializedRawEvents).not.toContain("private unobserved");
+      expect(serializedRawEvents).not.toContain("raw-token");
+    } finally {
+      await viewer?.stop();
+      await unobservedDecisionServer.stop();
+    }
+  });
+
+  it("ignores viewer authorization decisions from a mismatched observed host", async () => {
+    const mismatchedDecisionServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+      return [
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-decision",
+          authorizationId: "authz_mismatched_decision_host",
+          hostPeerId: "host-2",
+          viewerPeerId: "viewer-1",
+          decision: "approved",
+          grantedPermissions: ["screen:view"],
+          expiresAt,
+          reason: "private mismatched decision reason raw-token"
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "session-authorization-state",
+          authorizationId: "authz_mismatched_decision_host",
+          actorPeerId: "host-2",
+          status: "active",
+          visibleToHost: true,
+          permissions: ["screen:view"],
+          expiresAt,
+          reason: "private mismatched decision state reason raw-token"
+        }
+      ];
+    });
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        mismatchedDecisionServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForMessage(viewerEvents, (message) => message.type === "hello" && message.peerId === "host-1");
+      const rawEvents = await waitForRawEventCount(viewerEvents, 2);
+      await delay(100);
+
+      expect(rawEvents).toHaveLength(2);
+      expect(
+        viewerEvents.some(
+          (event) =>
+            event.direction === "received" &&
+            (event.message.type === "session-authorization-decision" ||
+              event.message.type === "session-authorization-state")
+        )
+      ).toBe(false);
+
+      await expectViewerSignalSendBlocked(
+        viewer,
+        viewerEvents,
+        "blocked-after-mismatched-decision-host-payload",
+        viewerLogs
+      );
+      const serializedRawEvents = JSON.stringify(rawEvents);
+      const logOutput = viewerLogs.join("\n");
+      expect(logOutput.match(/ignored unsafe inbound protocol message bytes=/g)).toHaveLength(2);
+      expect(logOutput).not.toContain("host-2");
+      expect(logOutput).not.toContain("authz_mismatched_decision_host");
+      expect(logOutput).not.toContain("screen:view");
+      expect(logOutput).not.toContain("private mismatched decision");
+      expect(logOutput).not.toContain("raw-token");
+      expect(serializedRawEvents).not.toContain("host-2");
+      expect(serializedRawEvents).not.toContain("authz_mismatched_decision_host");
+      expect(serializedRawEvents).not.toContain("screen:view");
+      expect(serializedRawEvents).not.toContain("private mismatched decision");
+      expect(serializedRawEvents).not.toContain("raw-token");
+    } finally {
+      await viewer?.stop();
+      await mismatchedDecisionServer.stop();
+    }
+  });
+
   it("ignores mismatched viewer authorization authority before signal authorization", async () => {
-    const mismatchedServer = await startViewerAuthorizationLifecycleServer(() => {
+    const mismatchedServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
       const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
       return [
@@ -4436,7 +4599,7 @@ describe("agent shell consent workflow", () => {
   });
 
   it("ignores viewer session controls with mismatched authorization ids", async () => {
-    const controlBindingServer = await startViewerAuthorizationLifecycleServer(() => {
+    const controlBindingServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
       const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
       return [
@@ -4547,7 +4710,7 @@ describe("agent shell consent workflow", () => {
   });
 
   it("keeps viewer authorization denied when a later active state uses the same authority", async () => {
-    const deniedThenActiveServer = await startViewerAuthorizationLifecycleServer(() => {
+    const deniedThenActiveServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
       const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
       return [
@@ -4712,7 +4875,7 @@ describe("agent shell consent workflow", () => {
 
   it("clears viewer authorization authority across runtime restart", async () => {
     let connectionCount = 0;
-    const restartServer = await startViewerAuthorizationLifecycleServer(() => {
+    const restartServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
       connectionCount += 1;
 
       if (connectionCount > 1) {
@@ -5178,7 +5341,7 @@ describe("agent shell consent workflow", () => {
   });
 
   it("fails closed for viewer signal sends after a bound revoke control", async () => {
-    const revokeControlServer = await startViewerAuthorizationLifecycleServer(() => {
+    const revokeControlServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
       const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
       return [
@@ -5270,7 +5433,7 @@ describe("agent shell consent workflow", () => {
   });
 
   it("accepts revoke confirmation after revoke control without restoring viewer signal access", async () => {
-    const revokeConfirmationServer = await startViewerAuthorizationLifecycleServer(() => {
+    const revokeConfirmationServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
       const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
       return [
@@ -5612,7 +5775,7 @@ describe("agent shell consent workflow", () => {
     const missingMarker = "viewer-missing-inbound-signal-auth-id";
     const mismatchedMarker = "viewer-mismatch-inbound-signal-auth-id";
     const allowedMarker = "viewer-matching-inbound-signal-auth-id";
-    const lifecycleServer = await startViewerAuthorizationLifecycleServer(() => {
+    const lifecycleServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
       const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
       return [
@@ -7837,6 +8000,26 @@ async function startNonProtocolMessageServer(message: string | Buffer): Promise<
           resolve();
         });
       })
+  };
+}
+
+async function startObservedHostViewerAuthorizationLifecycleServer(
+  createMessages: () => Array<ProtocolEnvelope | string>
+): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  return startViewerAuthorizationLifecycleServer(() => [trustedHostHelloMessage(), ...createMessages()]);
+}
+
+function trustedHostHelloMessage(): ProtocolEnvelope {
+  return {
+    ...createMessageBase("session-demo"),
+    type: "hello",
+    peerId: "host-1",
+    role: "host",
+    displayName: "Host",
+    capabilities: ["session:visible", "consent:required", "audit:stdout"]
   };
 }
 
