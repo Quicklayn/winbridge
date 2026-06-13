@@ -882,6 +882,72 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(rejected)).not.toContain("array-keylogger-trace");
   });
 
+  it.each([
+    [
+      "ASCII control",
+      { ["unsafe\nrelay-private-signal-key"]: "relay-private-signal-value" }
+    ],
+    [
+      "nested bidi",
+      { nested: { ["unsafe\u202erelay-private-signal-key"]: "relay-private-signal-value" } }
+    ],
+    [
+      "array zero-width",
+      { candidates: [{ ["unsafe\ufeffrelay-private-signal-key"]: "relay-private-signal-value" }] }
+    ]
+  ] satisfies Array<[string, Record<string, unknown>]>)(
+    "rejects signal payloads with %s unsafe keys before forwarding",
+    async (_name, unsafePayload) => {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+
+      host.send(
+        JSON.stringify({
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: {
+            kind: "offer",
+            authorizationId: "authz-demo",
+            ...unsafePayload
+          }
+        })
+      );
+
+      const relayError = await waitForJsonMessage(host, (message) => message.type === "relay-error");
+      expect(relayError).toEqual({
+        type: "relay-error",
+        reason: "Invalid relay message"
+      });
+      await expectNoProtocolMessage(viewer, (message) => message.type === "signal");
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) =>
+          record.action === "relay.message.rejected" &&
+          record.reason === "Invalid relay message"
+      );
+      expect(rejected).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        reason: "Invalid relay message",
+        detail: {
+          registered: true
+        }
+      });
+
+      const serializedRelayError = JSON.stringify(relayError);
+      const serializedRejected = JSON.stringify(rejected);
+      expect(serializedRelayError).not.toContain("relay-private-signal-key");
+      expect(serializedRelayError).not.toContain("relay-private-signal-value");
+      expect(serializedRejected).not.toContain("relay-private-signal-key");
+      expect(serializedRejected).not.toContain("relay-private-signal-value");
+    }
+  );
+
   it("rejects non-JSON signal payloads before forwarding", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });

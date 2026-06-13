@@ -510,6 +510,64 @@ describe("protocol envelopes", () => {
     }
   });
 
+  it("rejects unsafe signal payload keys without exposing raw private text", () => {
+    const cases = [
+      {
+        name: "ASCII control key",
+        payload: { ["unsafe\nprivate-signal-key"]: "private-signal-value" },
+        expectedMessage: "Signal payload keys must not contain ASCII control characters"
+      },
+      {
+        name: "nested bidi key",
+        payload: { nested: { ["unsafe\u202eprivate-signal-key"]: "private-signal-value" } },
+        expectedMessage:
+          "Signal payload keys must not contain Unicode bidi or zero-width formatting controls"
+      },
+      {
+        name: "array zero-width key",
+        payload: { candidates: [{ ["unsafe\ufeffprivate-signal-key"]: "private-signal-value" }] },
+        expectedMessage:
+          "Signal payload keys must not contain Unicode bidi or zero-width formatting controls"
+      }
+    ] satisfies Array<{
+      name: string;
+      payload: Record<string, unknown>;
+      expectedMessage: string;
+    }>;
+
+    for (const testCase of cases) {
+      const signalMessage = {
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          authorizationId: "authz-demo",
+          kind: "offer",
+          ...testCase.payload
+        }
+      } as const;
+
+      for (const operation of [
+        () => parseProtocolEnvelope(signalMessage),
+        () => encodeProtocolEnvelope(signalMessage as Parameters<typeof encodeProtocolEnvelope>[0])
+      ]) {
+        let thrown: unknown;
+        try {
+          operation();
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown, testCase.name).toBeInstanceOf(Error);
+        const message = thrown instanceof Error ? thrown.message : String(thrown);
+        expect(message, testCase.name).toContain(testCase.expectedMessage);
+        expect(message, testCase.name).not.toContain("private-signal-key");
+        expect(message, testCase.name).not.toContain("private-signal-value");
+      }
+    }
+  });
+
   it("encodes signal payloads from a canonical JSON snapshot", () => {
     const payload = createLateSensitiveSignalPayloadProxy();
     const encoded = encodeProtocolEnvelope({

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { AuditDetailSchema, AuditOutcomeSchema, redactAuditDetail } from "./audit.js";
 import { SessionAuthorizationStatusSchema } from "./authorization.js";
 import { DeviceDisplayNameSchema, DeviceIdentitySchema } from "./identity.js";
-import { createJsonObjectSchema, stringifyJson, type JsonObject } from "./json.js";
+import { createJsonObjectSchema, stringifyJson, type JsonObject, type JsonValue } from "./json.js";
 import {
   PairingCodeSchema,
   PeerIdSchema,
@@ -296,6 +296,19 @@ export const SignalMessageSchema = BaseMessageSchema.extend({
   toPeerId: PeerIdSchema.optional(),
   payload: SignalPayloadSchema
 }).superRefine((message, context) => {
+  const unsafePayloadKeyKind = findUnsafeSignalPayloadKeyKind(message.payload);
+  if (unsafePayloadKeyKind) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        unsafePayloadKeyKind === "ascii-control"
+          ? "Signal payload keys must not contain ASCII control characters"
+          : "Signal payload keys must not contain Unicode bidi or zero-width formatting controls",
+      path: ["payload"]
+    });
+    return;
+  }
+
   const authorizationId = message.payload.authorizationId;
   if (typeof authorizationId !== "string") {
     context.addIssue({
@@ -502,6 +515,47 @@ function measureSignalPayloadBytes(
     });
     return undefined;
   }
+}
+
+function findUnsafeSignalPayloadKeyKind(
+  value: JsonValue
+): "ascii-control" | "format-control" | undefined {
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const item = value[index];
+      if (item === undefined) {
+        return undefined;
+      }
+
+      const unsafeKind = findUnsafeSignalPayloadKeyKind(item);
+      if (unsafeKind) {
+        return unsafeKind;
+      }
+    }
+
+    return undefined;
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (hasAsciiControlCharacter(key)) {
+      return "ascii-control";
+    }
+
+    if (hasUnsafeFormatCharacter(key)) {
+      return "format-control";
+    }
+
+    const unsafeKind = findUnsafeSignalPayloadKeyKind(nested);
+    if (unsafeKind) {
+      return unsafeKind;
+    }
+  }
+
+  return undefined;
 }
 
 function findSensitiveSignalPayloadPath(

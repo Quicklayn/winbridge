@@ -1200,7 +1200,7 @@ The agent shell SHALL bind outbound and inbound `signal` messages to the current
 - **THEN** thrown errors, runtime events, and logs MUST NOT expose raw signal payloads, signal payload keys, tokens, pairing codes, authorization reasons, display names, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, or input contents
 
 ### Requirement: Agent signal payload JSON compatibility
-The agent shell SHALL inherit shared protocol `signal.payload` JSON-compatible object validation and sensitive remote-assistance key rejection for public runtime sends and inbound messages. This validation MUST NOT weaken existing signal authorization, routing, redaction, or consent gates.
+The agent shell SHALL inherit shared protocol `signal.payload` JSON-compatible object validation, unsafe property-name rejection, and sensitive remote-assistance key rejection for public runtime sends and inbound messages. This validation MUST reject payload property names containing ASCII control characters or Unicode bidirectional or zero-width formatting controls including `U+FEFF`, and MUST NOT weaken existing signal authorization, routing, redaction, or consent gates.
 
 #### Scenario: Public send rejects non-JSON signal payload
 - **WHEN** caller code invokes public runtime `send()` with a `signal` payload containing a non-JSON value or property shape
@@ -1211,6 +1211,11 @@ The agent shell SHALL inherit shared protocol `signal.payload` JSON-compatible o
 - **THEN** the runtime rejects the send before socket write and before local `sent` event emission
 - **AND** local events and logs MUST NOT expose raw access-key or SSH-key values
 
+#### Scenario: Public send rejects unsafe signal payload property name
+- **WHEN** caller code invokes public runtime `send()` with a `signal` payload containing a property name with an ASCII control character or Unicode bidirectional or zero-width formatting control including `U+FEFF`
+- **THEN** the runtime rejects the send before socket write and before local `sent` event emission
+- **AND** thrown errors, local events, and logs MUST NOT expose the raw unsafe property name or payload value
+
 #### Scenario: Inbound non-JSON signal payload is not trusted
 - **WHEN** the agent shell receives a decoded `signal` message whose payload contains a non-JSON value or property shape
 - **THEN** shared protocol validation rejects the message before local `received` protocol event emission or received signal summary logging
@@ -1219,6 +1224,11 @@ The agent shell SHALL inherit shared protocol `signal.payload` JSON-compatible o
 - **WHEN** the agent shell receives a decoded `signal` message whose payload contains access-key or SSH-key field names such as `accessKey`, `access_key`, `access-key`, `sshKey`, or `ssh_key` at any nesting level
 - **THEN** shared protocol validation rejects the message before local `received` protocol event emission or received signal summary logging
 - **AND** local events and logs MUST NOT expose raw access-key or SSH-key values
+
+#### Scenario: Inbound unsafe signal payload property name is not trusted
+- **WHEN** the agent shell receives a decoded `signal` message whose payload contains a property name with an ASCII control character or Unicode bidirectional or zero-width formatting control including `U+FEFF`
+- **THEN** shared protocol validation rejects the message before local `received` protocol event emission or received signal summary logging
+- **AND** raw events and logs MUST NOT expose the raw unsafe property name or payload value
 
 #### Scenario: Signal JSON validation does not grant access
 - **WHEN** a `signal` payload is JSON-compatible and does not contain sensitive remote-assistance key fields

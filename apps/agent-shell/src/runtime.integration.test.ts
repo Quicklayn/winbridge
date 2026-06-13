@@ -68,6 +68,33 @@ const KEY_MATERIAL_SIGNAL_PAYLOAD_CASES = [
     rawValues: ["raw-agent-ssh-key-underscore"]
   }
 ] satisfies Array<{ name: string; payload: Record<string, unknown>; rawValues: string[] }>;
+const UNSAFE_SIGNAL_PAYLOAD_KEY_CASES = [
+  {
+    name: "ASCII control key",
+    payload: { ["unsafe\nagent-private-signal-key"]: "agent-private-signal-value" },
+    expectedMessage: "Signal payload keys must not contain ASCII control characters",
+    rawValues: ["agent-private-signal-key", "agent-private-signal-value"]
+  },
+  {
+    name: "nested bidi key",
+    payload: { nested: { ["unsafe\u202eagent-private-signal-key"]: "agent-private-signal-value" } },
+    expectedMessage:
+      "Signal payload keys must not contain Unicode bidi or zero-width formatting controls",
+    rawValues: ["agent-private-signal-key", "agent-private-signal-value"]
+  },
+  {
+    name: "array zero-width key",
+    payload: { candidates: [{ ["unsafe\ufeffagent-private-signal-key"]: "agent-private-signal-value" }] },
+    expectedMessage:
+      "Signal payload keys must not contain Unicode bidi or zero-width formatting controls",
+    rawValues: ["agent-private-signal-key", "agent-private-signal-value"]
+  }
+] satisfies Array<{
+  name: string;
+  payload: Record<string, unknown>;
+  expectedMessage: string;
+  rawValues: string[];
+}>;
 
 afterEach(async () => {
   await Promise.all(agentRuntimes.splice(0).map((runtime) => runtime.stop()));
@@ -930,6 +957,68 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("blocks public signal sends with unsafe payload keys before sent events", async () => {
+    const hostLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+
+    for (const testCase of UNSAFE_SIGNAL_PAYLOAD_KEY_CASES) {
+      const beforeSentSignals = hostEvents.filter(
+        (event) => event.direction === "sent" && event.message.type === "signal"
+      ).length;
+      const beforeReceivedSignals = viewerEvents.filter(
+        (event) => event.direction === "received" && event.message.type === "signal"
+      ).length;
+
+      let thrown: unknown;
+      try {
+        host.send({
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: {
+            authorizationId,
+            kind: "offer",
+            ...testCase.payload
+          }
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      await delay(50);
+
+      expect(thrown, testCase.name).toBeInstanceOf(Error);
+      expect(thrown instanceof Error ? thrown.message : "", testCase.name).toContain(
+        testCase.expectedMessage
+      );
+      expect(
+        hostEvents.filter((event) => event.direction === "sent" && event.message.type === "signal"),
+        testCase.name
+      ).toHaveLength(beforeSentSignals);
+      expect(
+        viewerEvents.filter((event) => event.direction === "received" && event.message.type === "signal"),
+        testCase.name
+      ).toHaveLength(beforeReceivedSignals);
+
+      const serializedThrown = thrown instanceof Error ? thrown.message : String(thrown);
+      const serializedHostEvents = JSON.stringify(hostEvents);
+      const serializedViewerEvents = JSON.stringify(viewerEvents);
+      const serializedHostLogs = hostLogs.join("\n");
+      for (const rawValue of testCase.rawValues) {
+        expect(serializedThrown, testCase.name).not.toContain(rawValue);
+        expect(serializedHostEvents, testCase.name).not.toContain(rawValue);
+        expect(serializedViewerEvents, testCase.name).not.toContain(rawValue);
+        expect(serializedHostLogs, testCase.name).not.toContain(rawValue);
+      }
+    }
+  });
+
   it("treats inbound access-key and SSH-key signal payloads as raw unsafe input", async () => {
     const hostLogs: string[] = [];
     const hostEvents: AgentShellEvent[] = [];
@@ -994,6 +1083,82 @@ describe("agent shell consent workflow", () => {
       const serializedEvents = JSON.stringify(hostEvents);
       const serializedLogs = hostLogs.join("\n");
       for (const testCase of KEY_MATERIAL_SIGNAL_PAYLOAD_CASES) {
+        for (const rawValue of testCase.rawValues) {
+          expect(serializedEvents, testCase.name).not.toContain(rawValue);
+          expect(serializedLogs, testCase.name).not.toContain(rawValue);
+        }
+      }
+      expect(serializedEvents).not.toContain(safePayloadMarker);
+    } finally {
+      await host?.stop();
+      await server.stop();
+    }
+  });
+
+  it("treats inbound signal payloads with unsafe keys as raw unsafe input", async () => {
+    const hostLogs: string[] = [];
+    const hostEvents: AgentShellEvent[] = [];
+    const safePayloadMarker = "agent-authorized-safe-signal-after-unsafe-keys";
+    const server = await startHostAuthorizedSignalPayloadServer((authorizationId) => [
+      ...UNSAFE_SIGNAL_PAYLOAD_KEY_CASES.map((testCase) => ({
+        authorizationId,
+        kind: "viewer-offer",
+        ...testCase.payload
+      })),
+      {
+        authorizationId,
+        kind: "viewer-offer",
+        safeMarker: safePayloadMarker
+      }
+    ]);
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        hostDecision: "approve",
+        relayUrl: server.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event),
+        visibleToHost: true
+      }));
+      await host.start();
+
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+      const rawEvents = await waitForRawEventCount(hostEvents, UNSAFE_SIGNAL_PAYLOAD_KEY_CASES.length);
+      const receivedSignal = await waitForMessage(
+        hostEvents,
+        (message) => message.type === "signal" && message.fromPeerId === "viewer-1"
+      );
+      await delay(100);
+
+      for (const rawEvent of rawEvents) {
+        expect(rawEvent).toMatchObject({
+          direction: "raw",
+          text: "[REDACTED]",
+          byteLength: expect.any(Number)
+        });
+        expect(rawEvent.byteLength).toBeGreaterThan(0);
+      }
+      expect(hostEvents.filter((event) => event.direction === "received" && event.message.type === "signal")).toHaveLength(1);
+      expect(receivedSignal).toMatchObject({
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(
+            JSON.stringify({
+              authorizationId,
+              kind: "viewer-offer",
+              safeMarker: safePayloadMarker
+            })
+          )
+        }
+      });
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const serializedLogs = hostLogs.join("\n");
+      for (const testCase of UNSAFE_SIGNAL_PAYLOAD_KEY_CASES) {
         for (const rawValue of testCase.rawValues) {
           expect(serializedEvents, testCase.name).not.toContain(rawValue);
           expect(serializedLogs, testCase.name).not.toContain(rawValue);
