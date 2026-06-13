@@ -1854,6 +1854,16 @@ function getViewerStatusSnapshot(
     };
   }
 
+  if (sessionState.remotePeerDisconnected) {
+    return {
+      state: "inactive",
+      authorizationId: snapshot.authorizationId,
+      authorizationStatus: snapshot.status,
+      visibleToHost: false,
+      permissionCount: 0
+    };
+  }
+
   const state = hostIndicatorStateForAuthorization(snapshot.status);
   return {
     state,

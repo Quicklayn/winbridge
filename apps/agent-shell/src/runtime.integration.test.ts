@@ -2698,6 +2698,43 @@ describe("agent shell consent workflow", () => {
     });
   });
 
+  it("reports active viewer status as inactive after trusted host disconnect", async () => {
+    const { host, relay, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostGrantPermissions: ["screen:view"],
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active"
+    );
+    if (activeState.type !== "session-authorization-state") {
+      throw new Error("Expected active authorization state");
+    }
+
+    host.disconnect();
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "peer-disconnected" && message.peerId === "host-1"
+    );
+    const sentCountBeforeDisconnectedStatus = viewerEvents.filter(
+      (event) => event.direction === "sent"
+    ).length;
+
+    expect(viewer.getViewerStatus()).toEqual({
+      state: "inactive",
+      authorizationId: activeState.authorizationId,
+      authorizationStatus: "active",
+      visibleToHost: false,
+      permissionCount: 0
+    });
+    expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(
+      sentCountBeforeDisconnectedStatus
+    );
+  });
+
   it("reports invisible or denied viewer status as inactive", async () => {
     const invisible = await startRelayAndHost({
       hostDecision: "approve",
