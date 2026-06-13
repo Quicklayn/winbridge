@@ -232,9 +232,39 @@ describe("agent shell arguments", () => {
       expect(() => parseArgs(["host", `--${option}`, "Host reason "], {}, 42)).toThrow(
         AgentShellUsageError
       );
+      expect(() => parseArgs(["host", `--${option}`, "Host\nreason"], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+      expect(() => parseArgs(["host", `--${option}`, "Host\u202ereason"], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+      expect(() => parseArgs(["host", `--${option}`, "Host\u200breason"], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+      expect(() => parseArgs(["host", `--${option}`, "Host\ufeffreason"], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
       expect(() => parseArgs(["host", `--${option}`, "x".repeat(241)], {}, 42)).toThrow(
         AgentShellUsageError
       );
+    }
+  });
+
+  it("rejects unsafe lifecycle reason values without exposing raw reason text", () => {
+    for (const reason of [
+      "private-cli-reason-marker\n",
+      "private-cli-reason-marker\u202e",
+      "private-cli-reason-marker\u200b",
+      "private-cli-reason-marker\ufeff"
+    ]) {
+      try {
+        parseArgs(["host", "--terminate-reason", reason], {}, 42);
+        throw new Error("Expected unsafe CLI lifecycle reason to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(AgentShellUsageError);
+        expect((error as Error).message).not.toContain("private-cli-reason-marker");
+        expect((error as Error).message).not.toContain(reason);
+      }
     }
   });
 

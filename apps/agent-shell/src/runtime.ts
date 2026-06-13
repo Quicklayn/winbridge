@@ -168,7 +168,7 @@ const RUNTIME_TOKEN_ERROR_MESSAGE =
   "Runtime token must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
 const RUNTIME_VISIBLE_SESSION_ERROR_MESSAGE = "Runtime visibleToHost must be a boolean when provided";
 const RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE =
-  "Runtime workflow reasons must be non-blank, already trimmed, and 240 characters or less";
+  "Runtime workflow reasons must be non-blank, already trimmed, 240 characters or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
 const RUNTIME_AUTHORIZATION_TTL_ERROR_MESSAGE =
   "Runtime authorization TTL must be an integer from 1 through 2147483647";
 const RUNTIME_WORKFLOW_TIMER_ERROR_MESSAGE =
@@ -1537,7 +1537,7 @@ function assertRuntimeToken(value: unknown): asserts value is string | undefined
     value !== value.trim() ||
     Buffer.byteLength(value, "utf8") > MAX_AGENT_SHELL_TOKEN_BYTES ||
     hasAsciiControlCharacter(value) ||
-    hasUnsafeTokenFormatCharacter(value)
+    hasUnsafeFormatCharacter(value)
   ) {
     throw new Error(RUNTIME_TOKEN_ERROR_MESSAGE);
   }
@@ -1554,7 +1554,7 @@ function hasAsciiControlCharacter(value: string): boolean {
   return false;
 }
 
-function hasUnsafeTokenFormatCharacter(value: string): boolean {
+function hasUnsafeFormatCharacter(value: string): boolean {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
 
@@ -1659,7 +1659,9 @@ function assertRuntimeWorkflowReasons(values: unknown[]): void {
       typeof value !== "string" ||
       value.trim().length === 0 ||
       value !== value.trim() ||
-      value.length > MAX_AGENT_SHELL_REASON_LENGTH
+      value.length > MAX_AGENT_SHELL_REASON_LENGTH ||
+      hasAsciiControlCharacter(value) ||
+      hasUnsafeFormatCharacter(value)
     ) {
       throw new Error(RUNTIME_WORKFLOW_REASON_ERROR_MESSAGE);
     }

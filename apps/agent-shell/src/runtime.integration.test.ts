@@ -174,12 +174,24 @@ describe("agent shell consent workflow", () => {
       ["unsafe workflow timer", { hostPauseAfterMs: 2_147_483_648 }, "Runtime workflow timer"],
       ["blank decision reason", { decisionReason: "   " }, "Runtime workflow reasons"],
       ["untrimmed decision reason", { decisionReason: " Host denied" }, "Runtime workflow reasons"],
+      ["control-character decision reason", { decisionReason: "Host\ndenied" }, "Runtime workflow reasons"],
+      ["bidi-control decision reason", { decisionReason: "Host\u202edenied" }, "Runtime workflow reasons"],
+      ["zero-width decision reason", { decisionReason: "Host\u200bdenied" }, "Runtime workflow reasons"],
+      ["feff decision reason", { decisionReason: "Host\ufeffdenied" }, "Runtime workflow reasons"],
       ["untrimmed revoke reason", { hostRevokeReason: "Host revoked " }, "Runtime workflow reasons"],
+      ["control-character revoke reason", { hostRevokeReason: "Host\nrevoked" }, "Runtime workflow reasons"],
       ["untrimmed pause reason", { hostPauseReason: " Host paused" }, "Runtime workflow reasons"],
+      ["bidi-control pause reason", { hostPauseReason: "Host\u202epaused" }, "Runtime workflow reasons"],
       ["untrimmed resume reason", { hostResumeReason: "Host resumed " }, "Runtime workflow reasons"],
+      ["zero-width resume reason", { hostResumeReason: "Host\u200bresumed" }, "Runtime workflow reasons"],
       [
         "untrimmed terminate reason",
         { hostTerminateReason: " Host terminated " },
+        "Runtime workflow reasons"
+      ],
+      [
+        "feff terminate reason",
+        { hostTerminateReason: "Host\ufeffterminated" },
         "Runtime workflow reasons"
       ],
       [
@@ -194,6 +206,28 @@ describe("agent shell consent workflow", () => {
         () => createAgentShellRuntime(createRuntimeOptions(overrides)),
         name
       ).toThrow(expectedMessage);
+    }
+  });
+
+  it("rejects unsafe runtime workflow reasons without exposing raw reason text", () => {
+    for (const reason of [
+      "runtime-private-reason-marker\n",
+      "runtime-private-reason-marker\u202e",
+      "runtime-private-reason-marker\u200b",
+      "runtime-private-reason-marker\ufeff"
+    ]) {
+      try {
+        createAgentShellRuntime(createRuntimeOptions({
+          hostTerminateReason: reason,
+          logger: silentLogger
+        }));
+        throw new Error("Expected unsafe runtime workflow reason to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("Runtime workflow reasons");
+        expect((error as Error).message).not.toContain("runtime-private-reason-marker");
+        expect((error as Error).message).not.toContain(reason);
+      }
     }
   });
 

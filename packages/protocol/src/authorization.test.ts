@@ -799,6 +799,94 @@ describe("session authorization state machine", () => {
     ).toThrow("reason must be trimmed");
   });
 
+  it("rejects control-character lifecycle reasons in state-machine transitions", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+    const paused = pauseSessionAuthorization(active, { now: baseTime });
+
+    expect(() =>
+      denySessionAuthorization(pending(), {
+        reason: "Host\ndenied",
+        now: baseTime
+      })
+    ).toThrow("reason must not contain ASCII control characters");
+    expect(() =>
+      revokeSessionPermission(active, {
+        permission: "screen:view",
+        reason: "Host\nrevoked",
+        now: baseTime
+      })
+    ).toThrow("reason must not contain ASCII control characters");
+    expect(() =>
+      pauseSessionAuthorization(active, {
+        reason: "Host\npaused",
+        now: baseTime
+      })
+    ).toThrow("reason must not contain ASCII control characters");
+    expect(() =>
+      resumeSessionAuthorization(paused, {
+        reason: "Host\nresumed",
+        now: baseTime
+      })
+    ).toThrow("reason must not contain ASCII control characters");
+    expect(() =>
+      terminateSessionAuthorization(active, {
+        reason: "Host\nterminated",
+        now: baseTime
+      })
+    ).toThrow("reason must not contain ASCII control characters");
+  });
+
+  it("rejects format-control lifecycle reasons in state-machine transitions", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+    const paused = pauseSessionAuthorization(active, { now: baseTime });
+
+    for (const reason of ["Host\u202edenied", "Host\u200bdenied", "Host\ufeffdenied"]) {
+      expect(() =>
+        denySessionAuthorization(pending(), {
+          reason,
+          now: baseTime
+        })
+      ).toThrow("reason must not contain Unicode bidi or zero-width formatting controls");
+    }
+    expect(() =>
+      revokeSessionPermission(active, {
+        permission: "screen:view",
+        reason: "Host\u202erevoked",
+        now: baseTime
+      })
+    ).toThrow("reason must not contain Unicode bidi or zero-width formatting controls");
+    expect(() =>
+      pauseSessionAuthorization(active, {
+        reason: "Host\u200bpaused",
+        now: baseTime
+      })
+    ).toThrow("reason must not contain Unicode bidi or zero-width formatting controls");
+    expect(() =>
+      resumeSessionAuthorization(paused, {
+        reason: "Host\ufeffresumed",
+        now: baseTime
+      })
+    ).toThrow("reason must not contain Unicode bidi or zero-width formatting controls");
+    expect(() =>
+      terminateSessionAuthorization(active, {
+        reason: "Host\u202eterminated",
+        now: baseTime
+      })
+    ).toThrow("reason must not contain Unicode bidi or zero-width formatting controls");
+  });
+
   it("rejects parsed authorization records with blank reasons", () => {
     const denied = denySessionAuthorization(pending(), {
       reason: "Host denied",
@@ -825,6 +913,62 @@ describe("session authorization state machine", () => {
         reason: " Host denied "
       })
     ).toThrow("reason must be trimmed");
+  });
+
+  it("rejects parsed authorization records with control-character reasons", () => {
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+
+    expect(() =>
+      SessionAuthorizationSchema.parse({
+        ...denied,
+        reason: "Host\ndenied"
+      })
+    ).toThrow("reason must not contain ASCII control characters");
+  });
+
+  it("rejects parsed authorization records with format-control reasons", () => {
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+
+    for (const reason of ["Host\u202edenied", "Host\u200bdenied", "Host\ufeffdenied"]) {
+      expect(() =>
+        SessionAuthorizationSchema.parse({
+          ...denied,
+          reason
+        })
+      ).toThrow("reason must not contain Unicode bidi or zero-width formatting controls");
+    }
+  });
+
+  it("rejects unsafe authorization reasons without exposing raw private text", () => {
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+
+    for (const reason of [
+      "Host\nprivate-reason-marker",
+      "Host\u202eprivate-reason-marker",
+      "Host\u200bprivate-reason-marker",
+      "Host\ufeffprivate-reason-marker"
+    ]) {
+      try {
+        SessionAuthorizationSchema.parse({
+          ...denied,
+          reason
+        });
+        throw new Error("Expected unsafe authorization reason to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain("private-reason-marker");
+        expect((error as Error).message).not.toContain(reason);
+      }
+    }
   });
 
   it("authorizes granted actions only when active and visible", () => {

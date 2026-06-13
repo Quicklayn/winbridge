@@ -360,7 +360,9 @@ function parseOptionalReason(raw: string | undefined): string | undefined {
   if (
     raw.trim().length === 0 ||
     raw !== raw.trim() ||
-    raw.length > MAX_AGENT_SHELL_REASON_LENGTH
+    raw.length > MAX_AGENT_SHELL_REASON_LENGTH ||
+    hasAsciiControlCharacter(raw) ||
+    hasUnsafeFormatCharacter(raw)
   ) {
     throw new AgentShellUsageError();
   }
@@ -392,7 +394,7 @@ function parseOptionalToken(raw: string | undefined): string | undefined {
     raw !== raw.trim() ||
     Buffer.byteLength(raw, "utf8") > MAX_AGENT_SHELL_TOKEN_BYTES ||
     hasAsciiControlCharacter(raw) ||
-    hasUnsafeTokenFormatCharacter(raw)
+    hasUnsafeFormatCharacter(raw)
   ) {
     throw new AgentShellUsageError();
   }
@@ -411,7 +413,7 @@ function hasAsciiControlCharacter(value: string): boolean {
   return false;
 }
 
-function hasUnsafeTokenFormatCharacter(value: string): boolean {
+function hasUnsafeFormatCharacter(value: string): boolean {
   for (const character of value) {
     const codePoint = character.codePointAt(0);
 
