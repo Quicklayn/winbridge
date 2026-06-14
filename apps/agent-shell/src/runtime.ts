@@ -3521,11 +3521,15 @@ function createSanitizedRuntimeError(): Error {
 
 function reportRuntimeError(options: AgentShellRuntimeOptions, error: unknown): void {
   const diagnostic = createAgentShellErrorDiagnostic(error);
-  options.onEvent?.({
-    direction: "error",
-    error: createSanitizedRuntimeError(),
-    messageBytes: diagnostic.messageBytes
-  });
+  try {
+    options.onEvent?.({
+      direction: "error",
+      error: createSanitizedRuntimeError(),
+      messageBytes: diagnostic.messageBytes
+    });
+  } catch {
+    // Runtime error event diagnostics must not replace sanitized failures.
+  }
   try {
     options.logger?.error(formatAgentShellErrorLog("runtime", error));
   } catch {
