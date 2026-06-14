@@ -10,6 +10,7 @@ import {
   SessionIdSchema
 } from "./session.js";
 import { hasSecretBearingAuditMetadata } from "./audit.js";
+import { hasSecretBearingProtocolIdentifierMetadata } from "./identifier-metadata.js";
 import { hasAsciiControlCharacter, hasUnsafeTextFormatControl } from "./text-safety.js";
 
 export const DeviceTrustLevelSchema = z.enum(["unknown", "local-dev", "verified"]);
@@ -35,8 +36,19 @@ export const DeviceDisplayNameSchema = z
   );
 export type DeviceDisplayName = z.infer<typeof DeviceDisplayNameSchema>;
 
+const IDENTITY_PAIRING_IDENTIFIER_REJECTION_MESSAGE =
+  "Identity or pairing identifier must not contain sensitive metadata";
+const IdentityPairingDeviceIdentifierSchema = ProtocolIdentifierSchema.min(8).refine(
+  isIdentityPairingIdentifierSafe,
+  IDENTITY_PAIRING_IDENTIFIER_REJECTION_MESSAGE
+);
+const IdentityPairingSessionIdSchema = SessionIdSchema.refine(
+  isIdentityPairingIdentifierSafe,
+  IDENTITY_PAIRING_IDENTIFIER_REJECTION_MESSAGE
+);
+
 export const DeviceIdentitySchema = z.object({
-  deviceId: ProtocolIdentifierSchema.min(8),
+  deviceId: IdentityPairingDeviceIdentifierSchema,
   displayName: DeviceDisplayNameSchema,
   platform: z.enum(["windows", "linux", "macos", "unknown"]),
   trustLevel: DeviceTrustLevelSchema,
@@ -45,9 +57,9 @@ export const DeviceIdentitySchema = z.object({
 export type DeviceIdentity = z.infer<typeof DeviceIdentitySchema>;
 
 export const PairingTicketSchema = z.object({
-  pairingId: ProtocolIdentifierSchema.min(8),
-  sessionId: SessionIdSchema,
-  hostDeviceId: ProtocolIdentifierSchema.min(8),
+  pairingId: IdentityPairingDeviceIdentifierSchema,
+  sessionId: IdentityPairingSessionIdSchema,
+  hostDeviceId: IdentityPairingDeviceIdentifierSchema,
   pairingCodeSalt: z.string().regex(/^salt:[a-f0-9]{32}$/),
   pairingCodeHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   createdAt: z.string().datetime(),
@@ -57,10 +69,10 @@ export const PairingTicketSchema = z.object({
 export type PairingTicket = z.infer<typeof PairingTicketSchema>;
 
 export const PairedDeviceSchema = z.object({
-  pairingId: ProtocolIdentifierSchema.min(8),
-  sessionId: SessionIdSchema,
-  hostDeviceId: ProtocolIdentifierSchema.min(8),
-  viewerDeviceId: ProtocolIdentifierSchema.min(8),
+  pairingId: IdentityPairingDeviceIdentifierSchema,
+  sessionId: IdentityPairingSessionIdSchema,
+  hostDeviceId: IdentityPairingDeviceIdentifierSchema,
+  viewerDeviceId: IdentityPairingDeviceIdentifierSchema,
   pairedAt: z.string().datetime()
 }).strict();
 export type PairedDevice = z.infer<typeof PairedDeviceSchema>;
@@ -184,7 +196,7 @@ export function createPairedDevice(input: {
   pairedAt?: Date;
 }): PairedDevice {
   const ticket = PairingTicketSchema.parse(input.ticket);
-  const viewerDeviceId = ProtocolIdentifierSchema.min(8).parse(input.viewerDeviceId);
+  const viewerDeviceId = IdentityPairingDeviceIdentifierSchema.parse(input.viewerDeviceId);
   const pairedAt = input.pairedAt ?? new Date();
   const pairedAtTime = pairedAt.getTime();
   const createdAtTime = Date.parse(ticket.createdAt);
@@ -231,6 +243,10 @@ export function assertRemoteActionAuthorized(input: {
 
 function pairingCodeHashesMatch(storedHash: string, candidateHash: string): boolean {
   return timingSafeEqual(pairingCodeHashDigest(storedHash), pairingCodeHashDigest(candidateHash));
+}
+
+function isIdentityPairingIdentifierSafe(identifier: string): boolean {
+  return !hasSecretBearingProtocolIdentifierMetadata(identifier);
 }
 
 function pairingCodeHashDigest(hash: string): Buffer {

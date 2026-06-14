@@ -211,6 +211,8 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
         const envelope = decodeProtocolEnvelope(rawDataToString(data));
 
         if (!registeredPeer) {
+          assertJoinIdentityPairingIdentifiersSecretSafe(envelope);
+
           let joinResult: RelayJoinResult | undefined;
           let joinDeviceIdentity: RelayJoinAuditDeviceIdentity | undefined;
           try {
@@ -672,6 +674,22 @@ function registerFirstMessage(
     result,
     deviceIdentity: relayJoinAuditDeviceIdentity(join.deviceIdentity, join.pairingCode)
   };
+}
+
+function assertJoinIdentityPairingIdentifiersSecretSafe(envelope: ProtocolEnvelope): void {
+  if (envelope.type !== "join-session") {
+    return;
+  }
+
+  const join = JoinSessionMessageSchema.parse(envelope);
+  const deviceId = join.deviceIdentity?.deviceId ?? developmentDeviceIdForPeer(join.peerId);
+
+  if (
+    hasSecretBearingProtocolIdentifierMetadata(join.sessionId) ||
+    hasSecretBearingProtocolIdentifierMetadata(deviceId)
+  ) {
+    throw new Error(GENERIC_RELAY_REJECTION_REASON);
+  }
 }
 
 function relayJoinAuditDeviceIdentity(

@@ -20,6 +20,22 @@ const secretBearingDisplayNames = [
   "diagnostics dump: raw-display-diagnostics",
   "screen content: raw-display-screen"
 ] as const;
+const secretBearingIdentityIdentifiers = [
+  "token-raw-device-id",
+  "credential_raw_device_id",
+  "pairing-code-raw-device-id",
+  "authorization-header-raw-device-id",
+  "ssh-key-raw-device-id"
+] as const;
+const identityPairingIdentifierRejectionMessage =
+  "Identity or pairing identifier must not contain sensitive metadata";
+
+function expectSecretBearingIdentifierError(error: unknown, unsafeValue: string): void {
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toContain(identityPairingIdentifierRejectionMessage);
+  expect((error as Error).message).not.toContain(unsafeValue);
+  expect((error as Error).message).not.toContain("raw-");
+}
 
 describe("device identity", () => {
   it("creates schema-valid local device metadata", () => {
@@ -75,6 +91,24 @@ describe("device identity", () => {
         deviceId: "d".repeat(129)
       })
     ).toThrow();
+  });
+
+  it("rejects secret-bearing local device identifiers without exposing raw text", () => {
+    for (const deviceId of secretBearingIdentityIdentifiers) {
+      let thrown: unknown;
+
+      try {
+        createDeviceIdentity({
+          displayName: "Host workstation",
+          platform: "windows",
+          deviceId
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expectSecretBearingIdentifierError(thrown, deviceId);
+    }
   });
 
   it("rejects blank local device display names", () => {
@@ -237,6 +271,134 @@ describe("pairing tickets", () => {
         viewerDeviceId: "viewer/1"
       })
     ).toThrow();
+  });
+
+  it("rejects secret-bearing pairing ticket identifiers without exposing raw text", () => {
+    const cases = [
+      {
+        name: "pairingId",
+        unsafeValue: "token-raw-pairing-id",
+        buildTicketInput: (value: string) => ({
+          pairingId: value,
+          sessionId: "session-demo",
+          hostDeviceId: "dev_host_1"
+        })
+      },
+      {
+        name: "sessionId",
+        unsafeValue: "credential-raw-session-id",
+        buildTicketInput: (value: string) => ({
+          pairingId: "pair-demo",
+          sessionId: value,
+          hostDeviceId: "dev_host_1"
+        })
+      },
+      {
+        name: "hostDeviceId",
+        unsafeValue: "authorization-header-raw-host-device-id",
+        buildTicketInput: (value: string) => ({
+          pairingId: "pair-demo",
+          sessionId: "session-demo",
+          hostDeviceId: value
+        })
+      }
+    ] as const;
+
+    for (const { buildTicketInput, name, unsafeValue } of cases) {
+      let thrown: unknown;
+
+      try {
+        createPairingTicket({
+          ...buildTicketInput(unsafeValue),
+          pairingCode: "123-456",
+          pairingCodeSalt: "salt:00112233445566778899aabbccddeeff",
+          now: new Date("2026-06-11T00:00:00.000Z")
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expectSecretBearingIdentifierError(thrown, unsafeValue);
+      expect((thrown as Error).message, name).not.toContain("123-456");
+    }
+
+    const ticket = createPairingTicket({
+      pairingId: "pair-demo",
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456",
+      pairingCodeSalt: "salt:00112233445566778899aabbccddeeff",
+      now: new Date("2026-06-11T00:00:00.000Z")
+    });
+    const unsafeStoredTicket = {
+      ...ticket,
+      sessionId: "private-key-raw-consume-session-id"
+    } as unknown as Parameters<typeof consumePairingTicket>[0];
+    let consumeThrown: unknown;
+
+    try {
+      consumePairingTicket(
+        unsafeStoredTicket,
+        "123-456",
+        new Date("2026-06-11T00:00:00.500Z")
+      );
+    } catch (error) {
+      consumeThrown = error;
+    }
+
+    expectSecretBearingIdentifierError(consumeThrown, unsafeStoredTicket.sessionId);
+    expect((consumeThrown as Error).message).not.toContain("123-456");
+  });
+
+  it("rejects secret-bearing paired-device identifiers without exposing raw text", () => {
+    const ticket = createPairingTicket({
+      pairingId: "pair-demo",
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456",
+      pairingCodeSalt: "salt:00112233445566778899aabbccddeeff",
+      ttlMs: 1000,
+      now: new Date("2026-06-11T00:00:00.000Z")
+    });
+
+    let createThrown: unknown;
+    try {
+      createPairedDevice({
+        ticket,
+        viewerDeviceId: "cookie-raw-viewer-device-id",
+        pairedAt: new Date("2026-06-11T00:00:00.500Z")
+      });
+    } catch (error) {
+      createThrown = error;
+    }
+    expectSecretBearingIdentifierError(createThrown, "cookie-raw-viewer-device-id");
+
+    const pair = createPairedDevice({
+      ticket,
+      viewerDeviceId: "dev_viewer_1",
+      pairedAt: new Date("2026-06-11T00:00:00.500Z")
+    });
+    const cases = [
+      { name: "pairingId", unsafeValue: "token-raw-paired-id" },
+      { name: "sessionId", unsafeValue: "credential-raw-paired-session-id" },
+      { name: "hostDeviceId", unsafeValue: "access-key-raw-paired-host-id" },
+      { name: "viewerDeviceId", unsafeValue: "ssh-key-raw-paired-viewer-id" }
+    ] as const;
+
+    for (const { name, unsafeValue } of cases) {
+      let thrown: unknown;
+
+      try {
+        PairedDeviceSchema.parse({
+          ...pair,
+          [name]: unsafeValue
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expectSecretBearingIdentifierError(thrown, unsafeValue);
+    }
   });
 
   it("rejects pairing records with unknown fixed fields", () => {

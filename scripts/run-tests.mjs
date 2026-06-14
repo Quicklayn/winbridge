@@ -66,7 +66,19 @@ function findTestFiles(root) {
 }
 
 function prioritizeTestFiles(files) {
-  const first = new Set(["apps/agent-shell/src/runtime.integration.test.ts"]);
+  const priority = new Map([
+    ["apps/agent-shell/src/runtime.integration.test.ts", 0],
+    ["apps/relay/src/server.integration.test.ts", 1]
+  ]);
 
-  return [...files.filter((file) => first.has(file)), ...files.filter((file) => !first.has(file))];
+  return [...files].sort((left, right) => {
+    const leftPriority = priority.get(left) ?? Number.POSITIVE_INFINITY;
+    const rightPriority = priority.get(right) ?? Number.POSITIVE_INFINITY;
+
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    return left.localeCompare(right);
+  });
 }
