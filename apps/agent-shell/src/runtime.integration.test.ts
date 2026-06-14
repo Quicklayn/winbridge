@@ -2712,7 +2712,8 @@ describe("agent shell consent workflow", () => {
       type: "audit-event",
       detail: {
         requestedPermissionCount: 2,
-        grantedPermissionCount: 1
+        grantedPermissionCount: 1,
+        requestReasonProvided: false
       }
     });
     expect(activeAudit).toMatchObject({
@@ -3869,7 +3870,8 @@ describe("agent shell consent workflow", () => {
       outcome: "accepted",
       detail: {
         requestedPermissionCount: 1,
-        grantedPermissionCount: 1
+        grantedPermissionCount: 1,
+        requestReasonProvided: false
       }
     });
     expect(activeAudit).toMatchObject({
@@ -3918,7 +3920,8 @@ describe("agent shell consent workflow", () => {
         outcome: "accepted",
         detail: {
           requestedPermissionCount: 1,
-          grantedPermissionCount: 1
+          grantedPermissionCount: 1,
+          requestReasonProvided: false
         }
       }),
       expect.objectContaining({
@@ -3959,10 +3962,116 @@ describe("agent shell consent workflow", () => {
       outcome: "denied",
       detail: {
         requestedPermissionCount: 1,
+        requestReasonProvided: false,
         reasonConfigured: true
       }
     });
     expect(JSON.stringify(denialAudit)).not.toContain("private denial reason");
+  });
+
+  it("records request reason presence for approval audit without raw request reason text", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const requestReason = "Private viewer request reason raw-token";
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      silentLogger,
+      undefined,
+      "Viewer",
+      { requestReason }
+    );
+
+    const approvalAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.approved"
+    );
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.active"
+    );
+
+    expect(approvalAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        requestedPermissionCount: 1,
+        grantedPermissionCount: 1,
+        requestReasonProvided: true
+      }
+    });
+    expect(hostAuditSink.records().at(0)).toEqual(expect.objectContaining({
+      action: "agent-shell.authorization.approved",
+      detail: {
+        requestedPermissionCount: 1,
+        grantedPermissionCount: 1,
+        requestReasonProvided: true
+      }
+    }));
+    expect(JSON.stringify(approvalAudit)).not.toContain(requestReason);
+    expect(JSON.stringify(hostAuditSink.records())).not.toContain(requestReason);
+    expect(JSON.stringify(hostEvents)).not.toContain(requestReason);
+    expect(JSON.stringify(viewerEvents)).not.toContain(requestReason);
+  });
+
+  it("records request reason presence for denial audit without raw request reason text", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const requestReason = "Private denied request reason raw-token";
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      decisionReason: "private denial reason",
+      hostAuditSink,
+      hostDecision: "deny"
+    });
+    await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      silentLogger,
+      undefined,
+      "Viewer",
+      { requestReason }
+    );
+
+    const denialAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.denied"
+    );
+
+    expect(denialAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "denied",
+      detail: {
+        requestedPermissionCount: 1,
+        requestReasonProvided: true,
+        reasonConfigured: true
+      }
+    });
+    expect(hostAuditSink.records()).toEqual([
+      expect.objectContaining({
+        action: "agent-shell.authorization.denied",
+        outcome: "denied",
+        detail: {
+          requestedPermissionCount: 1,
+          requestReasonProvided: true,
+          reasonConfigured: true
+        }
+      })
+    ]);
+    expect(JSON.stringify(denialAudit)).not.toContain(requestReason);
+    expect(JSON.stringify(hostAuditSink.records())).not.toContain(requestReason);
+    expect(JSON.stringify(hostEvents)).not.toContain(requestReason);
+    expect(JSON.stringify(viewerEvents)).not.toContain(requestReason);
   });
 
   it("redacts protocol reason text from sent and received runtime events", async () => {
@@ -4085,6 +4194,7 @@ describe("agent shell consent workflow", () => {
         outcome: "denied",
         detail: {
           requestedPermissionCount: 1,
+          requestReasonProvided: false,
           reasonConfigured: true
         }
       });
@@ -5598,7 +5708,8 @@ describe("agent shell consent workflow", () => {
           outcome: "accepted",
           detail: {
             requestedPermissionCount: 1,
-            grantedPermissionCount: 1
+            grantedPermissionCount: 1,
+            requestReasonProvided: false
           }
         }),
         expect.objectContaining({

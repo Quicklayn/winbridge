@@ -1620,6 +1620,7 @@ async function handleHostAuthorizationRequest(
         outcome: "denied",
         detail: {
           requestedPermissionCount: request.requestedPermissions.length,
+          requestReasonProvided: request.reason !== undefined,
           reasonConfigured: Boolean(options.decisionReason)
         }
       });
@@ -1672,7 +1673,8 @@ async function handleHostAuthorizationRequest(
     outcome: "accepted",
     detail: {
       requestedPermissionCount: request.requestedPermissions.length,
-      grantedPermissionCount: grantedPermissions.length
+      grantedPermissionCount: grantedPermissions.length,
+      requestReasonProvided: request.reason !== undefined
     }
   });
 
