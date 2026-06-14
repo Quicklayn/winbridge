@@ -48,6 +48,8 @@ const GENERIC_RELAY_REJECTION_REASON = "Invalid relay message";
 const RELAY_TOKEN_NOT_CONFIGURED_CLOSE_REASON = "Relay token is not configured";
 const ORPHANED_VIEWER_CLOSE_REASON = "Host disconnected";
 const STALE_REGISTERED_PEER_REASON = "Registered peer is no longer in room";
+const RELAY_DELIVERY_AUDIT_FAILED_WARNING =
+  "[winbridge-relay] Forward delivery audit failed after send attempt";
 const RELAY_RUNTIME_ALREADY_STARTED_ERROR_MESSAGE = "Relay runtime is already started";
 const RELAY_SHARED_TOKEN_ERROR_MESSAGE =
   "WINBRIDGE_RELAY_SHARED_TOKEN must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
@@ -112,6 +114,11 @@ type JoinDenialAuditAttributionOptions = {
   redactAttemptedDeviceId?: boolean;
 };
 type RelayRuntimeStartState = "idle" | "starting" | "started";
+type RelayDeliveryOutcome = {
+  deliveryTargetCount: number;
+  deliverySentCount: number;
+  deliveryFailedCount: number;
+};
 
 export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRuntime {
   const port = normalizeRelayPort(options.port === undefined ? 8787 : options.port);
@@ -302,9 +309,18 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
           detail: forwardAuditDetail
         });
 
-        for (const peer of recipientPeers) {
-          peer.send(encodeProtocolEnvelope(envelope));
-        }
+        const deliveryOutcome = deliverRelayMessage(
+          recipientPeers,
+          encodeProtocolEnvelope(envelope)
+        );
+        writeRelayDeliveryAudit({
+          auditSink,
+          detail: forwardAuditDetail,
+          logger,
+          outcome: deliveryOutcome,
+          peerId: registeredPeer.peerId,
+          sessionId: registeredPeer.sessionId
+        });
       } catch (error) {
         const reason = safeRelayRejectionReason(error);
         const decision = invalidMessageLimiter.consume(registeredPeer?.peerId ?? remoteKey);
@@ -760,6 +776,57 @@ function acceptedForwardAuditDetail(
   }
 
   return detail;
+}
+
+function deliverRelayMessage(peers: RelayPeer[], payload: string): RelayDeliveryOutcome {
+  let deliverySentCount = 0;
+  let deliveryFailedCount = 0;
+
+  for (const peer of peers) {
+    try {
+      if (peer.send(payload)) {
+        deliverySentCount += 1;
+      } else {
+        deliveryFailedCount += 1;
+      }
+    } catch {
+      deliveryFailedCount += 1;
+    }
+  }
+
+  return {
+    deliveryTargetCount: peers.length,
+    deliverySentCount,
+    deliveryFailedCount
+  };
+}
+
+function writeRelayDeliveryAudit(options: {
+  auditSink: AuditSink;
+  detail: AuditDetail;
+  logger: RelayRuntimeOptions["logger"];
+  outcome: RelayDeliveryOutcome;
+  peerId: string;
+  sessionId: string;
+}): void {
+  try {
+    writeRelayAudit(options.auditSink, {
+      action: "relay.message.delivery",
+      outcome: options.outcome.deliveryFailedCount === 0 ? "accepted" : "failed",
+      sessionId: options.sessionId,
+      peerId: options.peerId,
+      detail: {
+        ...options.detail,
+        ...options.outcome
+      }
+    });
+  } catch {
+    try {
+      options.logger?.warn(RELAY_DELIVERY_AUDIT_FAILED_WARNING);
+    } catch {
+      // Post-send delivery audit diagnostics are best-effort only.
+    }
+  }
 }
 
 function applyRelayAuditIdentifierDetail(

@@ -9717,6 +9717,10 @@ describe("agent shell consent workflow", () => {
       viewerEvents,
       (message) => message.type === "relay-ready" && message.peerId === "viewer-1"
     );
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "hello" && message.peerId === "host-1"
+    );
     await host.stop();
 
     const disconnect = await waitForMessage(

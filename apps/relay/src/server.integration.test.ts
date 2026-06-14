@@ -49,10 +49,33 @@ class ClosingJoinRejectionRoomRegistry extends RoomRegistry {
   }
 }
 
+class FailingRecipientSendRoomRegistry extends RoomRegistry {
+  override join(peer: RelayPeerJoin) {
+    if (peer.role !== "viewer") {
+      return super.join(peer);
+    }
+
+    return super.join({
+      ...peer,
+      send: () => false
+    });
+  }
+}
+
 class ForwardAuditFailureSink extends MemoryAuditSink {
   override write(input: Parameters<MemoryAuditSink["write"]>[0]): AuditRecord {
     if (input.action === "relay.message.forwarded") {
       throw new Error("Forward audit unavailable private-forward-audit-marker");
+    }
+
+    return super.write(input);
+  }
+}
+
+class DeliveryAuditFailureSink extends MemoryAuditSink {
+  override write(input: Parameters<MemoryAuditSink["write"]>[0]): AuditRecord {
+    if (input.action === "relay.message.delivery") {
+      throw new Error("Delivery audit unavailable private-delivery-audit-marker");
     }
 
     return super.write(input);
@@ -655,9 +678,214 @@ describe("relay runtime integration", () => {
       recipientPeerId: "viewer-1",
       recipientRole: "viewer"
     });
+    const delivery = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.delivery" &&
+        record.detail?.messageType === "signal" &&
+        record.detail?.authorizationId === authorizationId
+    );
+    expect(delivery).toMatchObject({
+      action: "relay.message.delivery",
+      actor: {
+        id: "development-relay:host-1"
+      },
+      outcome: "accepted",
+      sessionId: "session-demo",
+      detail: {
+        messageType: "signal",
+        messageId: signal.messageId,
+        authorizationId,
+        recipientPeerId: "viewer-1",
+        recipientRole: "viewer",
+        deliveryTargetCount: 1,
+        deliverySentCount: 1,
+        deliveryFailedCount: 0
+      }
+    });
+    expect(delivery.detail).toEqual({
+      messageType: "signal",
+      messageId: signal.messageId,
+      authorizationId,
+      recipientPeerId: "viewer-1",
+      recipientRole: "viewer",
+      deliveryTargetCount: 1,
+      deliverySentCount: 1,
+      deliveryFailedCount: 0
+    });
     expect(JSON.stringify(forwarded)).not.toContain(privateMarker);
     expect(JSON.stringify(forwarded)).not.toContain("raw-forwarded-signal-sdp");
     expect(JSON.stringify(forwarded)).not.toContain("raw-forwarded-signal-candidate");
+    expect(JSON.stringify(delivery)).not.toContain(privateMarker);
+    expect(JSON.stringify(delivery)).not.toContain("raw-forwarded-signal-sdp");
+    expect(JSON.stringify(delivery)).not.toContain("raw-forwarded-signal-candidate");
+  });
+
+  it("audits failed forwarded delivery without rejecting accepted sender message", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink, rooms: new FailingRecipientSendRoomRegistry() });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const privateMarker = "failed-delivery-private-marker";
+    const signal = {
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        authorizationId: "authz-delivery-failure",
+        kind: "offer",
+        safeMarker: privateMarker
+      }
+    } as const;
+    const auditStart = auditSink.records().length;
+    const noForwardedSignal = expectNoProtocolMessage(
+      viewer,
+      (message) => message.type === "signal" && message.messageId === signal.messageId
+    );
+
+    host.send(encodeProtocolEnvelope(signal));
+
+    const delivery = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.delivery" &&
+        record.detail?.messageId === signal.messageId
+    );
+    await noForwardedSignal;
+    await expectNoJsonMessage(host, (message) => message.type === "relay-error");
+
+    expect(delivery).toMatchObject({
+      action: "relay.message.delivery",
+      outcome: "failed",
+      sessionId: "session-demo",
+      detail: {
+        messageType: "signal",
+        messageId: signal.messageId,
+        authorizationId: "authz-delivery-failure",
+        recipientPeerId: "viewer-1",
+        recipientRole: "viewer",
+        deliveryTargetCount: 1,
+        deliverySentCount: 0,
+        deliveryFailedCount: 1
+      }
+    });
+    expect(
+      auditSink.records().slice(auditStart).some((record) => record.action === "relay.message.rejected")
+    ).toBe(false);
+
+    const serialized = JSON.stringify(auditSink.records().slice(auditStart));
+    expect(serialized).not.toContain(privateMarker);
+    expect(serialized).not.toContain("123-456");
+  });
+
+  it("does not retroactively reject when post-send delivery audit fails", async () => {
+    const auditSink = new DeliveryAuditFailureSink();
+    const logger = createMemoryLogger();
+    const runtime = await startRuntime({ auditSink, logger });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const privateMarker = "delivery-audit-failure-private-marker";
+    const signal = {
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        authorizationId: "authz-delivery-audit-failure",
+        kind: "offer",
+        safeMarker: privateMarker
+      }
+    } as const;
+    const auditStart = auditSink.records().length;
+
+    host.send(encodeProtocolEnvelope(signal));
+
+    expect(await waitForProtocolMessage(viewer, (message) => message.type === "signal")).toMatchObject({
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        authorizationId: "authz-delivery-audit-failure",
+        kind: "offer",
+        safeMarker: privateMarker
+      }
+    });
+    await expectNoJsonMessage(host, (message) => message.type === "relay-error");
+
+    expect(
+      auditSink.records().some(
+        (record) =>
+          record.action === "relay.message.delivery" &&
+          record.detail?.messageId === signal.messageId
+      )
+    ).toBe(false);
+    expect(
+      auditSink.records().slice(auditStart).some((record) => record.action === "relay.message.rejected")
+    ).toBe(false);
+    expect(logger.warns).toContain("[winbridge-relay] Forward delivery audit failed after send attempt");
+
+    const serialized = JSON.stringify([auditSink.records().slice(auditStart), logger.warns]);
+    expect(serialized).not.toContain(privateMarker);
+    expect(serialized).not.toContain("Delivery audit unavailable");
+    expect(serialized).not.toContain("private-delivery-audit-marker");
+    expect(serialized).not.toContain("123-456");
+  });
+
+  it("does not retroactively reject when post-send delivery audit warning logging fails", async () => {
+    const auditSink = new DeliveryAuditFailureSink();
+    const logger = {
+      log: () => undefined,
+      warn: (message: string) => {
+        if (message === "[winbridge-relay] Forward delivery audit failed after send attempt") {
+          throw new Error("private-logger-warning-marker");
+        }
+      }
+    };
+    const runtime = await startRuntime({ auditSink, logger });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const privateMarker = "delivery-audit-warning-private-marker";
+    const signal = {
+      ...createMessageBase("session-demo"),
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        authorizationId: "authz-delivery-warning-failure",
+        kind: "offer",
+        safeMarker: privateMarker
+      }
+    } as const;
+    const auditStart = auditSink.records().length;
+
+    host.send(encodeProtocolEnvelope(signal));
+
+    expect(await waitForProtocolMessage(viewer, (message) => message.type === "signal")).toMatchObject({
+      type: "signal",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      payload: {
+        authorizationId: "authz-delivery-warning-failure",
+        kind: "offer",
+        safeMarker: privateMarker
+      }
+    });
+    await expectNoJsonMessage(host, (message) => message.type === "relay-error");
+
+    const auditRecords = auditSink.records().slice(auditStart);
+    expect(
+      auditRecords.some(
+        (record) =>
+          record.action === "relay.message.delivery" &&
+          record.detail?.messageId === signal.messageId
+      )
+    ).toBe(false);
+    expect(auditRecords.some((record) => record.action === "relay.message.rejected")).toBe(false);
+
+    const serialized = JSON.stringify(auditRecords);
+    expect(serialized).not.toContain(privateMarker);
+    expect(serialized).not.toContain("Delivery audit unavailable");
+    expect(serialized).not.toContain("private-delivery-audit-marker");
+    expect(serialized).not.toContain("private-logger-warning-marker");
+    expect(serialized).not.toContain("123-456");
   });
 
   it("blocks recipient delivery when accepted forward audit fails", async () => {
@@ -4612,6 +4840,39 @@ function expectNoProtocolMessage(
       if (typeof parsed.type === "string" && predicate(parsed as ProtocolEnvelope)) {
         cleanup();
         reject(new Error(`Unexpected protocol message ${parsed.type}`));
+      }
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, durationMs);
+
+    socket.on("message", onMessage);
+  });
+}
+
+function expectNoJsonMessage(
+  socket: WebSocket,
+  predicate: (message: Record<string, unknown>) => boolean,
+  durationMs = 100
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.off("message", onMessage);
+    };
+    const onMessage = (data: RawData) => {
+      let parsed: Record<string, unknown>;
+
+      try {
+        parsed = JSON.parse(data.toString()) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+
+      if (predicate(parsed)) {
+        cleanup();
+        reject(new Error("Unexpected JSON message"));
       }
     };
     const timeout = setTimeout(() => {
