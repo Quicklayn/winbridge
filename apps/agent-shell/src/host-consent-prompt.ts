@@ -14,6 +14,7 @@ import {
   type HostDecisionProvider,
   type HostDecisionProviderRequest
 } from "./runtime.js";
+import { assertAgentShellPositiveSchedulerDelayMs } from "./scheduler-delay.js";
 
 const INVALID_PROMPT_METADATA = "invalid";
 const UNAVAILABLE_PROMPT_METADATA = "unavailable";
@@ -30,6 +31,10 @@ export type HostConsentPromptOptions = HostConsentPromptStreams & {
 export function createInteractiveHostDecisionProvider(
   options: HostConsentPromptOptions = {}
 ): HostDecisionProvider {
+  if (options.timeoutMs !== undefined) {
+    assertAgentShellPositiveSchedulerDelayMs(options.timeoutMs);
+  }
+
   return (request) => promptForHostConsentDecision(request, options);
 }
 
@@ -37,6 +42,10 @@ export async function promptForHostConsentDecision(
   request: HostDecisionProviderRequest,
   options: HostConsentPromptOptions = {}
 ): Promise<HostDecision> {
+  if (options.timeoutMs !== undefined) {
+    assertAgentShellPositiveSchedulerDelayMs(options.timeoutMs);
+  }
+
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
   const readline = createInterface({ input, output });

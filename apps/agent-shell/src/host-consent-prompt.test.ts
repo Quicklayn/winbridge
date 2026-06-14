@@ -1,11 +1,62 @@
 import { Readable, Writable } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { promptForHostConsentDecision } from "./host-consent-prompt.js";
+import {
+  createInteractiveHostDecisionProvider,
+  promptForHostConsentDecision
+} from "./host-consent-prompt.js";
 import { DEFAULT_HOST_CONSENT_TIMEOUT_MS } from "./runtime.js";
 
 describe("interactive host consent prompt", () => {
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("rejects malformed direct prompt timeouts before rendering prompt metadata", async () => {
+    const malformedTimeouts = [
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      2_147_483_648
+    ];
+
+    for (const timeoutMs of malformedTimeouts) {
+      const output = createCapturingOutput();
+
+      await expect(
+        promptForHostConsentDecision(
+          {
+            viewerPeerId: "viewer-1",
+            viewerDisplayName: "Viewer Support",
+            requestedPermissions: ["screen:view"],
+            requestedPermissionCount: 1,
+            requestReason: "Troubleshoot display settings"
+          },
+          { input: Readable.from(["approve\n"]), output, timeoutMs }
+        )
+      ).rejects.toThrow("Agent shell scheduler delay must be a positive bounded integer");
+      expect(output.text()).toBe("");
+    }
+  });
+
+  it("rejects malformed provider factory timeouts before creating a provider", () => {
+    const malformedTimeouts = [
+      0,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      2_147_483_648
+    ];
+
+    for (const timeoutMs of malformedTimeouts) {
+      expect(() => createInteractiveHostDecisionProvider({ timeoutMs })).toThrow(
+        "Agent shell scheduler delay must be a positive bounded integer"
+      );
+    }
   });
 
   it("accepts exact approval and denial responses", async () => {
