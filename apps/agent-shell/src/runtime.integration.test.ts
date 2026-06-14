@@ -7147,6 +7147,100 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("contains accepted inbound received event callback failures without runtime error", async () => {
+    const requestReason = "private received request reason raw-received-request-token";
+    const rawCallbackMarker = "accepted inbound received callback failed with raw-received-callback-token";
+    const hostLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      hostOnEvent: (event) => {
+        if (
+          event.direction === "received" &&
+          event.message.type === "session-authorization-request"
+        ) {
+          throw new Error(rawCallbackMarker);
+        }
+      },
+      visibleToHost: true
+    });
+    await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      silentLogger,
+      undefined,
+      "Viewer",
+      { requestReason }
+    );
+
+    const request = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "session-authorization-request"
+    );
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    const approvalAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.approved"
+    );
+    const activeAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.active"
+    );
+    const activeIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "active" && event.authorizationId === authorizationId
+    );
+    await delay(100);
+
+    expect(request).toMatchObject({
+      type: "session-authorization-request",
+      viewerPeerId: "viewer-1",
+      requestedPermissions: ["screen:view"]
+    });
+    expect(approvalAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        requestReasonProvided: true,
+        requestedPermissionCount: 1,
+        grantedPermissionCount: 1
+      }
+    });
+    expect(activeAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        grantedPermissionCount: 1,
+        visibleToHost: true
+      }
+    });
+    expect(activeIndicator).toMatchObject({
+      direction: "indicator",
+      state: "active",
+      authorizationId,
+      authorizationStatus: "active",
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "signal")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "sent" && event.message.type === "signal")).toBe(false);
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    expect(logOutput).toContain("received session-authorization-request");
+    for (const rawValue of [requestReason, "raw-received-request-token", rawCallbackMarker, "raw-received-callback-token"]) {
+      expect(logOutput).not.toContain(rawValue);
+      expect(serializedEvents).not.toContain(rawValue);
+    }
+  });
+
   it("blocks viewer signal sends before active visible screen authorization", async () => {
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
     const viewerLogs: string[] = [];

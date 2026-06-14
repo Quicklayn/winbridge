@@ -807,7 +807,7 @@ async function handleMessage(
     return;
   }
 
-  options.onEvent?.({ direction: "received", message: redactReceivedEventMessage(envelope) });
+  emitRuntimeEventBestEffort(options, { direction: "received", message: redactReceivedEventMessage(envelope) });
   logRuntimeMessageBestEffort(options, `[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 
   try {
@@ -3571,7 +3571,7 @@ function emitRuntimeEventBestEffort(options: AgentShellRuntimeOptions, event: Ag
   try {
     options.onEvent?.(event);
   } catch {
-    // Best-effort runtime events must not block local close cleanup.
+    // Best-effort runtime events must not block cleanup or workflow handling.
   }
 }
 
