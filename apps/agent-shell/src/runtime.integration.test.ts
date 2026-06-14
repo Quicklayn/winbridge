@@ -8510,6 +8510,7 @@ describe("agent shell consent workflow", () => {
 
     const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
     const signalPayload = {
+      kind: "viewer-signal-probe",
       authorizationId,
       probe: "viewer-signal-probe-v1"
     };
@@ -8542,7 +8543,10 @@ describe("agent shell consent workflow", () => {
     });
     expect(JSON.stringify(sentSignal)).not.toContain("viewer-signal-probe-v1");
     expect(JSON.stringify(receivedSignal)).not.toContain("viewer-signal-probe-v1");
+    expect(JSON.stringify(sentSignal)).not.toContain("viewer-signal-probe");
+    expect(JSON.stringify(receivedSignal)).not.toContain("viewer-signal-probe");
     expect(viewerLogs.join("\n")).not.toContain("viewer-signal-probe-v1");
+    expect(viewerLogs.join("\n")).not.toContain("viewer-signal-probe");
   });
 
   it("acknowledges trusted viewer signal probes with a static redacted host signal", async () => {
@@ -8566,10 +8570,12 @@ describe("agent shell consent workflow", () => {
 
     const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
     const viewerProbePayload = {
+      kind: "viewer-signal-probe",
       authorizationId,
       probe: "viewer-signal-probe-v1"
     };
     const hostAckPayload = {
+      kind: "host-signal-probe-ack",
       authorizationId,
       probeAck: "host-signal-probe-ack-v1"
     };
@@ -8630,18 +8636,31 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(hostEvents)).not.toContain("host-signal-probe-ack-v1");
     expect(JSON.stringify(viewerEvents)).not.toContain("viewer-signal-probe-v1");
     expect(JSON.stringify(viewerEvents)).not.toContain("host-signal-probe-ack-v1");
+    expect(JSON.stringify(hostEvents)).not.toContain("viewer-signal-probe");
+    expect(JSON.stringify(hostEvents)).not.toContain("host-signal-probe-ack");
+    expect(JSON.stringify(viewerEvents)).not.toContain("viewer-signal-probe");
+    expect(JSON.stringify(viewerEvents)).not.toContain("host-signal-probe-ack");
     expect(hostLogs.join("\n")).not.toContain("viewer-signal-probe-v1");
     expect(hostLogs.join("\n")).not.toContain("host-signal-probe-ack-v1");
     expect(viewerLogs.join("\n")).not.toContain("viewer-signal-probe-v1");
     expect(viewerLogs.join("\n")).not.toContain("host-signal-probe-ack-v1");
+    expect(hostLogs.join("\n")).not.toContain("viewer-signal-probe");
+    expect(hostLogs.join("\n")).not.toContain("host-signal-probe-ack");
+    expect(viewerLogs.join("\n")).not.toContain("viewer-signal-probe");
+    expect(viewerLogs.join("\n")).not.toContain("host-signal-probe-ack");
   });
 
   it("omits viewer signal acknowledgement status for missing, mismatched, or wrong-peer acknowledgements", async () => {
     const viewerLogs: string[] = [];
     const authorizationId = "authz_viewer_ack_binding";
     const wrongPeerAckPayload = {
+      kind: "host-signal-probe-ack",
       authorizationId,
       probeAck: "host-signal-probe-ack-v1"
+    };
+    const kindOnlyAckPayload = {
+      kind: "host-signal-probe-ack",
+      authorizationId
     };
     const lifecycleServer = await startObservedHostViewerAuthorizationLifecycleServer(() => {
       const expiresAt = new Date(Date.now() + 60_000).toISOString();
@@ -8688,9 +8707,17 @@ describe("agent shell consent workflow", () => {
           fromPeerId: "host-1",
           toPeerId: "viewer-1",
           payload: {
+            kind: "host-signal-probe-ack",
             authorizationId: "authz_other_signal",
             probeAck: "host-signal-probe-ack-v1"
           }
+        },
+        {
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: kindOnlyAckPayload
         },
         {
           ...createMessageBase("session-demo"),
@@ -8718,6 +8745,10 @@ describe("agent shell consent workflow", () => {
         viewerEvents,
         (message) => message.type === "signal" && message.fromPeerId === "host-2"
       );
+      const receivedKindOnlyAck = await waitForMessage(
+        viewerEvents,
+        (message) => message.type === "signal" && message.fromPeerId === "host-1"
+      );
       await delay(50);
 
       expect(receivedWrongPeerAck).toMatchObject({
@@ -8727,6 +8758,15 @@ describe("agent shell consent workflow", () => {
         payload: {
           redacted: "[REDACTED]",
           byteLength: Buffer.byteLength(JSON.stringify(wrongPeerAckPayload))
+        }
+      });
+      expect(receivedKindOnlyAck).toMatchObject({
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(JSON.stringify(kindOnlyAckPayload))
         }
       });
       expect(viewer.getViewerStatus()).toMatchObject({
@@ -8739,10 +8779,12 @@ describe("agent shell consent workflow", () => {
       expect(viewer.getViewerStatus()).not.toHaveProperty("signalProbeAckReceived");
       expect(
         viewerEvents.filter((event) => event.direction === "received" && event.message.type === "signal")
-      ).toHaveLength(1);
+      ).toHaveLength(2);
       expect(viewerLogs.join("\n")).not.toContain("host-signal-probe-ack-v1");
+      expect(viewerLogs.join("\n")).not.toContain("host-signal-probe-ack");
       expect(viewerLogs.join("\n")).not.toContain("authz_other_signal");
       expect(JSON.stringify(viewerEvents)).not.toContain("host-signal-probe-ack-v1");
+      expect(JSON.stringify(viewerEvents)).not.toContain("host-signal-probe-ack");
       expect(JSON.stringify(viewerEvents)).not.toContain("authz_other_signal");
     } finally {
       await viewer?.stop();
@@ -8759,6 +8801,7 @@ describe("agent shell consent workflow", () => {
     const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
     const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
     const signalPayload = {
+      kind: "viewer-signal-probe",
       authorizationId,
       probe: "viewer-signal-probe-v1"
     };
@@ -8807,7 +8850,7 @@ describe("agent shell consent workflow", () => {
       toPeerId: "host-1",
       payload: {
         authorizationId,
-        kind: "viewer-offer",
+        kind: "viewer-signal-probe",
         safeMarker: "authorized-viewer-non-probe-signal"
       }
     });
@@ -8824,6 +8867,7 @@ describe("agent shell consent workflow", () => {
       viewerEvents.filter((event) => event.direction === "received" && event.message.type === "signal")
     ).toHaveLength(0);
     expect(JSON.stringify(hostEvents)).not.toContain("authorized-viewer-non-probe-signal");
+    expect(JSON.stringify(hostEvents)).not.toContain("viewer-signal-probe");
   });
 
   it("withholds viewer signal probe before active visible authorization", async () => {
@@ -10343,6 +10387,7 @@ describe("agent shell consent workflow", () => {
               fromPeerId: "host-1",
               toPeerId: "viewer-1",
               payload: {
+                kind: "host-signal-probe-ack",
                 authorizationId,
                 probeAck: "host-signal-probe-ack-v1"
               }
@@ -12993,6 +13038,7 @@ function sendRawViewerSignalProbe(socket: WebSocket, authorizationId: string): v
     fromPeerId: "viewer-1",
     toPeerId: "host-1",
     payload: {
+      kind: "viewer-signal-probe",
       authorizationId,
       probe: "viewer-signal-probe-v1"
     }

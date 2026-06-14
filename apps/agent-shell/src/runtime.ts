@@ -1484,6 +1484,7 @@ function sendViewerSignalProbe(
     fromPeerId: options.peerId,
     toPeerId: remotePeerId,
     payload: {
+      kind: "viewer-signal-probe",
       authorizationId,
       probe: VIEWER_SIGNAL_PROBE_MARKER
     }
@@ -1520,6 +1521,7 @@ function sendHostSignalProbeAck(
     fromPeerId: options.peerId,
     toPeerId: snapshot.remotePeerId,
     payload: {
+      kind: "host-signal-probe-ack",
       authorizationId,
       probeAck: HOST_SIGNAL_PROBE_ACK_MARKER
     }
