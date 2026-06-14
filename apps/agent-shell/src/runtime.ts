@@ -738,7 +738,7 @@ async function handleMessage(
   } catch {
     const byteLength = inboundMessage.byteLength;
     options.onEvent?.({ direction: "raw", text: REDACTED_EVENT_VALUE, byteLength });
-    options.logger?.log(`[winbridge-agent] received non-protocol message bytes=${byteLength}`);
+    logRuntimeMessageBestEffort(options, `[winbridge-agent] received non-protocol message bytes=${byteLength}`);
     return;
   }
 
@@ -1107,7 +1107,7 @@ function reportIgnoredUnsafeProtocolMessage(
   options: AgentShellRuntimeOptions
 ): void {
   options.onEvent?.({ direction: "raw", text: REDACTED_EVENT_VALUE, byteLength });
-  options.logger?.log(`[winbridge-agent] ignored unsafe inbound protocol message bytes=${byteLength}`);
+  logRuntimeMessageBestEffort(options, `[winbridge-agent] ignored unsafe inbound protocol message bytes=${byteLength}`);
 }
 
 function isUnauthorizedInboundSignal(

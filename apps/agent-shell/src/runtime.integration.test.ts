@@ -2521,6 +2521,58 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("contains decoded unsafe inbound diagnostic logger failures without runtime error", async () => {
+    const crossSessionServer = await startCrossSessionAuthorizationRequestServer();
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    const rawLoggerMarker = "unsafe inbound diagnostic logger failed with raw-unsafe-logger-token";
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: crossSessionServer.url,
+        hostDecision: "approve",
+        visibleToHost: true,
+        logger: createThrowingInboundUnsafeDiagnosticLogger(
+          hostLogs,
+          rawLoggerMarker,
+          "ignored unsafe inbound protocol message bytes="
+        ),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "received")).toBe(false);
+      expect(hostEvents.some(isInboundUnsafeForbiddenSentEvent)).toBe(false);
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(logOutput).not.toContain("session-authorization-request");
+      expect(logOutput).not.toContain("other-session");
+      expect(logOutput).not.toContain("private cross-session reason");
+      expect(logOutput).not.toContain(rawLoggerMarker);
+      expect(logOutput).not.toContain("raw-unsafe-logger-token");
+      expect(serializedEvents).not.toContain("other-session");
+      expect(serializedEvents).not.toContain("private cross-session reason");
+      expect(serializedEvents).not.toContain(rawLoggerMarker);
+      expect(serializedEvents).not.toContain("raw-unsafe-logger-token");
+    } finally {
+      await host?.stop();
+      await crossSessionServer.stop();
+    }
+  });
+
   it("ignores authorization requests that identify the local host as viewer", async () => {
     const selfRequestServer = await startSelfReferentialAuthorizationRequestServer();
     const hostEvents: AgentShellEvent[] = [];
@@ -13133,6 +13185,58 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("contains non-protocol inbound diagnostic logger failures without runtime error", async () => {
+    const privateMessage = "relay-error do-not-log raw-inbound-token";
+    const nonProtocolServer = await startNonProtocolMessageServer(privateMessage);
+    const hostLogs: string[] = [];
+    const hostEvents: AgentShellEvent[] = [];
+    const rawLoggerMarker = "non-protocol diagnostic logger failed with raw-non-protocol-logger-token";
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: nonProtocolServer.url,
+        logger: createThrowingInboundUnsafeDiagnosticLogger(
+          hostLogs,
+          rawLoggerMarker,
+          "received non-protocol message bytes="
+        ),
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "received")).toBe(false);
+      expect(hostEvents.some(isInboundUnsafeForbiddenSentEvent)).toBe(false);
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("received non-protocol message bytes=");
+      expect(logOutput).not.toContain("relay-error");
+      expect(logOutput).not.toContain("do-not-log");
+      expect(logOutput).not.toContain("raw-inbound-token");
+      expect(logOutput).not.toContain(rawLoggerMarker);
+      expect(logOutput).not.toContain("raw-non-protocol-logger-token");
+      expect(serializedEvents).not.toContain("relay-error");
+      expect(serializedEvents).not.toContain("do-not-log");
+      expect(serializedEvents).not.toContain("raw-inbound-token");
+      expect(serializedEvents).not.toContain(rawLoggerMarker);
+      expect(serializedEvents).not.toContain("raw-non-protocol-logger-token");
+    } finally {
+      await host?.stop();
+      await nonProtocolServer.stop();
+    }
+  });
+
   it("uses websocket payload bytes for binary non-protocol messages", async () => {
     const binaryPayload = Buffer.concat([
       Buffer.from([0xff, 0xfe, 0xfd]),
@@ -13658,6 +13762,23 @@ function captureLogger(logs: string[]): TestLogger {
   };
 }
 
+function createThrowingInboundUnsafeDiagnosticLogger(
+  logs: string[],
+  thrownMessage: string,
+  skippedMessageFragment: string
+): TestLogger {
+  return {
+    log: (message) => {
+      logs.push(message);
+      if (message.includes(skippedMessageFragment)) {
+        throw new Error(thrownMessage);
+      }
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => logs.push(message)
+  };
+}
+
 function createThrowingViewerCloseLogger(logs: string[], thrownMessage: string): TestLogger {
   return {
     log: (message) => {
@@ -13690,6 +13811,19 @@ function createThrowingDelayedWorkflowSkipLogger(
 }
 
 function isViewerForbiddenLocalLeaveSentEvent(event: AgentShellEvent): boolean {
+  return (
+    event.direction === "sent" &&
+    (event.message.type === "session-authorization-decision" ||
+      event.message.type === "session-authorization-state" ||
+      event.message.type === "session-control" ||
+      event.message.type === "permission-revoked" ||
+      event.message.type === "signal" ||
+      event.message.type === "peer-disconnected" ||
+      event.message.type === "audit-event")
+  );
+}
+
+function isInboundUnsafeForbiddenSentEvent(event: AgentShellEvent): boolean {
   return (
     event.direction === "sent" &&
     (event.message.type === "session-authorization-decision" ||
