@@ -407,10 +407,13 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         sessionState.localPeerDisconnected = true;
         invalidateViewerSignalProbe(sessionState);
         recordViewerSocketClosedStatus(options, sessionState, suppressViewerSocketClosedStatus);
-        deactivateHostIndicator(options, sessionState, "socket-closed");
+        deactivateHostIndicatorBestEffort(options, sessionState, "socket-closed");
         const event = { direction: "closed", code, reason: REDACTED_EVENT_VALUE, reasonBytes } as const;
-        options.onEvent?.(event);
-        logger.log(`[winbridge-agent] disconnected code=${code} reasonBytes=${reasonBytes}`);
+        emitRuntimeEventBestEffort(options, event);
+        logRuntimeLoggerMessageBestEffort(
+          logger,
+          `[winbridge-agent] disconnected code=${code} reasonBytes=${reasonBytes}`
+        );
       });
 
       runtimeSocket.on("error", (error) => {
@@ -3400,6 +3403,25 @@ function logRuntimeMessageBestEffort(
     options.logger?.log(message);
   } catch {
     // Best-effort runtime logging must not block fail-closed cleanup.
+  }
+}
+
+function emitRuntimeEventBestEffort(options: AgentShellRuntimeOptions, event: AgentShellEvent): void {
+  try {
+    options.onEvent?.(event);
+  } catch {
+    // Best-effort runtime events must not block local close cleanup.
+  }
+}
+
+function logRuntimeLoggerMessageBestEffort(
+  logger: NonNullable<AgentShellRuntimeOptions["logger"]>,
+  message: string
+): void {
+  try {
+    logger.log(message);
+  } catch {
+    // Best-effort runtime logging must not block local close cleanup.
   }
 }
 

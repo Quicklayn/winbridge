@@ -3352,6 +3352,108 @@ describe("agent shell consent workflow", () => {
     );
   });
 
+  it("keeps viewer local leave cleanup when the close event callback throws", async () => {
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    const rawCallbackErrorText = "private viewer close callback token";
+    const { relay, hostEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostGrantPermissions: ["screen:view"],
+      visibleToHost: true
+    });
+    const viewer = createAgentShellRuntime(createRuntimeOptions({
+      role: "viewer",
+      relayUrl: relay.url(),
+      peerId: "viewer-1",
+      displayName: "Viewer",
+      deviceId: "dev_viewer_1",
+      requestedPermissions: ["screen:view"],
+      logger: captureLogger(viewerLogs),
+      onEvent: (event) => {
+        viewerEvents.push(event);
+        if (event.direction === "closed") {
+          throw new Error(rawCallbackErrorText);
+        }
+      }
+    }));
+    await viewer.start();
+    agentRuntimes.push(viewer);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active"
+    );
+    const viewerSentBeforeLeave = viewerEvents.filter((event) => event.direction === "sent").length;
+
+    await withTimeout(viewer.leave());
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "peer-disconnected" && message.peerId === "viewer-1"
+    );
+
+    expect(viewer.getViewerStatus()).toEqual({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0,
+      localInactiveCause: "local-leave"
+    });
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(
+      viewerSentBeforeLeave
+    );
+    expect(viewerEvents.some(isViewerForbiddenLocalLeaveSentEvent)).toBe(false);
+    expect(viewerLogs.join("\n")).not.toContain(rawCallbackErrorText);
+  });
+
+  it("keeps viewer local leave cleanup when disconnected logging throws", async () => {
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    const rawLoggerErrorText = "private viewer close logger token";
+    const { relay, hostEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostGrantPermissions: ["screen:view"],
+      visibleToHost: true
+    });
+    const viewer = createAgentShellRuntime(createRuntimeOptions({
+      role: "viewer",
+      relayUrl: relay.url(),
+      peerId: "viewer-1",
+      displayName: "Viewer",
+      deviceId: "dev_viewer_1",
+      requestedPermissions: ["screen:view"],
+      logger: createThrowingViewerCloseLogger(viewerLogs, rawLoggerErrorText),
+      onEvent: (event) => viewerEvents.push(event)
+    }));
+    await viewer.start();
+    agentRuntimes.push(viewer);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active"
+    );
+    const viewerSentBeforeLeave = viewerEvents.filter((event) => event.direction === "sent").length;
+
+    await withTimeout(viewer.leave());
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "peer-disconnected" && message.peerId === "viewer-1"
+    );
+
+    expect(viewer.getViewerStatus()).toEqual({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0,
+      localInactiveCause: "local-leave"
+    });
+    expect(viewerEvents.some((event) => event.direction === "closed")).toBe(true);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(
+      viewerSentBeforeLeave
+    );
+    expect(viewerEvents.some(isViewerForbiddenLocalLeaveSentEvent)).toBe(false);
+    expect(viewerLogs.join("\n")).not.toContain(rawLoggerErrorText);
+  });
+
   it("clears viewer local inactive cause on ordinary stop", async () => {
     const viewer = createAgentShellRuntime(createRuntimeOptions({
       role: "viewer",
@@ -12566,6 +12668,33 @@ function captureLogger(logs: string[]): TestLogger {
     warn: (message) => logs.push(message),
     error: (message) => logs.push(message)
   };
+}
+
+function createThrowingViewerCloseLogger(logs: string[], thrownMessage: string): TestLogger {
+  return {
+    log: (message) => {
+      if (message.includes("disconnected code=")) {
+        throw new Error(thrownMessage);
+      }
+
+      logs.push(message);
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => logs.push(message)
+  };
+}
+
+function isViewerForbiddenLocalLeaveSentEvent(event: AgentShellEvent): boolean {
+  return (
+    event.direction === "sent" &&
+    (event.message.type === "session-authorization-decision" ||
+      event.message.type === "session-authorization-state" ||
+      event.message.type === "session-control" ||
+      event.message.type === "permission-revoked" ||
+      event.message.type === "signal" ||
+      event.message.type === "peer-disconnected" ||
+      event.message.type === "audit-event")
+  );
 }
 
 function createLocalDisconnectAuditFailureSink(
