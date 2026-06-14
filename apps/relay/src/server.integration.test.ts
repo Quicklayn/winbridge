@@ -156,6 +156,59 @@ describe("relay runtime integration", () => {
     expect(logger.logs).toEqual([expect.stringMatching(/^\[winbridge-relay\] Listening on ws:\/\/127\.0\.0\.1:\d+$/)]);
   });
 
+  it("contains relay startup diagnostic logger failure after listener bind", async () => {
+    const auditSink = new MemoryAuditSink();
+    const logs: string[] = [];
+    const warns: string[] = [];
+    const rawLoggerMarker = "relay startup diagnostic logger failed with raw-relay-logger-token";
+    const logger = {
+      log: (message: string) => {
+        logs.push(message);
+        throw new Error(rawLoggerMarker);
+      },
+      warn: (message: string) => {
+        warns.push(message);
+        throw new Error(rawLoggerMarker);
+      }
+    };
+    const runtime = createRelayRuntime({
+      port: 0,
+      auditSink,
+      heartbeat: false,
+      logger
+    });
+
+    await runtime.start();
+    runtimes.push(runtime);
+
+    expect(runtime.url()).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+    expect(auditSink.records().filter((record) => record.action === "relay.start.development-mode")).toEqual([
+      expect.objectContaining({
+        action: "relay.start.development-mode",
+        outcome: "accepted",
+        detail: {
+          sharedAccessConfigured: false
+        }
+      })
+    ]);
+    expect(warns).toEqual([
+      "[winbridge-relay] Development mode: WINBRIDGE_RELAY_SHARED_TOKEN is not set. Do not use this as production authorization."
+    ]);
+    expect(logs).toEqual([expect.stringMatching(/^\[winbridge-relay\] Listening on ws:\/\/127\.0\.0\.1:\d+$/)]);
+    expect(JSON.stringify(auditSink.records())).not.toContain(rawLoggerMarker);
+    expect(JSON.stringify(auditSink.records())).not.toContain("raw-relay-logger-token");
+    expect(logs.join("\n")).not.toContain(rawLoggerMarker);
+    expect(warns.join("\n")).not.toContain(rawLoggerMarker);
+
+    const host = await openSocket(runtime.url());
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    expect(await waitForProtocolMessage(host, (message) => message.type === "relay-ready")).toMatchObject({
+      type: "relay-ready",
+      peerId: "host-1",
+      roomSize: 1
+    });
+  });
+
   it("does not write accepted development-mode start audit when listener bind fails", async () => {
     const firstRuntime = await startRuntime();
     const occupiedPort = Number.parseInt(new URL(firstRuntime.url()).port, 10);

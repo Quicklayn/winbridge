@@ -443,7 +443,8 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
 
       if (!sharedToken) {
         try {
-          logger.warn(
+          logRelayWarnBestEffort(
+            logger,
             "[winbridge-relay] Development mode: WINBRIDGE_RELAY_SHARED_TOKEN is not set. Do not use this as production authorization."
           );
           writeRelayAudit(auditSink, {
@@ -461,7 +462,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
         }
       }
 
-      logger.log(`[winbridge-relay] Listening on ${serverUrl(server)}`);
+      logRelayMessageBestEffort(logger, `[winbridge-relay] Listening on ${serverUrl(server)}`);
     },
 
     async stop() {
@@ -478,6 +479,28 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
       return serverUrl(server);
     }
   };
+}
+
+function logRelayWarnBestEffort(
+  logger: NonNullable<RelayRuntimeOptions["logger"]>,
+  message: string
+): void {
+  try {
+    logger.warn(message);
+  } catch {
+    // Startup warning diagnostics must not block relay startup.
+  }
+}
+
+function logRelayMessageBestEffort(
+  logger: NonNullable<RelayRuntimeOptions["logger"]>,
+  message: string
+): void {
+  try {
+    logger.log(message);
+  } catch {
+    // Startup informational diagnostics must not block relay startup.
+  }
 }
 
 function readSingleRelayToken(requestUrl: URL): { presented: boolean; value?: string } {
