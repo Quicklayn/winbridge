@@ -1,6 +1,7 @@
 import type { Writable } from "node:stream";
 import { formatAgentShellCliError } from "./cli-diagnostics.js";
 import type { AgentShellRuntime, AgentShellViewerStatusSnapshot } from "./runtime.js";
+import { assertAgentShellSchedulerDelayMs } from "./scheduler-delay.js";
 
 export type ViewerStatusPrintOptions = {
   output?: Writable;
@@ -52,6 +53,8 @@ export function scheduleViewerStatusPrint(
   delayMs: number,
   options: ViewerStatusPrintOptions = {}
 ): ViewerStatusPrintHandle {
+  assertAgentShellSchedulerDelayMs(delayMs);
+
   const output = options.output ?? process.stdout;
   let stopped = false;
   const timer = setTimeout(() => {

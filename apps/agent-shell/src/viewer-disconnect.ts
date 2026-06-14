@@ -1,6 +1,7 @@
 import type { Writable } from "node:stream";
 import { formatAgentShellCliError } from "./cli-diagnostics.js";
 import type { AgentShellRuntime } from "./runtime.js";
+import { assertAgentShellSchedulerDelayMs } from "./scheduler-delay.js";
 
 export type ViewerLocalDisconnectOptions = {
   output?: Writable;
@@ -15,6 +16,8 @@ export function scheduleViewerLocalDisconnect(
   delayMs: number,
   options: ViewerLocalDisconnectOptions = {}
 ): ViewerLocalDisconnectHandle {
+  assertAgentShellSchedulerDelayMs(delayMs);
+
   const output = options.output ?? process.stderr;
   let stopped = false;
   const timer = setTimeout(() => {

@@ -4,6 +4,37 @@ import { scheduleHostStatusPrint } from "./host-status.js";
 import type { AgentShellRuntime } from "./runtime.js";
 
 describe("host status print", () => {
+  it("rejects malformed direct scheduler delays before status reads or output", () => {
+    const malformedDelays = [
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      2_147_483_648
+    ];
+
+    for (const delayMs of malformedDelays) {
+      const runtime = createRuntimeSpy();
+      const output = createCapturingOutput();
+
+      expect(() => scheduleHostStatusPrint(runtime, delayMs, { output })).toThrow(
+        "Agent shell scheduler delay must be a bounded integer"
+      );
+      expect(runtime.getHostStatus).not.toHaveBeenCalled();
+      expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+      expect(runtime.leave).not.toHaveBeenCalled();
+      expect(runtime.stop).not.toHaveBeenCalled();
+      expect(runtime.pause).not.toHaveBeenCalled();
+      expect(runtime.resume).not.toHaveBeenCalled();
+      expect(runtime.revokePermission).not.toHaveBeenCalled();
+      expect(runtime.terminate).not.toHaveBeenCalled();
+      expect(runtime.disconnect).not.toHaveBeenCalled();
+      expect(runtime.send).not.toHaveBeenCalled();
+      expect(output.text()).toBe("");
+    }
+  });
+
   it("prints host status after the configured delay without invoking controls or public sends", async () => {
     vi.useFakeTimers();
     try {
