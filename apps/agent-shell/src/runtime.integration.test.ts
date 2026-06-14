@@ -4189,6 +4189,104 @@ describe("agent shell consent workflow", () => {
     expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
   });
 
+  it("contains invisible approval diagnostic logger failures without runtime error", async () => {
+    const requestReason = "private invisible request reason raw-invisible-request-token";
+    const rawLoggerMarker = "invisible approval logger failed with raw-invisible-logger-token";
+    const hostLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: createThrowingInvisibleApprovalLogger(hostLogs, rawLoggerMarker),
+      visibleToHost: false
+    });
+    const viewer = await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      silentLogger,
+      undefined,
+      "Viewer",
+      { requestReason }
+    );
+
+    const decision = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-decision"
+    );
+    if (decision.type !== "session-authorization-decision") {
+      throw new Error("Expected authorization decision");
+    }
+    const approvalAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.approved"
+    );
+    await delay(100);
+
+    expect(decision).toMatchObject({
+      type: "session-authorization-decision",
+      decision: "approved",
+      grantedPermissions: ["screen:view"]
+    });
+    expect(approvalAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        requestReasonProvided: true,
+        requestedPermissionCount: 1,
+        grantedPermissionCount: 1
+      }
+    });
+    expect(host.getHostStatus()).toEqual({
+      state: "inactive",
+      authorizationId: decision.authorizationId,
+      authorizationStatus: "approved",
+      visibleToHost: false,
+      permissionCount: 0
+    });
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(
+      viewerEvents.some(
+        (event) => event.direction === "received" && event.message.type === "session-authorization-state"
+      )
+    ).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+    expect(() =>
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: { kind: "offer", sdp: "blocked-host-signal" }
+      })
+    ).toThrow("Agent shell signal requires active visible screen authorization");
+    expect(() =>
+      viewer.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: { kind: "offer", sdp: "blocked-viewer-signal" }
+      })
+    ).toThrow("Agent shell signal requires active visible screen authorization");
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    expect(logOutput).toContain("active state withheld because visible session is false");
+    for (const rawValue of [
+      requestReason,
+      "raw-invisible-request-token",
+      rawLoggerMarker,
+      "raw-invisible-logger-token",
+      "blocked-host-signal",
+      "blocked-viewer-signal"
+    ]) {
+      expect(logOutput).not.toContain(rawValue);
+      expect(serializedEvents).not.toContain(rawValue);
+    }
+  });
+
   it("sends audit events for approval and visible activation", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
@@ -13878,6 +13976,22 @@ function createThrowingAcceptedInboundSummaryLogger(
     log: (message) => {
       logs.push(message);
       if (message.includes(skippedMessageFragment)) {
+        throw new Error(thrownMessage);
+      }
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => logs.push(message)
+  };
+}
+
+function createThrowingInvisibleApprovalLogger(
+  logs: string[],
+  thrownMessage: string
+): TestLogger {
+  return {
+    log: (message) => {
+      logs.push(message);
+      if (message.includes("active state withheld because visible session is false")) {
         throw new Error(thrownMessage);
       }
     },

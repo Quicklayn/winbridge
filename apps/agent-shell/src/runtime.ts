@@ -1749,7 +1749,10 @@ async function handleHostAuthorizationRequest(
   sendProtocol(socket, options, approvalAuditEvent);
 
   if (!options.visibleToHost) {
-    options.logger?.log("[winbridge-agent] approval sent; active state withheld because visible session is false");
+    logRuntimeMessageBestEffort(
+      options,
+      "[winbridge-agent] approval sent; active state withheld because visible session is false"
+    );
     return;
   }
 
