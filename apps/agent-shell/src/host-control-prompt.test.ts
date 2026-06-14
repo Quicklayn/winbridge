@@ -78,6 +78,8 @@ describe("interactive host control prompt", () => {
       authorizationStatus: "active",
       authorizationId: "authz_status_1",
       expiresAt: "2026-06-14T12:00:00.000Z",
+      viewerDeviceId: "dev_viewer_1",
+      viewerDevicePlatform: "windows",
       visibleToHost: true,
       permissionCount: 1
     });
@@ -101,8 +103,11 @@ describe("interactive host control prompt", () => {
     expect(output.text()).toContain("authorizationStatus=active");
     expect(output.text()).toContain("authorizationId=authz_status_1");
     expect(output.text()).toContain("expiresAt=2026-06-14T12:00:00.000Z");
+    expect(output.text()).toContain("viewerDeviceId=dev_viewer_1");
+    expect(output.text()).toContain("viewerDevicePlatform=windows");
     expect(output.text()).toContain("visibleToHost=true");
     expect(output.text()).toContain("permissionCount=1");
+    expect(output.text()).not.toContain("verified");
     expect(output.text()).not.toContain("screen:view");
     expect(output.text()).not.toContain("Viewer Support");
     expect(output.text()).not.toContain("raw-token");
@@ -338,11 +343,30 @@ describe("interactive host control prompt", () => {
         authorizationStatus: "active",
         authorizationId: "authz_status_1",
         expiresAt: "2026-06-14T12:00:00.000Z",
+        viewerDeviceId: "dev_viewer_1",
+        viewerDevicePlatform: "windows",
         visibleToHost: true,
         permissionCount: 1
       })
     ).toBe(
-      "[winbridge-agent] host status state=active visibleToHost=true permissionCount=1 authorizationStatus=active authorizationId=authz_status_1 expiresAt=2026-06-14T12:00:00.000Z\n"
+      "[winbridge-agent] host status state=active visibleToHost=true permissionCount=1 authorizationStatus=active authorizationId=authz_status_1 expiresAt=2026-06-14T12:00:00.000Z viewerDeviceId=dev_viewer_1 viewerDevicePlatform=windows\n"
+    );
+  });
+
+  it("does not format self-asserted viewer device trust metadata", () => {
+    expect(
+      formatHostControlStatus({
+        state: "active",
+        authorizationStatus: "active",
+        authorizationId: "authz_status_1",
+        viewerDeviceId: "dev_viewer_1",
+        viewerDevicePlatform: "windows",
+        visibleToHost: true,
+        permissionCount: 1,
+        viewerDeviceTrustLevel: "verified"
+      } as Parameters<typeof formatHostControlStatus>[0] & { viewerDeviceTrustLevel: string })
+    ).toBe(
+      "[winbridge-agent] host status state=active visibleToHost=true permissionCount=1 authorizationStatus=active authorizationId=authz_status_1 viewerDeviceId=dev_viewer_1 viewerDevicePlatform=windows\n"
     );
   });
 

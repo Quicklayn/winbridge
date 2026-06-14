@@ -176,6 +176,8 @@ export type AgentShellHostStatusSnapshot = Readonly<{
   authorizationId?: string;
   authorizationStatus?: SessionAuthorizationStatus;
   expiresAt?: string;
+  viewerDeviceId?: string;
+  viewerDevicePlatform?: DeviceIdentity["platform"];
   inactiveCause?: AgentShellHostIndicatorEvent["cause"];
   remoteDisconnectReasonCode?: AgentShellRemoteDisconnectReasonCode;
 }>;
@@ -323,6 +325,7 @@ type RuntimeAuthorizationSnapshot = {
   authorizationId: string;
   authorityPeerId?: string;
   remotePeerId?: string;
+  viewerDeviceIdentity?: DeviceIdentity;
   status: SessionAuthorizationStatus;
   visibleToHost: boolean;
   permissions: Permission[];
@@ -1673,6 +1676,8 @@ async function handleHostAuthorizationRequest(
     return;
   }
 
+  const viewerDeviceIdentity = getObservedViewerDeviceIdentity(sessionState, request.viewerPeerId);
+
   switch (decision) {
     case "deny": {
       const authorizationId = `authz_${randomUUID()}`;
@@ -1742,6 +1747,7 @@ async function handleHostAuthorizationRequest(
   setHostAuthorizationSnapshot(sessionState, {
     authorizationId,
     remotePeerId: request.viewerPeerId,
+    viewerDeviceIdentity,
     status: "approved",
     visibleToHost: false,
     permissions: grantedPermissions,
@@ -1778,6 +1784,7 @@ async function handleHostAuthorizationRequest(
   setHostAuthorizationSnapshot(sessionState, {
     authorizationId,
     remotePeerId: request.viewerPeerId,
+    viewerDeviceIdentity,
     status: "active",
     visibleToHost: true,
     permissions: grantedPermissions,
@@ -1902,7 +1909,7 @@ async function resolveHostDecisionProvider(
   try {
     const isObservedViewer =
       sessionState.observedPeerRole === "viewer" && sessionState.observedPeerId === request.viewerPeerId;
-    const viewerDeviceIdentity = isObservedViewer ? sessionState.observedPeerDeviceIdentity : undefined;
+    const viewerDeviceIdentity = getObservedViewerDeviceIdentity(sessionState, request.viewerPeerId);
     const providerRequest: HostDecisionProviderRequest = {
       viewerPeerId: request.viewerPeerId,
       viewerDisplayName: isObservedViewer ? sessionState.observedPeerDisplayName : undefined,
@@ -1939,11 +1946,25 @@ function setHostAuthorizationSnapshot(
   sessionState: AgentShellSessionState,
   input: RuntimeAuthorizationSnapshot
 ): void {
+  const previous = sessionState.hostAuthorization;
+  const isSameAuthorization = previous?.authorizationId === input.authorizationId;
   sessionState.hostAuthorization = {
     ...input,
-    remotePeerId: input.remotePeerId ?? sessionState.hostAuthorization?.remotePeerId,
+    remotePeerId: input.remotePeerId ?? (isSameAuthorization ? previous?.remotePeerId : undefined),
+    viewerDeviceIdentity: input.viewerDeviceIdentity ?? (isSameAuthorization ? previous?.viewerDeviceIdentity : undefined),
     permissions: [...input.permissions]
   };
+}
+
+function getObservedViewerDeviceIdentity(
+  sessionState: AgentShellSessionState,
+  viewerPeerId: string
+): DeviceIdentity | undefined {
+  if (sessionState.observedPeerRole !== "viewer" || sessionState.observedPeerId !== viewerPeerId) {
+    return undefined;
+  }
+
+  return sessionState.observedPeerDeviceIdentity;
 }
 
 function emitHostIndicatorFromAuthorization(
@@ -2009,14 +2030,37 @@ function getHostStatusSnapshot(
   }
 
   const state = hostIndicatorStateForAuthorization(snapshot.status);
+  const viewerDeviceIdentity = getCurrentHostStatusViewerDeviceIdentity(sessionState, snapshot, state);
   return freezeStatusSnapshot({
     state,
     authorizationId: snapshot.authorizationId,
     authorizationStatus: snapshot.status,
     ...(hostIndicatorHasActiveGrant(state) && snapshot.expiresAt ? { expiresAt: snapshot.expiresAt } : {}),
     visibleToHost: state === "inactive" ? false : snapshot.visibleToHost,
-    permissionCount: state === "inactive" ? 0 : snapshot.permissions.length
+    permissionCount: state === "inactive" ? 0 : snapshot.permissions.length,
+    ...(viewerDeviceIdentity
+      ? {
+          viewerDeviceId: viewerDeviceIdentity.deviceId,
+          viewerDevicePlatform: viewerDeviceIdentity.platform
+        }
+      : {})
   });
+}
+
+function getCurrentHostStatusViewerDeviceIdentity(
+  sessionState: AgentShellSessionState,
+  snapshot: RuntimeAuthorizationSnapshot,
+  state: AgentShellHostIndicatorEvent["state"]
+): DeviceIdentity | undefined {
+  if (!hostIndicatorHasActiveGrant(state)) {
+    return undefined;
+  }
+
+  if (sessionState.remotePeerDisconnected) {
+    return undefined;
+  }
+
+  return snapshot.viewerDeviceIdentity;
 }
 
 function hasViewerSignalProbeAck(

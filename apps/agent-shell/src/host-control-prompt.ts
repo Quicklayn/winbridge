@@ -119,6 +119,14 @@ export function formatHostControlStatus(status: AgentShellHostStatusSnapshot): s
     parts.push(`expiresAt=${status.expiresAt}`);
   }
 
+  if (status.viewerDeviceId) {
+    parts.push(`viewerDeviceId=${status.viewerDeviceId}`);
+  }
+
+  if (status.viewerDevicePlatform) {
+    parts.push(`viewerDevicePlatform=${status.viewerDevicePlatform}`);
+  }
+
   if (status.inactiveCause) {
     parts.push(`inactiveCause=${status.inactiveCause}`);
   }

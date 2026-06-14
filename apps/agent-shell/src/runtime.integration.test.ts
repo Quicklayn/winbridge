@@ -3502,6 +3502,168 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("omits unavailable viewer device identity from active host status", async () => {
+    const { relay, host } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
+      const activeState = await waitForRawSocketProtocolMessage(
+        rawViewer,
+        (message) => message.type === "session-authorization-state" && message.status === "active"
+      );
+      if (activeState.type !== "session-authorization-state") {
+        throw new Error("Expected active authorization state");
+      }
+
+      expect(host.getHostStatus()).toEqual({
+        state: "active",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "active",
+        expiresAt: activeState.expiresAt,
+        visibleToHost: true,
+        permissionCount: 1
+      });
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("surfaces viewer device identity in active host status without self-asserted trust", async () => {
+    const { relay, host } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      rawViewer.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Raw Viewer",
+        capabilities: ["session:visible", "consent:required", "audit:stdout"],
+        deviceIdentity: {
+          deviceId: "dev_viewer_1",
+          displayName: "Raw Viewer",
+          platform: "windows",
+          trustLevel: "verified",
+          createdAt: "2026-06-14T12:00:00.000Z"
+        }
+      }));
+      rawViewer.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"]
+      }));
+      const activeState = await waitForRawSocketProtocolMessage(
+        rawViewer,
+        (message) => message.type === "session-authorization-state" && message.status === "active"
+      );
+      if (activeState.type !== "session-authorization-state") {
+        throw new Error("Expected active authorization state");
+      }
+
+      const hostStatus = host.getHostStatus();
+      expect(hostStatus).toEqual({
+        state: "active",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "active",
+        expiresAt: activeState.expiresAt,
+        viewerDeviceId: "dev_viewer_1",
+        viewerDevicePlatform: "windows",
+        visibleToHost: true,
+        permissionCount: 1
+      });
+      expect(JSON.stringify(hostStatus)).not.toContain("verified");
+      expect(JSON.stringify(hostStatus)).not.toContain("Raw Viewer");
+      expect(JSON.stringify(hostStatus)).not.toContain("viewer-1");
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("keeps active host status device identity bound after later same-peer hello", async () => {
+    const { relay, host, hostEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      rawViewer.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Raw Viewer",
+        capabilities: ["session:visible", "consent:required", "audit:stdout"],
+        deviceIdentity: {
+          deviceId: "dev_viewer_1",
+          displayName: "Raw Viewer",
+          platform: "windows",
+          trustLevel: "local-dev",
+          createdAt: "2026-06-14T12:00:00.000Z"
+        }
+      }));
+      rawViewer.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"]
+      }));
+      const activeState = await waitForRawSocketProtocolMessage(
+        rawViewer,
+        (message) => message.type === "session-authorization-state" && message.status === "active"
+      );
+      if (activeState.type !== "session-authorization-state") {
+        throw new Error("Expected active authorization state");
+      }
+
+      rawViewer.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Raw Viewer",
+        capabilities: ["session:visible", "consent:required", "audit:stdout"],
+        deviceIdentity: {
+          deviceId: "dev_viewer_2",
+          displayName: "Raw Viewer",
+          platform: "windows",
+          trustLevel: "verified",
+          createdAt: "2026-06-14T12:00:01.000Z"
+        }
+      }));
+      await waitForReceivedMessageCount(
+        hostEvents,
+        (message) => message.type === "hello" && message.peerId === "viewer-1",
+        2
+      );
+
+      const hostStatus = host.getHostStatus();
+      expect(hostStatus).toEqual({
+        state: "active",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "active",
+        expiresAt: activeState.expiresAt,
+        viewerDeviceId: "dev_viewer_1",
+        viewerDevicePlatform: "windows",
+        visibleToHost: true,
+        permissionCount: 1
+      });
+      expect(JSON.stringify(hostStatus)).not.toContain("dev_viewer_2");
+      expect(JSON.stringify(hostStatus)).not.toContain("verified");
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
   it("does not reuse viewer device identity after trusted viewer disconnect", async () => {
     const providerRequests: unknown[] = [];
     const lifecycleServer = await startViewerAuthorizationLifecycleServer(() => [
@@ -3567,6 +3729,11 @@ describe("agent shell consent workflow", () => {
             event.direction === "sent" && event.message.type === "session-authorization-decision"
         )
       ).toBe(false);
+      expect(host.getHostStatus()).toEqual({
+        state: "inactive",
+        visibleToHost: false,
+        permissionCount: 0
+      });
     } finally {
       await host?.stop();
       await lifecycleServer.stop();
@@ -4131,6 +4298,8 @@ describe("agent shell consent workflow", () => {
       authorizationId: activeState.authorizationId,
       authorizationStatus: "active",
       expiresAt: activeState.expiresAt,
+      viewerDeviceId: "dev_viewer_1",
+      viewerDevicePlatform: EXPECTED_RUNTIME_PLATFORM,
       visibleToHost: true,
       permissionCount: 1
     } satisfies AgentShellHostStatusSnapshot;
@@ -4151,6 +4320,8 @@ describe("agent shell consent workflow", () => {
         authorizationId: activeState.authorizationId,
         authorizationStatus: "paused",
         expiresAt: activeState.expiresAt,
+        viewerDeviceId: "dev_viewer_1",
+        viewerDevicePlatform: EXPECTED_RUNTIME_PLATFORM,
         visibleToHost: true,
         permissionCount: 1
       },
@@ -4705,6 +4876,8 @@ describe("agent shell consent workflow", () => {
       authorizationId: activeState.authorizationId,
       authorizationStatus: "active" as const,
       expiresAt: activeState.expiresAt,
+      viewerDeviceId: "dev_viewer_1",
+      viewerDevicePlatform: EXPECTED_RUNTIME_PLATFORM,
       visibleToHost: true,
       permissionCount: 1
     };
