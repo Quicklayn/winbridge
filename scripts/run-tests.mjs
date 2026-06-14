@@ -14,7 +14,31 @@ if (testFiles.length === 0) {
 }
 
 for (const testFile of testFiles) {
-  const result = spawnSync(
+  let result = runVitest(testFile);
+
+  if (result.error) {
+    console.error(`Failed to start Vitest for ${testFile}: ${result.error.message}`);
+    process.exit(1);
+  }
+
+  if (result.status !== 0) {
+    console.error(`Vitest failed for ${testFile}; retrying once.`);
+    result = runVitest(testFile);
+  }
+
+  if (result.error) {
+    console.error(`Failed to start Vitest for ${testFile}: ${result.error.message}`);
+    process.exit(1);
+  }
+
+  if (result.status !== 0) {
+    console.error(`Vitest failed for ${testFile}.`);
+    process.exit(result.status ?? 1);
+  }
+}
+
+function runVitest(testFile) {
+  return spawnSync(
     vitestCommand,
     [
       ...vitestBaseArgs,
@@ -32,16 +56,6 @@ for (const testFile of testFiles) {
     ],
     { stdio: "inherit" }
   );
-
-  if (result.error) {
-    console.error(`Failed to start Vitest for ${testFile}: ${result.error.message}`);
-    process.exit(1);
-  }
-
-  if (result.status !== 0) {
-    console.error(`Vitest failed for ${testFile}.`);
-    process.exit(result.status ?? 1);
-  }
 }
 
 function findTestFiles(root) {

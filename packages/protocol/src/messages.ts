@@ -60,10 +60,14 @@ const ProtocolMessageIdSchema = ProtocolIdentifierSchema.refine(
   (identifier) => !hasSecretBearingProtocolIdentifierMetadata(identifier),
   "Protocol message identifier must not contain sensitive metadata"
 );
+const ProtocolSessionIdSchema = SessionIdSchema.refine(
+  (identifier) => !hasSecretBearingProtocolIdentifierMetadata(identifier),
+  "Protocol session identifier must not contain sensitive metadata"
+);
 const BaseMessageSchema = z.object({
   protocolVersion: z.literal(PROTOCOL_VERSION),
   messageId: ProtocolMessageIdSchema,
-  sessionId: SessionIdSchema,
+  sessionId: ProtocolSessionIdSchema,
   createdAt: z.string().datetime()
 }).strict();
 const ProtocolAuditEventIdentifierSchema = ProtocolIdentifierSchema.refine(

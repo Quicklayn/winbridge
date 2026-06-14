@@ -1258,6 +1258,74 @@ describe("protocol envelopes", () => {
     }
   });
 
+  it("rejects secret-bearing protocol session identifiers without exposing raw text", () => {
+    const unsafeSessionIds = [
+      "token-raw-session-id",
+      "credential-raw-session-id",
+      "pairing-code-raw-session-id",
+      "authorization-header-raw-session-id",
+      "ssh-key-raw-session-id"
+    ] as const;
+    const buildMessages = [
+      (sessionId: string) => ({
+        ...createMessageBase(sessionId),
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "Host",
+        capabilities: ["session:visible"]
+      }),
+      (sessionId: string) => ({
+        ...createMessageBase(sessionId),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"]
+      }),
+      (sessionId: string) => ({
+        ...createMessageBase(sessionId),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: { authorizationId: "authz-demo" }
+      }),
+      (sessionId: string) => ({
+        ...createMessageBase(sessionId),
+        type: "audit-event",
+        eventId: "audit-demo",
+        actorPeerId: "host-1",
+        action: "agent-shell.test",
+        outcome: "accepted" as const
+      })
+    ] as const;
+
+    for (const unsafeSessionId of unsafeSessionIds) {
+      for (const buildMessage of buildMessages) {
+        const message = buildMessage(unsafeSessionId);
+
+        for (const operation of [
+          () => parseProtocolEnvelope(message),
+          () => encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+        ]) {
+          let thrown: unknown;
+
+          try {
+            operation();
+          } catch (error) {
+            thrown = error;
+          }
+
+          expect(thrown, unsafeSessionId).toBeInstanceOf(Error);
+          expect((thrown as Error).message, unsafeSessionId).toContain(
+            "Protocol session identifier"
+          );
+          expect((thrown as Error).message, unsafeSessionId).toContain("sensitive metadata");
+          expect((thrown as Error).message, unsafeSessionId).not.toContain(unsafeSessionId);
+          expect((thrown as Error).message, unsafeSessionId).not.toContain("raw-session-id");
+        }
+      }
+    }
+  });
+
   it("rejects oversized protocol identifiers", () => {
     expect(() =>
       parseProtocolEnvelope({
