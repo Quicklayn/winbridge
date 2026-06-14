@@ -179,6 +179,7 @@ export const SessionAuthorizationSchema = SessionAuthorizationBaseSchema.superRe
   requireLifecycleTimestamp(authorization.status, "revoked", authorization.revokedAt, "revokedAt", ctx);
   requireLifecycleTimestamp(authorization.status, "terminated", authorization.terminatedAt, "terminatedAt", ctx);
   requireLifecycleTimestamp(authorization.status, "expired", authorization.expiredAt, "expiredAt", ctx);
+  requireTerminalReason(authorization, ctx);
   requirePostActivationTerminalHistory(authorization, ctx);
 
   if (authorization.status === "pending") {
@@ -571,6 +572,21 @@ function requireLifecycleTimestamp(
     code: z.ZodIssueCode.custom,
     message: `${actualStatus} session authorization requires ${field}`,
     path: [field]
+  });
+}
+
+function requireTerminalReason(
+  authorization: z.infer<typeof SessionAuthorizationBaseSchema>,
+  ctx: z.RefinementCtx
+): void {
+  if (!terminalStatuses.has(authorization.status) || authorization.reason) {
+    return;
+  }
+
+  ctx.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: `${authorization.status} session authorization requires reason`,
+    path: ["reason"]
   });
 }
 

@@ -805,6 +805,61 @@ describe("session authorization state machine", () => {
     expect(() => SessionAuthorizationSchema.parse(withoutField(expired, "expiredAt"))).toThrow("expiredAt");
   });
 
+  it("requires reasons for parsed terminal authorization records", () => {
+    const approved = approveSessionAuthorization(pending(), {
+      grantedPermissions: ["screen:view"],
+      now: baseTime
+    });
+    const active = activateSessionAuthorization(approved, {
+      visibleToHost: true,
+      now: baseTime
+    });
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+    const revoked = revokeSessionPermission(active, {
+      permission: "screen:view",
+      now: baseTime
+    });
+    const terminated = terminateSessionAuthorization(active, {
+      reason: "Host disconnected",
+      now: baseTime
+    });
+    const expired = expireSessionAuthorization(active, new Date("2026-06-11T00:31:00.000Z"));
+
+    for (const authorization of [denied, revoked, terminated, expired]) {
+      expect(authorization.reason).toBeDefined();
+      expect(() => SessionAuthorizationSchema.parse(withoutField(authorization, "reason"))).toThrow(
+        "requires reason"
+      );
+      expect(SessionAuthorizationSchema.parse(authorization).reason).toBe(authorization.reason);
+    }
+  });
+
+  it("continues to accept non-terminal authorization records without reasons", () => {
+    const approved = approveSessionAuthorization(pending(), {
+      grantedPermissions: ["screen:view"],
+      now: baseTime
+    });
+    const active = activateSessionAuthorization(approved, {
+      visibleToHost: true,
+      now: baseTime
+    });
+    const paused = pauseSessionAuthorization(active, { now: baseTime });
+    const resumed = resumeSessionAuthorization(paused, { now: baseTime });
+
+    for (const authorization of [
+      pending(),
+      approved,
+      active,
+      withoutField(paused, "reason"),
+      withoutField(resumed, "reason")
+    ]) {
+      expect(SessionAuthorizationSchema.parse(authorization)).toBeDefined();
+    }
+  });
+
   it("requires live-session history for parsed post-activation terminal records", () => {
     const terminalTimestamps = {
       revoked: { revokedAt: "2026-06-11T00:03:00.000Z" },
