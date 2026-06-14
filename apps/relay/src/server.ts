@@ -803,7 +803,7 @@ function acceptedForwardAuditDetail(
   return detail;
 }
 
-function deliverRelayMessage(peers: RelayPeer[], payload: string): RelayDeliveryOutcome {
+function deliverRelayMessage(peers: readonly RelayPeer[], payload: string): RelayDeliveryOutcome {
   let deliverySentCount = 0;
   let deliveryFailedCount = 0;
 
@@ -920,7 +920,7 @@ function assertEnvelopeRole(role: RelayPeer["role"], peer: RelayPeer): void {
   }
 }
 
-function assertSingleRecipient(peers: RelayPeer[]): RelayPeer {
+function assertSingleRecipient(peers: readonly RelayPeer[]): RelayPeer {
   const [peer] = peers;
   if (peers.length !== 1 || !peer) {
     throw new Error("No recipient peer is registered");

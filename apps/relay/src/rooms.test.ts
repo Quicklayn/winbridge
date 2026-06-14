@@ -8,6 +8,18 @@ import {
   type RelayPeer
 } from "./rooms.js";
 
+type MutableRelayPeer = {
+  -readonly [K in keyof RelayPeer]: RelayPeer[K];
+};
+
+function mutablePeer(peer: RelayPeer): MutableRelayPeer {
+  return peer as MutableRelayPeer;
+}
+
+function mutablePeerList(peers: readonly RelayPeer[]): MutableRelayPeer[] {
+  return peers as MutableRelayPeer[];
+}
+
 function peer(overrides: Partial<RelayPeer>): RelayPeer {
   return {
     peerId: "host-1",
@@ -77,22 +89,22 @@ describe("RoomRegistry", () => {
     expect(Object.isFrozen(hostJoin.peers)).toBe(true);
     expect(Object.isFrozen(host)).toBe(true);
     expect(() => {
-      hostJoin.peers.push(peer({ peerId: "viewer-1", role: "viewer" }));
+      mutablePeerList(hostJoin.peers).push(peer({ peerId: "viewer-1", role: "viewer" }));
     }).toThrow(TypeError);
     expect(() => {
-      host.peerId = "viewer-1";
+      mutablePeer(host).peerId = "viewer-1";
     }).toThrow(TypeError);
     expect(() => {
-      host.role = "viewer";
+      mutablePeer(host).role = "viewer";
     }).toThrow(TypeError);
     expect(() => {
-      host.deviceId = "dev_viewer_1";
+      mutablePeer(host).deviceId = "dev_viewer_1";
     }).toThrow(TypeError);
     expect(() => {
-      host.send = () => false;
+      mutablePeer(host).send = () => false;
     }).toThrow(TypeError);
     expect(() => {
-      host.close = () => undefined;
+      mutablePeer(host).close = () => undefined;
     }).toThrow(TypeError);
 
     const [registeredHost] = rooms.peers("session-demo");
@@ -126,16 +138,20 @@ describe("RoomRegistry", () => {
     expect(Object.isFrozen(peers)).toBe(true);
     expect(Object.isFrozen(viewer)).toBe(true);
     expect(() => {
-      peers.pop();
+      mutablePeerList(peers).pop();
     }).toThrow(TypeError);
     expect(() => {
-      peers[0] = peer({ peerId: "viewer-2", role: "viewer", deviceId: "dev_viewer_2" });
+      mutablePeerList(peers)[0] = peer({
+        peerId: "viewer-2",
+        role: "viewer",
+        deviceId: "dev_viewer_2"
+      });
     }).toThrow(TypeError);
     expect(() => {
-      viewer!.peerId = "viewer-2";
+      mutablePeer(viewer!).peerId = "viewer-2";
     }).toThrow(TypeError);
     expect(() => {
-      viewer!.send = () => false;
+      mutablePeer(viewer!).send = () => false;
     }).toThrow(TypeError);
 
     expect(rooms.size("session-demo")).toBe(2);
@@ -147,7 +163,9 @@ describe("RoomRegistry", () => {
     const missingRoomPeers = rooms.peers("missing-session");
     expect(Object.isFrozen(missingRoomPeers)).toBe(true);
     expect(() => {
-      missingRoomPeers.push(peer({ peerId: "host-2", role: "host", sessionId: "missing-session" }));
+      mutablePeerList(missingRoomPeers).push(
+        peer({ peerId: "host-2", role: "host", sessionId: "missing-session" })
+      );
     }).toThrow(TypeError);
   });
 
@@ -334,13 +352,13 @@ describe("RoomRegistry", () => {
     expect(Object.isFrozen(removedViewer)).toBe(true);
     expect(remainingViewer).toBe(removedViewer);
     expect(() => {
-      leaveResult.removedPeers.push(peer({ peerId: "viewer-2", role: "viewer" }));
+      mutablePeerList(leaveResult.removedPeers).push(peer({ peerId: "viewer-2", role: "viewer" }));
     }).toThrow(TypeError);
     expect(() => {
-      removedViewer.peerId = "viewer-2";
+      mutablePeer(removedViewer).peerId = "viewer-2";
     }).toThrow(TypeError);
     expect(() => {
-      removedViewer.close = () => undefined;
+      mutablePeer(removedViewer).close = () => undefined;
     }).toThrow(TypeError);
 
     expect(removedViewer.close).toBe(viewerClose);

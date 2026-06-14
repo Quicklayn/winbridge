@@ -7,14 +7,14 @@ import {
   type SessionRole
 } from "@winbridge/protocol";
 
-export type RelayPeer = {
+export type RelayPeer = Readonly<{
   peerId: string;
   role: SessionRole;
   sessionId: string;
   deviceId: string;
   send: (data: string) => boolean;
   close: (code: number, reason: string) => void;
-};
+}>;
 
 export type RelayPeerJoin = RelayPeer & {
   pairingCode: string;
@@ -27,7 +27,7 @@ export type RelayPairingConfig = {
 };
 
 export type RelayJoinResult = {
-  peers: RelayPeer[];
+  peers: readonly RelayPeer[];
   ticketCreated: boolean;
   ticketConsumed: boolean;
   ticketRemainingUses?: number;
@@ -35,8 +35,8 @@ export type RelayJoinResult = {
 };
 
 export type RelayLeaveResult = {
-  remainingPeers: RelayPeer[];
-  removedPeers: RelayPeer[];
+  remainingPeers: readonly RelayPeer[];
+  removedPeers: readonly RelayPeer[];
 };
 
 type RelayRoom = {
@@ -182,7 +182,7 @@ export class RoomRegistry {
     };
   }
 
-  peers(sessionId: string, exceptPeerId?: string): RelayPeer[] {
+  peers(sessionId: string, exceptPeerId?: string): readonly RelayPeer[] {
     const room = this.rooms.get(sessionId);
 
     if (!room) {
@@ -207,8 +207,8 @@ function freezeRelayPeer(peer: RelayPeer): RelayPeer {
   return Object.freeze(peer);
 }
 
-function immutablePeerList(peers: Iterable<RelayPeer>): RelayPeer[] {
-  return Object.freeze([...peers]) as RelayPeer[];
+function immutablePeerList(peers: Iterable<RelayPeer>): readonly RelayPeer[] {
+  return Object.freeze([...peers]);
 }
 
 export function normalizeRelayPairingConfig(
