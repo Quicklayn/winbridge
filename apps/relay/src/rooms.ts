@@ -102,15 +102,16 @@ export class RoomRegistry {
       }
 
       try {
+        const pairingDecisionAt = this.pairingConfig.now();
         const consumedTicket = consumePairingTicket(
           room.pairingTicket,
           peer.pairingCode,
-          this.pairingConfig.now()
+          pairingDecisionAt
         );
         pairedDevice = createPairedDevice({
           ticket: room.pairingTicket,
           viewerDeviceId: peer.deviceId,
-          pairedAt: this.pairingConfig.now()
+          pairedAt: pairingDecisionAt
         });
         room.pairingTicket = consumedTicket;
         ticketConsumed = true;

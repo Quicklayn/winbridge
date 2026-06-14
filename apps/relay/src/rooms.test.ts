@@ -407,6 +407,38 @@ describe("RoomRegistry", () => {
       rooms.join(joinPeer({ peerId: "viewer-1", role: "viewer", deviceId: "dev_viewer_1" }))
     ).toThrow("Pairing ticket is expired");
     expect(rooms.size("session-demo")).toBe(1);
+    expect(rooms.hasPeer("session-demo", "viewer-1")).toBe(false);
+  });
+
+  it("uses one pairing timestamp for ticket consumption and paired-device recording", () => {
+    const timestamps = [
+      new Date("2026-06-11T00:00:00.000Z"),
+      new Date("2026-06-11T00:00:00.009Z"),
+      new Date("2026-06-11T00:00:00.010Z")
+    ];
+    let timestampIndex = 0;
+    const rooms = new RoomRegistry({
+      ticketTtlMs: 10,
+      maxUses: 1,
+      now: () => timestamps[Math.min(timestampIndex++, timestamps.length - 1)]!
+    });
+
+    rooms.join(joinPeer({ peerId: "host-1", role: "host" }));
+    const viewerJoin = rooms.join(
+      joinPeer({ peerId: "viewer-1", role: "viewer", deviceId: "dev_viewer_1" })
+    );
+
+    expect(viewerJoin).toMatchObject({
+      ticketConsumed: true,
+      ticketRemainingUses: 0,
+      pairedDevice: {
+        pairedAt: "2026-06-11T00:00:00.009Z",
+        hostDeviceId: "dev_host_1",
+        viewerDeviceId: "dev_viewer_1"
+      }
+    });
+    expect(timestampIndex).toBe(2);
+    expect(rooms.size("session-demo")).toBe(2);
   });
 
   it("rejects consumed pairing tickets after all uses are spent", () => {
