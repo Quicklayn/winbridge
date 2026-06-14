@@ -38,6 +38,57 @@ describe("immutable protocol snapshots", () => {
     }).toThrow(TypeError);
   });
 
+  it("freezes repeated references once while preserving identity", () => {
+    const shared = { state: "active" };
+    const input = {
+      first: shared,
+      second: shared,
+      nested: [shared]
+    };
+    const frozen = deepFreeze(input);
+
+    expect(frozen).toBe(input);
+    expect(frozen.first).toBe(shared);
+    expect(frozen.second).toBe(shared);
+    expect(frozen.nested[0]).toBe(shared);
+    expect(Object.isFrozen(frozen)).toBe(true);
+    expect(Object.isFrozen(frozen.nested)).toBe(true);
+    expect(Object.isFrozen(shared)).toBe(true);
+    expect(() => {
+      frozen.second.state = "paused";
+    }).toThrow(TypeError);
+  });
+
+  it("freezes cyclic references without recursive traversal failure", () => {
+    type CyclicSnapshot = {
+      label: string;
+      nested: {
+        parent?: CyclicSnapshot;
+      };
+      self?: CyclicSnapshot;
+    };
+    const input: CyclicSnapshot = {
+      label: "root",
+      nested: {}
+    };
+    input.self = input;
+    input.nested.parent = input;
+
+    const frozen = deepFreeze(input);
+
+    expect(frozen).toBe(input);
+    expect(frozen.self).toBe(frozen);
+    expect(frozen.nested.parent).toBe(frozen);
+    expect(Object.isFrozen(frozen)).toBe(true);
+    expect(Object.isFrozen(frozen.nested)).toBe(true);
+    expect(() => {
+      frozen.label = "changed";
+    }).toThrow(TypeError);
+    expect(() => {
+      frozen.nested.parent = undefined;
+    }).toThrow(TypeError);
+  });
+
   it("preserves primitive, null, and already frozen values", () => {
     const alreadyFrozen = Object.freeze({ safe: true });
 
