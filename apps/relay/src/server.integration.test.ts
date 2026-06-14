@@ -92,6 +92,16 @@ class DisconnectAuditFailureSink extends MemoryAuditSink {
   }
 }
 
+class HeartbeatTimeoutAuditFailureSink extends MemoryAuditSink {
+  override write(input: Parameters<MemoryAuditSink["write"]>[0]): AuditRecord {
+    if (input.action === "relay.peer.heartbeat.timeout") {
+      throw new Error("Heartbeat timeout audit unavailable private-heartbeat-timeout-audit-marker");
+    }
+
+    return super.write(input);
+  }
+}
+
 afterEach(async () => {
   await Promise.all(runtimes.splice(0).map((runtime) => runtime.stop()));
 });
@@ -5043,6 +5053,122 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(disconnectNotice)).not.toContain("123-456");
     expect(JSON.stringify(disconnectAudit)).not.toContain("123-456");
     expect(JSON.stringify(disconnectAudit)).not.toContain("Peer missed relay heartbeat");
+  });
+
+  it("keeps heartbeat timeout cleanup when timeout audit persistence fails", async () => {
+    const auditSink = new HeartbeatTimeoutAuditFailureSink();
+    const logger = createMemoryLogger();
+    const runtime = await startRuntime({
+      auditSink,
+      logger,
+      heartbeat: {
+        intervalMs: 20,
+        timeoutMs: 60
+      }
+    });
+    const host = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url(), { autoPong: false });
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+    await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready");
+
+    const viewerClosed = waitForClose(viewer);
+    const disconnectNotice = await waitForProtocolMessage(
+      host,
+      (message) => message.type === "peer-disconnected"
+    );
+    await viewerClosed;
+    const disconnectAudit = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.disconnect" &&
+        record.actor.id.endsWith(":viewer-1") &&
+        record.detail.reasonCode === "heartbeat-timeout"
+    );
+
+    expect(disconnectNotice).toMatchObject({
+      type: "peer-disconnected",
+      sessionId: "session-demo",
+      peerId: "viewer-1",
+      role: "viewer",
+      reasonCode: "heartbeat-timeout"
+    });
+    expect(disconnectAudit).toMatchObject({
+      action: "relay.peer.disconnect",
+      outcome: "accepted",
+      sessionId: "session-demo",
+      detail: {
+        role: "viewer",
+        reasonCode: "heartbeat-timeout",
+        notificationTargetCount: 1,
+        notificationSentCount: 1,
+        notificationFailedCount: 0
+      }
+    });
+    expect(
+      auditSink.records().some((record) => record.action === "relay.peer.heartbeat.timeout")
+    ).toBe(false);
+    expect(logger.warns).toContain("[winbridge-relay] Heartbeat timeout audit failed before peer termination");
+
+    const serialized = JSON.stringify([auditSink.records(), logger.logs, logger.warns]);
+    expect(serialized).not.toContain("Heartbeat timeout audit unavailable");
+    expect(serialized).not.toContain("private-heartbeat-timeout-audit-marker");
+    expect(serialized).not.toContain("123-456");
+    expect(serialized).not.toContain("Peer missed relay heartbeat");
+  });
+
+  it("contains heartbeat timeout audit warning logger failure", async () => {
+    const auditSink = new HeartbeatTimeoutAuditFailureSink();
+    const logger = {
+      log: () => undefined,
+      warn: (message: string) => {
+        if (message === "[winbridge-relay] Heartbeat timeout audit failed before peer termination") {
+          throw new Error("private-heartbeat-timeout-logger-marker");
+        }
+      }
+    };
+    const runtime = await startRuntime({
+      auditSink,
+      logger,
+      heartbeat: {
+        intervalMs: 20,
+        timeoutMs: 60
+      }
+    });
+    const host = await openSocket(runtime.url());
+    const viewer = await openSocket(runtime.url(), { autoPong: false });
+
+    host.send(joinMessage("session-demo", "host-1", "host", "123-456"));
+    await waitForProtocolMessage(host, (message) => message.type === "relay-ready");
+    viewer.send(joinMessage("session-demo", "viewer-1", "viewer", "123-456"));
+    await waitForProtocolMessage(viewer, (message) => message.type === "relay-ready");
+
+    const viewerClosed = waitForClose(viewer);
+    expect(
+      await waitForProtocolMessage(host, (message) => message.type === "peer-disconnected")
+    ).toMatchObject({
+      type: "peer-disconnected",
+      peerId: "viewer-1",
+      role: "viewer",
+      reasonCode: "heartbeat-timeout"
+    });
+    await viewerClosed;
+    await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.peer.disconnect" &&
+        record.actor.id.endsWith(":viewer-1") &&
+        record.detail.reasonCode === "heartbeat-timeout"
+    );
+
+    const serialized = JSON.stringify(auditSink.records());
+    expect(serialized).not.toContain("Heartbeat timeout audit unavailable");
+    expect(serialized).not.toContain("private-heartbeat-timeout-audit-marker");
+    expect(serialized).not.toContain("private-heartbeat-timeout-logger-marker");
+    expect(serialized).not.toContain("123-456");
+    expect(serialized).not.toContain("Peer missed relay heartbeat");
   });
 
   it("parses development pairing ticket environment configuration", () => {

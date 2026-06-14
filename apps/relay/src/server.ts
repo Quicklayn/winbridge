@@ -52,6 +52,8 @@ const RELAY_DELIVERY_AUDIT_FAILED_WARNING =
   "[winbridge-relay] Forward delivery audit failed after send attempt";
 const RELAY_DISCONNECT_AUDIT_FAILED_WARNING =
   "[winbridge-relay] Disconnect audit failed after close cleanup";
+const RELAY_HEARTBEAT_TIMEOUT_AUDIT_FAILED_WARNING =
+  "[winbridge-relay] Heartbeat timeout audit failed before peer termination";
 const RELAY_RUNTIME_ALREADY_STARTED_ERROR_MESSAGE = "Relay runtime is already started";
 const RELAY_SHARED_TOKEN_ERROR_MESSAGE =
   "WINBRIDGE_RELAY_SHARED_TOKEN must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
@@ -195,6 +197,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
           auditSink,
           config: heartbeat,
           getPeer: () => registeredPeer,
+          logger,
           onTimeout: () => {
             disconnectReasonCode = "heartbeat-timeout";
           },
@@ -576,6 +579,7 @@ function startPeerHeartbeat(options: {
   auditSink: AuditSink;
   config: RelayHeartbeatConfig;
   getPeer: () => RelayPeer | undefined;
+  logger: RelayRuntimeOptions["logger"];
   onTimeout: () => void;
   socket: WebSocket;
 }): () => void {
@@ -603,21 +607,16 @@ function startPeerHeartbeat(options: {
     options.onTimeout();
 
     const peer = options.getPeer();
-    writeRelayAudit(options.auditSink, {
-      action: "relay.peer.heartbeat.timeout",
-      outcome: "failed",
-      sessionId: peer?.sessionId,
-      peerId: peer?.peerId,
-      reason: "Peer missed relay heartbeat",
-      detail: {
-        registered: Boolean(peer),
-        role: peer?.role ?? "unregistered",
-        intervalMs: options.config.intervalMs,
-        timeoutMs: options.config.timeoutMs
-      }
-    });
-
-    options.socket.terminate();
+    try {
+      writeRelayHeartbeatTimeoutAudit({
+        auditSink: options.auditSink,
+        config: options.config,
+        logger: options.logger,
+        peer
+      });
+    } finally {
+      options.socket.terminate();
+    }
   };
 
   const sendHeartbeat = () => {
@@ -874,6 +873,35 @@ function writeRelayDisconnectAudit(options: {
       options.logger?.warn(RELAY_DISCONNECT_AUDIT_FAILED_WARNING);
     } catch {
       // Post-cleanup disconnect audit diagnostics are best-effort only.
+    }
+  }
+}
+
+function writeRelayHeartbeatTimeoutAudit(options: {
+  auditSink: AuditSink;
+  config: RelayHeartbeatConfig;
+  logger: RelayRuntimeOptions["logger"];
+  peer: RelayPeer | undefined;
+}): void {
+  try {
+    writeRelayAudit(options.auditSink, {
+      action: "relay.peer.heartbeat.timeout",
+      outcome: "failed",
+      sessionId: options.peer?.sessionId,
+      peerId: options.peer?.peerId,
+      reason: "Peer missed relay heartbeat",
+      detail: {
+        registered: Boolean(options.peer),
+        role: options.peer?.role ?? "unregistered",
+        intervalMs: options.config.intervalMs,
+        timeoutMs: options.config.timeoutMs
+      }
+    });
+  } catch {
+    try {
+      options.logger?.warn(RELAY_HEARTBEAT_TIMEOUT_AUDIT_FAILED_WARNING);
+    } catch {
+      // Heartbeat timeout cleanup must not depend on diagnostics.
     }
   }
 }
