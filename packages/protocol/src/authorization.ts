@@ -28,6 +28,7 @@ export type SessionAuthorizationStatus = z.infer<typeof SessionAuthorizationStat
 
 const grantBearingStatuses = new Set<SessionAuthorizationStatus>(["pending", "approved", "active", "paused"]);
 const terminalStatuses = new Set<SessionAuthorizationStatus>(["denied", "revoked", "terminated", "expired"]);
+const postActivationTerminalStatuses = new Set<SessionAuthorizationStatus>(["revoked", "terminated"]);
 const terminableStatuses = new Set<SessionAuthorizationStatus>(["active", "paused"]);
 const DEFAULT_AUTHORIZATION_TTL_MS = 30 * 60_000;
 const MAX_AUTHORIZATION_TTL_MS = 2_147_483_647;
@@ -178,6 +179,7 @@ export const SessionAuthorizationSchema = SessionAuthorizationBaseSchema.superRe
   requireLifecycleTimestamp(authorization.status, "revoked", authorization.revokedAt, "revokedAt", ctx);
   requireLifecycleTimestamp(authorization.status, "terminated", authorization.terminatedAt, "terminatedAt", ctx);
   requireLifecycleTimestamp(authorization.status, "expired", authorization.expiredAt, "expiredAt", ctx);
+  requirePostActivationTerminalHistory(authorization, ctx);
 
   if (authorization.status === "pending") {
     rejectForbiddenLifecycleTimestamps(authorization, pendingForbiddenLifecycleTimestamps, ctx);
@@ -570,6 +572,34 @@ function requireLifecycleTimestamp(
     message: `${actualStatus} session authorization requires ${field}`,
     path: [field]
   });
+}
+
+function requirePostActivationTerminalHistory(
+  authorization: z.infer<typeof SessionAuthorizationBaseSchema>,
+  ctx: z.RefinementCtx
+): void {
+  if (
+    !postActivationTerminalStatuses.has(authorization.status) &&
+    !(authorization.status === "expired" && authorization.visibleToHost)
+  ) {
+    return;
+  }
+
+  if (!authorization.approvedAt) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${authorization.status} session authorization requires approvedAt`,
+      path: ["approvedAt"]
+    });
+  }
+
+  if (!authorization.activatedAt) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${authorization.status} session authorization requires activatedAt`,
+      path: ["activatedAt"]
+    });
+  }
 }
 
 function rejectForbiddenLifecycleTimestamps(

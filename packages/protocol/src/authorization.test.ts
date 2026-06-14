@@ -805,6 +805,70 @@ describe("session authorization state machine", () => {
     expect(() => SessionAuthorizationSchema.parse(withoutField(expired, "expiredAt"))).toThrow("expiredAt");
   });
 
+  it("requires live-session history for parsed post-activation terminal records", () => {
+    const terminalTimestamps = {
+      revoked: { revokedAt: "2026-06-11T00:03:00.000Z" },
+      terminated: { terminatedAt: "2026-06-11T00:03:00.000Z" },
+      expired: { expiredAt: "2026-06-11T00:30:00.000Z" }
+    } as const;
+
+    for (const status of ["revoked", "terminated", "expired"] as const) {
+      const visibleToHost = status === "expired";
+      const baseTerminalRecord = {
+        authorizationId: `authz-${status}`,
+        sessionId: "session-demo",
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        status,
+        permissions: [],
+        visibleToHost,
+        createdAt: "2026-06-11T00:00:00.000Z",
+        updatedAt: "2026-06-11T00:31:00.000Z",
+        expiresAt: "2026-06-11T00:30:00.000Z",
+        ...terminalTimestamps[status]
+      };
+
+      expect(() => SessionAuthorizationSchema.parse(baseTerminalRecord)).toThrow("approvedAt");
+      expect(() =>
+        SessionAuthorizationSchema.parse({
+          ...baseTerminalRecord,
+          approvedAt: "2026-06-11T00:01:00.000Z"
+        })
+      ).toThrow("activatedAt");
+    }
+  });
+
+  it("accepts pre-access denied and non-visible expired authorization records", () => {
+    const denied = denySessionAuthorization(pending(), {
+      reason: "Host denied",
+      now: baseTime
+    });
+    const expired = expireSessionAuthorization(pending(), new Date("2026-06-11T00:31:00.000Z"));
+
+    expect(SessionAuthorizationSchema.parse(denied)).toMatchObject({
+      status: "denied",
+      visibleToHost: false,
+      permissions: []
+    });
+    expect(denied.approvedAt).toBeUndefined();
+    expect(denied.activatedAt).toBeUndefined();
+
+    expect(SessionAuthorizationSchema.parse(expired)).toMatchObject({
+      status: "expired",
+      visibleToHost: false,
+      permissions: []
+    });
+    expect(expired.approvedAt).toBeUndefined();
+    expect(expired.activatedAt).toBeUndefined();
+    expect(() =>
+      assertSessionActionAuthorized({
+        authorization: expired,
+        permission: "screen:view",
+        now: new Date("2026-06-11T00:31:00.000Z")
+      })
+    ).toThrow("expired");
+  });
+
   it("rejects conflicting lifecycle timestamps for pending, approved, and denied records", () => {
     const timestamp = baseTime.toISOString();
     const pendingAuthorization = pending();
