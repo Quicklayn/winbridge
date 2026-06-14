@@ -36,6 +36,30 @@ describe("device identity", () => {
     });
   });
 
+  it("returns immutable local device identity snapshots", () => {
+    const identity = createDeviceIdentity({
+      displayName: "Host workstation",
+      platform: "windows",
+      deviceId: "dev_host_1",
+      now: new Date("2026-06-11T00:00:00.000Z")
+    });
+
+    expect(Object.isFrozen(identity)).toBe(true);
+    expect(() => {
+      identity.deviceId = "dev_viewer_1";
+    }).toThrow(TypeError);
+    expect(() => {
+      identity.displayName = "Viewer workstation";
+    }).toThrow(TypeError);
+    expect(JSON.parse(JSON.stringify(identity))).toStrictEqual({
+      deviceId: "dev_host_1",
+      displayName: "Host workstation",
+      platform: "windows",
+      trustLevel: "local-dev",
+      createdAt: "2026-06-11T00:00:00.000Z"
+    });
+  });
+
   it("rejects malformed local device identifiers", () => {
     expect(() =>
       createDeviceIdentity({
@@ -151,6 +175,37 @@ describe("pairing tickets", () => {
     expect(ticket.pairingCodeSalt).toBe(pairingCodeSalt);
     expect(ticket.pairingCodeHash).toBe(hashPairingCode("123-456", pairingCodeSalt));
     expect(JSON.stringify(ticket)).not.toContain("123-456");
+  });
+
+  it("returns immutable pairing ticket snapshots", () => {
+    const ticket = createPairingTicket({
+      pairingId: "pair-demo",
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCode: "123-456",
+      pairingCodeSalt: "salt:00112233445566778899aabbccddeeff",
+      now: new Date("2026-06-11T00:00:00.000Z")
+    });
+
+    expect(Object.isFrozen(ticket)).toBe(true);
+    expect(() => {
+      ticket.remainingUses = 10;
+    }).toThrow(TypeError);
+    expect(() => {
+      ticket.pairingCodeHash = hashPairingCode("999-000", ticket.pairingCodeSalt);
+    }).toThrow(TypeError);
+    expect(JSON.parse(JSON.stringify(ticket))).toStrictEqual({
+      pairingId: "pair-demo",
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      pairingCodeSalt: "salt:00112233445566778899aabbccddeeff",
+      pairingCodeHash: hashPairingCode("123-456", "salt:00112233445566778899aabbccddeeff"),
+      createdAt: "2026-06-11T00:00:00.000Z",
+      expiresAt: "2026-06-11T00:05:00.000Z",
+      remainingUses: 1
+    });
+    expect(JSON.stringify(ticket)).not.toContain("123-456");
+    expect(JSON.stringify(ticket)).not.toContain("999-000");
   });
 
   it("rejects pairing records with malformed identifiers", () => {
@@ -305,6 +360,11 @@ describe("pairing tickets", () => {
     expect(consumed.remainingUses).toBe(0);
     expect(consumed.pairingCodeSalt).toBe(ticket.pairingCodeSalt);
     expect(consumed.pairingCodeHash).toBe(ticket.pairingCodeHash);
+    expect(ticket.remainingUses).toBe(1);
+    expect(Object.isFrozen(consumed)).toBe(true);
+    expect(() => {
+      consumed.remainingUses = 1;
+    }).toThrow(TypeError);
     expect(() =>
       consumePairingTicket(consumed, "123-456", new Date("2026-06-11T00:00:00.600Z"))
     ).toThrow("no remaining uses");
@@ -451,6 +511,20 @@ describe("pairing tickets", () => {
 
     expect(pair.hostDeviceId).toBe("dev_host_1");
     expect(pair.viewerDeviceId).toBe("dev_viewer_1");
+    expect(Object.isFrozen(pair)).toBe(true);
+    expect(() => {
+      pair.hostDeviceId = "dev_other_1";
+    }).toThrow(TypeError);
+    expect(() => {
+      pair.viewerDeviceId = "dev_host_1";
+    }).toThrow(TypeError);
+    expect(JSON.parse(JSON.stringify(pair))).toStrictEqual({
+      pairingId: ticket.pairingId,
+      sessionId: "session-demo",
+      hostDeviceId: "dev_host_1",
+      viewerDeviceId: "dev_viewer_1",
+      pairedAt: "2026-06-11T00:00:00.500Z"
+    });
     expect(() =>
       assertRemoteActionAuthorized({
         permission: "screen:view",

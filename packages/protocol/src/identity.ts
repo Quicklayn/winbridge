@@ -77,13 +77,15 @@ export function createDeviceIdentity(input: {
   deviceId?: string;
   now?: Date;
 }): DeviceIdentity {
-  return DeviceIdentitySchema.parse({
-    deviceId: input.deviceId ?? `dev_${randomUUID()}`,
-    displayName: input.displayName,
-    platform: input.platform ?? "unknown",
-    trustLevel: input.trustLevel ?? "local-dev",
-    createdAt: (input.now ?? new Date()).toISOString()
-  });
+  return deepFreeze(
+    DeviceIdentitySchema.parse({
+      deviceId: input.deviceId ?? `dev_${randomUUID()}`,
+      displayName: input.displayName,
+      platform: input.platform ?? "unknown",
+      trustLevel: input.trustLevel ?? "local-dev",
+      createdAt: (input.now ?? new Date()).toISOString()
+    })
+  );
 }
 
 export function createPairingCodeSalt(): string {
@@ -124,16 +126,18 @@ export function createPairingTicket(input: {
   );
   const pairingCodeSalt = input.pairingCodeSalt ?? createPairingCodeSalt();
 
-  return PairingTicketSchema.parse({
-    pairingId: input.pairingId ?? `pair_${randomUUID()}`,
-    sessionId: input.sessionId,
-    hostDeviceId: input.hostDeviceId,
-    pairingCodeSalt,
-    pairingCodeHash: hashPairingCode(input.pairingCode, pairingCodeSalt),
-    createdAt: now.toISOString(),
-    expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
-    remainingUses: maxUses
-  });
+  return deepFreeze(
+    PairingTicketSchema.parse({
+      pairingId: input.pairingId ?? `pair_${randomUUID()}`,
+      sessionId: input.sessionId,
+      hostDeviceId: input.hostDeviceId,
+      pairingCodeSalt,
+      pairingCodeHash: hashPairingCode(input.pairingCode, pairingCodeSalt),
+      createdAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
+      remainingUses: maxUses
+    })
+  );
 }
 
 export function isPairingTicketExpired(ticket: PairingTicket, now = new Date()): boolean {
@@ -164,10 +168,12 @@ export function consumePairingTicket(
     throw new Error("Pairing code does not match ticket");
   }
 
-  return PairingTicketSchema.parse({
-    ...parsed,
-    remainingUses: parsed.remainingUses - 1
-  });
+  return deepFreeze(
+    PairingTicketSchema.parse({
+      ...parsed,
+      remainingUses: parsed.remainingUses - 1
+    })
+  );
 }
 
 export function createPairedDevice(input: {
@@ -194,13 +200,15 @@ export function createPairedDevice(input: {
     throw new Error("Paired device timestamp must be before pairing ticket expiration");
   }
 
-  return PairedDeviceSchema.parse({
-    pairingId: ticket.pairingId,
-    sessionId: ticket.sessionId,
-    hostDeviceId: ticket.hostDeviceId,
-    viewerDeviceId,
-    pairedAt: pairedAt.toISOString()
-  });
+  return deepFreeze(
+    PairedDeviceSchema.parse({
+      pairingId: ticket.pairingId,
+      sessionId: ticket.sessionId,
+      hostDeviceId: ticket.hostDeviceId,
+      viewerDeviceId,
+      pairedAt: pairedAt.toISOString()
+    })
+  );
 }
 
 export function assertRemoteActionAuthorized(input: {
@@ -238,6 +246,18 @@ function assertBoundedInteger(
   if (!Number.isInteger(value) || value < min || value > max) {
     throw new Error(`${label} must be an integer from ${min} through ${max}`);
   }
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+
+  for (const nested of Object.values(value as Record<string, unknown>)) {
+    deepFreeze(nested);
+  }
+
+  return Object.freeze(value) as T;
 }
 
 function hasAsciiControlCharacter(value: string): boolean {
