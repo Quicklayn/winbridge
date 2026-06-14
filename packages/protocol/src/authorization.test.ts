@@ -12,6 +12,7 @@ import {
   SessionAuthorizationSchema,
   terminateSessionAuthorization
 } from "./authorization.js";
+import type { SessionAuthorization } from "./authorization.js";
 import { createPairingTicket, createPairedDevice } from "./identity.js";
 import { assertConsentBoundGrant } from "./session.js";
 
@@ -53,7 +54,69 @@ function withoutField(value: object, field: string): unknown {
   return next;
 }
 
+function expectImmutableAuthorizationSnapshot(authorization: SessionAuthorization): void {
+  expect(Object.isFrozen(authorization)).toBe(true);
+  expect(Object.isFrozen(authorization.permissions)).toBe(true);
+}
+
 describe("session authorization state machine", () => {
+  it("returns immutable pending and active authorization snapshots", () => {
+    const pendingAuthorization = pending();
+
+    expectImmutableAuthorizationSnapshot(pendingAuthorization);
+    expect(() => pendingAuthorization.permissions.push("input:keyboard")).toThrow(TypeError);
+    expect(pendingAuthorization.permissions).toEqual(["screen:view", "input:pointer"]);
+
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pendingAuthorization, {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+
+    expectImmutableAuthorizationSnapshot(active);
+    expect(() => {
+      active.status = "terminated";
+    }).toThrow(TypeError);
+    expect(() => {
+      active.visibleToHost = false;
+    }).toThrow(TypeError);
+    expect(active).toMatchObject({
+      status: "active",
+      visibleToHost: true,
+      permissions: ["screen:view"]
+    });
+  });
+
+  it("keeps expired and terminal-preserved authorization snapshots immutable", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: baseTime
+      }),
+      { visibleToHost: true, now: baseTime }
+    );
+    const expired = expireSessionAuthorization(active, new Date("2026-06-11T00:31:00.000Z"));
+    const checked = expireSessionAuthorization(expired, new Date("2026-06-11T00:45:00.000Z"));
+
+    expectImmutableAuthorizationSnapshot(expired);
+    expectImmutableAuthorizationSnapshot(checked);
+    expect(checked).toEqual(expired);
+    expect(() => expired.permissions.push("screen:view")).toThrow(TypeError);
+    expect(() => {
+      checked.permissions = ["screen:view"];
+    }).toThrow(TypeError);
+    expect(checked.permissions).toEqual([]);
+    expect(() =>
+      assertSessionActionAuthorized({
+        authorization: checked,
+        permission: "screen:view",
+        now: new Date("2026-06-11T00:45:00.000Z")
+      })
+    ).toThrow("expired");
+  });
+
   it("does not authorize actions while pending", () => {
     expect(() =>
       assertSessionActionAuthorized({

@@ -215,6 +215,22 @@ export const SessionAuthorizationSchema = SessionAuthorizationBaseSchema.superRe
 });
 export type SessionAuthorization = z.infer<typeof SessionAuthorizationSchema>;
 
+function parseImmutableSessionAuthorization(input: unknown): SessionAuthorization {
+  return deepFreeze(SessionAuthorizationSchema.parse(input));
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
+    return value;
+  }
+
+  for (const nested of Object.values(value as Record<string, unknown>)) {
+    deepFreeze(nested);
+  }
+
+  return Object.freeze(value) as T;
+}
+
 function hasAsciiControlCharacter(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
@@ -267,7 +283,7 @@ export function createPendingSessionAuthorization(input: {
     emptyMessage: "Session authorization requires at least one requested permission"
   });
 
-  return SessionAuthorizationSchema.parse({
+  return parseImmutableSessionAuthorization({
     authorizationId: input.authorizationId ?? `authz_${randomUUID()}`,
     sessionId: input.sessionId,
     hostPeerId: input.hostPeerId,
@@ -302,7 +318,7 @@ export function approveSessionAuthorization(
     }
   }
 
-  return SessionAuthorizationSchema.parse({
+  return parseImmutableSessionAuthorization({
     ...parsed,
     status: "approved",
     permissions: grantedPermissions,
@@ -321,7 +337,7 @@ export function denySessionAuthorization(
   const now = input.now ?? new Date();
   const parsed = assertMutablePending(authorization, now);
 
-  return SessionAuthorizationSchema.parse({
+  return parseImmutableSessionAuthorization({
     ...parsed,
     status: "denied",
     permissions: [],
@@ -351,7 +367,7 @@ export function activateSessionAuthorization(
   const now = input.now ?? new Date();
   assertNotExpired(parsed, now);
 
-  return SessionAuthorizationSchema.parse({
+  return parseImmutableSessionAuthorization({
     ...parsed,
     status: "active",
     visibleToHost: true,
@@ -388,7 +404,7 @@ export function revokeSessionPermission(
 
   const remainingPermissions = parsed.permissions.filter((existing) => existing !== permission);
 
-  return SessionAuthorizationSchema.parse({
+  return parseImmutableSessionAuthorization({
     ...parsed,
     status: remainingPermissions.length === 0 ? "revoked" : parsed.status,
     permissions: remainingPermissions,
@@ -418,7 +434,7 @@ export function pauseSessionAuthorization(
   const now = input.now ?? new Date();
   assertNotExpired(parsed, now);
 
-  return SessionAuthorizationSchema.parse({
+  return parseImmutableSessionAuthorization({
     ...parsed,
     status: "paused",
     pausedAt: now.toISOString(),
@@ -447,7 +463,7 @@ export function resumeSessionAuthorization(
   const now = input.now ?? new Date();
   assertNotExpired(parsed, now);
 
-  return SessionAuthorizationSchema.parse({
+  return parseImmutableSessionAuthorization({
     ...parsed,
     status: "active",
     resumedAt: now.toISOString(),
@@ -476,7 +492,7 @@ export function terminateSessionAuthorization(
 
   assertNotExpired(parsed, now);
 
-  return SessionAuthorizationSchema.parse({
+  return parseImmutableSessionAuthorization({
     ...parsed,
     status: "terminated",
     permissions: [],
@@ -493,14 +509,14 @@ export function expireSessionAuthorization(
   const parsed = SessionAuthorizationSchema.parse(authorization);
 
   if (terminalStatuses.has(parsed.status)) {
-    return parsed;
+    return deepFreeze(parsed);
   }
 
   if (!isSessionAuthorizationExpired(parsed, now)) {
-    return parsed;
+    return deepFreeze(parsed);
   }
 
-  return SessionAuthorizationSchema.parse({
+  return parseImmutableSessionAuthorization({
     ...parsed,
     status: "expired",
     permissions: [],
