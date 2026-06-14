@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { formatAgentShellCliError } from "./cli-diagnostics.js";
+import { isControlPromptCommandLineTooLong } from "./control-prompt-input.js";
 import type { AgentShellRuntime } from "./runtime.js";
 import { formatViewerStatus } from "./viewer-status.js";
 
@@ -94,6 +95,11 @@ function handleViewerControlLine(
   stopPrompt: () => void,
   line: string
 ): void {
+  if (isControlPromptCommandLineTooLong(line)) {
+    output.write(`${VIEWER_CONTROL_REJECTED_MESSAGE}\n`);
+    return;
+  }
+
   const command = parseViewerControlCommand(line);
   if (!command) {
     output.write(`${VIEWER_CONTROL_REJECTED_MESSAGE}\n`);

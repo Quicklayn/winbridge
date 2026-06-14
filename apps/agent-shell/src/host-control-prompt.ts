@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { PermissionSchema, type Permission } from "@winbridge/protocol";
 import { formatAgentShellCliError } from "./cli-diagnostics.js";
+import { isControlPromptCommandLineTooLong } from "./control-prompt-input.js";
 import type { AgentShellHostStatusSnapshot, AgentShellRuntime } from "./runtime.js";
 
 export type HostControlPromptStreams = {
@@ -152,6 +153,11 @@ function handleHostControlLine(
   stopPrompt: () => void,
   line: string
 ): void {
+  if (isControlPromptCommandLineTooLong(line)) {
+    output.write(`${HOST_CONTROL_REJECTED_MESSAGE}\n`);
+    return;
+  }
+
   const command = parseHostControlCommand(line);
   if (!command) {
     output.write(`${HOST_CONTROL_REJECTED_MESSAGE}\n`);

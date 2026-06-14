@@ -5,6 +5,7 @@ import {
   parseViewerControlCommand,
   startInteractiveViewerControlPrompt
 } from "./viewer-control-prompt.js";
+import { MAX_CONTROL_PROMPT_COMMAND_LINE_BYTES } from "./control-prompt-input.js";
 import type { AgentShellRuntime } from "./runtime.js";
 
 describe("interactive viewer control prompt", () => {
@@ -300,6 +301,33 @@ describe("interactive viewer control prompt", () => {
     expect(runtime.disconnect).not.toHaveBeenCalled();
     expect(runtime.send).not.toHaveBeenCalled();
     expect(output.text()).not.toContain("screen:view");
+    expect(output.text()).not.toContain("raw-token");
+  });
+
+  it("rejects oversized command lines without invoking runtime operations or echoing input", async () => {
+    const runtime = createRuntimeSpy();
+    const output = createCapturingOutput();
+    const overlongLine = `status raw-token ${"x".repeat(MAX_CONTROL_PROMPT_COMMAND_LINE_BYTES)}`;
+    expect(Buffer.byteLength(overlongLine, "utf8")).toBeGreaterThan(
+      MAX_CONTROL_PROMPT_COMMAND_LINE_BYTES
+    );
+
+    startInteractiveViewerControlPrompt(runtime, {
+      input: PassThrough.from([`${overlongLine}\n`]),
+      output
+    });
+    await waitForText(output, (text) => text.includes("viewer control rejected"));
+
+    expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.stop).not.toHaveBeenCalled();
+    expect(runtime.pause).not.toHaveBeenCalled();
+    expect(runtime.resume).not.toHaveBeenCalled();
+    expect(runtime.revokePermission).not.toHaveBeenCalled();
+    expect(runtime.terminate).not.toHaveBeenCalled();
+    expect(runtime.disconnect).not.toHaveBeenCalled();
+    expect(runtime.send).not.toHaveBeenCalled();
+    expect(output.text()).not.toContain(overlongLine);
     expect(output.text()).not.toContain("raw-token");
   });
 

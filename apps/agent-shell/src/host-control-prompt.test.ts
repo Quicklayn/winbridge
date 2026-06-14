@@ -6,6 +6,7 @@ import {
   parseHostControlCommand,
   startInteractiveHostControlPrompt
 } from "./host-control-prompt.js";
+import { MAX_CONTROL_PROMPT_COMMAND_LINE_BYTES } from "./control-prompt-input.js";
 import type { AgentShellRuntime } from "./runtime.js";
 
 describe("interactive host control prompt", () => {
@@ -377,6 +378,32 @@ describe("interactive host control prompt", () => {
     expect(runtime.leave).not.toHaveBeenCalled();
     expect(output.text()).not.toContain("diagnostics:view");
     expect(output.text()).not.toContain("input:keylogger");
+    expect(output.text()).not.toContain("raw-token");
+  });
+
+  it("rejects oversized command lines without invoking runtime controls or echoing input", async () => {
+    const runtime = createRuntimeSpy();
+    const output = createCapturingOutput();
+    const overlongLine = `status raw-token ${"x".repeat(MAX_CONTROL_PROMPT_COMMAND_LINE_BYTES)}`;
+    expect(Buffer.byteLength(overlongLine, "utf8")).toBeGreaterThan(
+      MAX_CONTROL_PROMPT_COMMAND_LINE_BYTES
+    );
+
+    startInteractiveHostControlPrompt(runtime, {
+      input: PassThrough.from([`${overlongLine}\n`]),
+      output
+    });
+    await waitForText(output, (text) => text.includes("host control rejected"));
+
+    expect(runtime.getHostStatus).not.toHaveBeenCalled();
+    expect(runtime.pause).not.toHaveBeenCalled();
+    expect(runtime.resume).not.toHaveBeenCalled();
+    expect(runtime.revokePermission).not.toHaveBeenCalled();
+    expect(runtime.terminate).not.toHaveBeenCalled();
+    expect(runtime.disconnect).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.send).not.toHaveBeenCalled();
+    expect(output.text()).not.toContain(overlongLine);
     expect(output.text()).not.toContain("raw-token");
   });
 
