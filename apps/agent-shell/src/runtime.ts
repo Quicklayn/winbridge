@@ -808,7 +808,7 @@ async function handleMessage(
   }
 
   options.onEvent?.({ direction: "received", message: redactReceivedEventMessage(envelope) });
-  options.logger?.log(`[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
+  logRuntimeMessageBestEffort(options, `[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 
   try {
     updateViewerAuthorizationState(options, sessionState, envelope);

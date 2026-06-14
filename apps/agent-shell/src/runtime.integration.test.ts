@@ -6499,6 +6499,96 @@ describe("agent shell consent workflow", () => {
     expect(logOutput).not.toContain("payload");
   });
 
+  it("contains accepted inbound protocol summary logger failures without runtime error", async () => {
+    const requestReason = "private accepted request reason raw-accepted-request-token";
+    const rawLoggerMarker = "accepted inbound summary logger failed with raw-accepted-logger-token";
+    const hostLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: createThrowingAcceptedInboundSummaryLogger(
+        hostLogs,
+        rawLoggerMarker,
+        "received session-authorization-request"
+      ),
+      visibleToHost: true
+    });
+    await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      silentLogger,
+      undefined,
+      "Viewer",
+      { requestReason }
+    );
+
+    const request = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "session-authorization-request"
+    );
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    const approvalAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.approved"
+    );
+    const activeAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.active"
+    );
+    const activeIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "active" && event.authorizationId === authorizationId
+    );
+    await delay(100);
+
+    expect(request).toMatchObject({
+      type: "session-authorization-request",
+      viewerPeerId: "viewer-1",
+      requestedPermissions: ["screen:view"]
+    });
+    expect(approvalAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        requestReasonProvided: true,
+        requestedPermissionCount: 1,
+        grantedPermissionCount: 1
+      }
+    });
+    expect(activeAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        grantedPermissionCount: 1,
+        visibleToHost: true
+      }
+    });
+    expect(activeIndicator).toMatchObject({
+      direction: "indicator",
+      state: "active",
+      authorizationId,
+      authorizationStatus: "active",
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "signal")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "sent" && event.message.type === "signal")).toBe(false);
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    expect(logOutput).toContain("received session-authorization-request");
+    for (const rawValue of [requestReason, "raw-accepted-request-token", rawLoggerMarker, "raw-accepted-logger-token"]) {
+      expect(logOutput).not.toContain(rawValue);
+      expect(serializedEvents).not.toContain(rawValue);
+    }
+  });
+
   it("blocks viewer signal sends before active visible screen authorization", async () => {
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost();
     const viewerLogs: string[] = [];
@@ -13763,6 +13853,23 @@ function captureLogger(logs: string[]): TestLogger {
 }
 
 function createThrowingInboundUnsafeDiagnosticLogger(
+  logs: string[],
+  thrownMessage: string,
+  skippedMessageFragment: string
+): TestLogger {
+  return {
+    log: (message) => {
+      logs.push(message);
+      if (message.includes(skippedMessageFragment)) {
+        throw new Error(thrownMessage);
+      }
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => logs.push(message)
+  };
+}
+
+function createThrowingAcceptedInboundSummaryLogger(
   logs: string[],
   thrownMessage: string,
   skippedMessageFragment: string
