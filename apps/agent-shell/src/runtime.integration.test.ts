@@ -3393,6 +3393,77 @@ describe("agent shell consent workflow", () => {
     expect(logOutput).not.toContain("Private Viewer");
   });
 
+  it("contains host indicator diagnostic logger failure during visible activation", async () => {
+    const hostLogs: string[] = [];
+    const rawLoggerMarker = "host indicator diagnostic logger failed with raw-host-indicator-logger-token";
+    const hostLogger = {
+      log: (message: string) => {
+        hostLogs.push(message);
+        if (message.includes("host indicator")) {
+          throw new Error(rawLoggerMarker);
+        }
+      },
+      warn: () => undefined,
+      error: (message: string) => {
+        hostLogs.push(message);
+      }
+    };
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active"
+    );
+    const activeAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" && message.action === "agent-shell.authorization.active"
+    );
+    const activeIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "active" && event.cause === "activated"
+    );
+
+    expect(activeState).toMatchObject({
+      type: "session-authorization-state",
+      status: "active",
+      visibleToHost: true,
+      permissions: ["screen:view"]
+    });
+    expect(activeAudit).toMatchObject({
+      type: "audit-event",
+      action: "agent-shell.authorization.active",
+      outcome: "accepted"
+    });
+    expect(activeIndicator).toMatchObject({
+      direction: "indicator",
+      state: "active",
+      authorizationStatus: "active",
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    expect(hostLogs.join("\n")).toContain("host indicator state=active");
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(JSON.stringify([...hostEvents, ...viewerEvents])).not.toContain(rawLoggerMarker);
+    expect(JSON.stringify([...hostEvents, ...viewerEvents])).not.toContain("raw-host-indicator-logger-token");
+    expect(hostLogs.join("\n")).not.toContain(rawLoggerMarker);
+    expect(hostLogs.join("\n")).not.toContain("raw-host-indicator-logger-token");
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          (event.direction === "sent" || event.direction === "received") &&
+          (event.message.type === "signal" ||
+            event.message.type === "session-control" ||
+            event.message.type === "permission-revoked")
+      )
+    ).toBe(false);
+  });
+
   it("reports immutable host status snapshots across authorization lifecycle", async () => {
     const inactiveRuntime = createAgentShellRuntime(createRuntimeOptions({
       logger: silentLogger

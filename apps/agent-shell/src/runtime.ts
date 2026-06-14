@@ -2098,7 +2098,7 @@ function emitHostIndicator(
     `permissionCount=${event.permissionCount}`,
     `cause=${event.cause}`
   ];
-  options.logger?.log(parts.join(" "));
+  logRuntimeMessageBestEffort(options, parts.join(" "));
 }
 
 function hostIndicatorHasActiveGrant(state: AgentShellHostIndicatorEvent["state"]): boolean {
