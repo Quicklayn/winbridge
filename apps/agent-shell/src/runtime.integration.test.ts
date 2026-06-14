@@ -3377,6 +3377,46 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("contains invalid interactive host consent diagnostic logger failures without runtime error", async () => {
+    const rawLoggerMarker = "invalid consent logger failed with raw-invalid-consent-logger";
+    const hostLogs: string[] = [];
+    const invalidProvider = (() => "allow") as unknown as HostDecisionProvider;
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: invalidProvider,
+      hostLogger: createThrowingHostConsentNoDecisionLogger(hostLogs, rawLoggerMarker),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(hostEvents, (message) => message.type === "session-authorization-request");
+    await delay(100);
+
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          event.direction !== "indicator" &&
+          "message" in event &&
+          (event.message.type === "session-authorization-decision" ||
+            event.message.type === "session-authorization-state" ||
+            event.message.type === "session-control" ||
+            event.message.type === "permission-revoked" ||
+            event.message.type === "signal" ||
+            event.message.type === "audit-event")
+      )
+    ).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    expect(logOutput).toContain("interactive host consent returned no accepted decision");
+    for (const rawValue of [rawLoggerMarker, "raw-invalid-consent-logger"]) {
+      expect(logOutput).not.toContain(rawValue);
+      expect(serializedEvents).not.toContain(rawValue);
+    }
+  });
+
   it("fails closed when interactive host consent times out", async () => {
     const hostLogs: string[] = [];
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -3405,6 +3445,46 @@ describe("agent shell consent workflow", () => {
       )
     ).toBe(false);
     expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+  });
+
+  it("contains timeout interactive host consent diagnostic logger failures without runtime error", async () => {
+    const rawLoggerMarker = "timeout consent logger failed with raw-timeout-consent-logger";
+    const hostLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: () => new Promise<HostDecision>(() => undefined),
+      hostConsentTimeoutMs: 5,
+      hostLogger: createThrowingHostConsentNoDecisionLogger(hostLogs, rawLoggerMarker),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(hostEvents, (message) => message.type === "session-authorization-request");
+    await delay(100);
+
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          event.direction !== "indicator" &&
+          "message" in event &&
+          (event.message.type === "session-authorization-decision" ||
+            event.message.type === "session-authorization-state" ||
+            event.message.type === "session-control" ||
+            event.message.type === "permission-revoked" ||
+            event.message.type === "signal" ||
+            event.message.type === "audit-event")
+      )
+    ).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    expect(logOutput).toContain("interactive host consent timed out timeoutMs=5");
+    for (const rawValue of [rawLoggerMarker, "raw-timeout-consent-logger"]) {
+      expect(logOutput).not.toContain(rawValue);
+      expect(serializedEvents).not.toContain(rawValue);
+    }
   });
 
   it("fails closed with secret-safe diagnostics when interactive host consent throws", async () => {
@@ -14350,6 +14430,25 @@ function createThrowingHostConsentDiagnosticLogger(
 
       logs.push(message);
     }
+  };
+}
+
+function createThrowingHostConsentNoDecisionLogger(
+  logs: string[],
+  thrownMessage: string
+): TestLogger {
+  return {
+    log: (message) => {
+      logs.push(message);
+      if (
+        message.includes("interactive host consent timed out") ||
+        message.includes("interactive host consent returned no accepted decision")
+      ) {
+        throw new Error(thrownMessage);
+      }
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => logs.push(message)
   };
 }
 

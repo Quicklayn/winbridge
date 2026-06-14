@@ -1846,7 +1846,8 @@ async function resolveHostDecision(
   try {
     const result = await resolveHostDecisionProvider(options, request, sessionState);
     if (result.timedOut) {
-      options.logger?.log(
+      logRuntimeMessageBestEffort(
+        options,
         `[winbridge-agent] interactive host consent timed out timeoutMs=${result.timeoutMs}`
       );
       return "none";
@@ -1858,7 +1859,10 @@ async function resolveHostDecision(
       return decision;
     }
 
-    options.logger?.log("[winbridge-agent] interactive host consent returned no accepted decision");
+    logRuntimeMessageBestEffort(
+      options,
+      "[winbridge-agent] interactive host consent returned no accepted decision"
+    );
     return "none";
   } catch (error) {
     reportRuntimeErrorBestEffort(options, error);
