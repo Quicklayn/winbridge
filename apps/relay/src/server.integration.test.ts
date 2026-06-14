@@ -1068,6 +1068,91 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(forwarded)).not.toContain("[REDACTED]");
   });
 
+  it("rejects audit-event messages with secret-bearing fixed identifiers before forwarding", async () => {
+    const cases = [
+      {
+        name: "messageId",
+        unsafeValue: "token-raw-forwarded-audit-message-id",
+        buildMessage: (value: string) => ({
+          ...createMessageBase("session-demo"),
+          messageId: value,
+          type: "audit-event",
+          eventId: "audit-forwarded-id",
+          actorPeerId: "host-1",
+          action: "agent-shell.forwarded.audit",
+          outcome: "accepted" as const
+        })
+      },
+      {
+        name: "sessionId",
+        unsafeValue: "credential-raw-forwarded-audit-session-id",
+        buildMessage: (value: string) => ({
+          ...createMessageBase(value),
+          type: "audit-event",
+          eventId: "audit-forwarded-id",
+          actorPeerId: "host-1",
+          action: "agent-shell.forwarded.audit",
+          outcome: "accepted" as const
+        })
+      },
+      {
+        name: "eventId",
+        unsafeValue: "cookie-raw-forwarded-audit-event-id",
+        buildMessage: (value: string) => ({
+          ...createMessageBase("session-demo"),
+          type: "audit-event",
+          eventId: value,
+          actorPeerId: "host-1",
+          action: "agent-shell.forwarded.audit",
+          outcome: "accepted" as const
+        })
+      },
+      {
+        name: "actorPeerId",
+        unsafeValue: "ssh-key-raw-forwarded-audit-actor-id",
+        buildMessage: (value: string) => ({
+          ...createMessageBase("session-demo"),
+          type: "audit-event",
+          eventId: "audit-forwarded-id",
+          actorPeerId: value,
+          action: "agent-shell.forwarded.audit",
+          outcome: "accepted" as const
+        })
+      }
+    ] as const;
+
+    for (const { buildMessage, name, unsafeValue } of cases) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+      const message = buildMessage(unsafeValue);
+
+      host.send(JSON.stringify(message));
+
+      expect(await waitForJsonMessage(host, (relayMessage) => relayMessage.type === "relay-error"), name).toEqual({
+        type: "relay-error",
+        reason: "Invalid relay message"
+      });
+      await expectNoProtocolMessage(viewer, (forwarded) => forwarded.type === "audit-event");
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) => record.action === "relay.message.rejected" && record.reason === "Invalid relay message"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        reason: "Invalid relay message",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain(unsafeValue);
+      expect(JSON.stringify(rejected), name).not.toContain("raw-forwarded-audit");
+    }
+  });
+
   it("rejects duplicate live host joins without replacing the original host or refreshing pairing", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });

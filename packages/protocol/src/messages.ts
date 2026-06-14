@@ -5,6 +5,7 @@ import {
   AuditDetailSchema,
   AuditOutcomeSchema,
   hasSecretBearingAuditMetadata,
+  hasSecretBearingProtocolIdentifierMetadata,
   redactAuditDetail
 } from "./audit.js";
 import { AuthorizationIdSchema, SessionAuthorizationStatusSchema } from "./authorization.js";
@@ -58,6 +59,14 @@ const BaseMessageSchema = z.object({
   sessionId: SessionIdSchema,
   createdAt: z.string().datetime()
 }).strict();
+const ProtocolAuditEventIdentifierSchema = ProtocolIdentifierSchema.refine(
+  (identifier) => !hasSecretBearingProtocolIdentifierMetadata(identifier),
+  "Audit event identifier must not contain sensitive metadata"
+);
+const ProtocolAuditEventPeerIdSchema = PeerIdSchema.refine(
+  (identifier) => !hasSecretBearingProtocolIdentifierMetadata(identifier),
+  "Audit event identifier must not contain sensitive metadata"
+);
 const ProtocolReasonSchema = z
   .string()
   .min(1)
@@ -444,11 +453,23 @@ export const SessionControlMessageSchema = BaseMessageSchema.extend({
 
 export const AuditEventMessageSchema = BaseMessageSchema.extend({
   type: z.literal("audit-event"),
-  eventId: ProtocolIdentifierSchema,
-  actorPeerId: PeerIdSchema,
+  eventId: ProtocolAuditEventIdentifierSchema,
+  actorPeerId: ProtocolAuditEventPeerIdSchema,
   action: ProtocolAuditActionSchema,
   outcome: AuditOutcomeSchema,
   detail: AuditDetailSchema.default({}).transform(redactAuditDetail)
+}).superRefine((message, context) => {
+  for (const field of ["messageId", "sessionId"] as const) {
+    if (!hasSecretBearingProtocolIdentifierMetadata(message[field])) {
+      continue;
+    }
+
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Audit event identifier must not contain sensitive metadata",
+      path: [field]
+    });
+  }
 });
 
 export const ProtocolEnvelopeSchema = z.union([

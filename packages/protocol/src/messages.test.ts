@@ -3171,6 +3171,102 @@ describe("protocol envelopes", () => {
     });
   });
 
+  it("rejects secret-bearing audit-event identifiers without exposing raw text", () => {
+    const secretBearingAuditEventIdentifiers = [
+      "token-raw-fixed",
+      "credential-raw-fixed",
+      "password-raw-fixed",
+      "passphrase-raw-fixed",
+      "secret-raw-fixed",
+      "pairing-code-raw-fixed",
+      "api-key-raw-fixed",
+      "access-key-raw-fixed",
+      "cookie-raw-fixed",
+      "private-key-raw-fixed",
+      "ssh-key-raw-fixed",
+      "authorization-raw-fixed",
+      "authorization-header-raw-fixed",
+      "auth-header-raw-fixed",
+      "proxy-authorization-raw-fixed"
+    ] as const;
+    const cases = [
+      {
+        name: "messageId",
+        buildMessage: (value: string) => ({
+          ...createMessageBase("session-demo"),
+          messageId: value,
+          type: "audit-event",
+          eventId: "audit-demo",
+          actorPeerId: "host-1",
+          action: "agent-shell.test",
+          outcome: "accepted" as const
+        })
+      },
+      {
+        name: "sessionId",
+        buildMessage: (value: string) => ({
+          ...createMessageBase(value),
+          type: "audit-event",
+          eventId: "audit-demo",
+          actorPeerId: "host-1",
+          action: "agent-shell.test",
+          outcome: "accepted" as const
+        })
+      },
+      {
+        name: "eventId",
+        buildMessage: (value: string) => ({
+          ...createMessageBase("session-demo"),
+          type: "audit-event",
+          eventId: value,
+          actorPeerId: "host-1",
+          action: "agent-shell.test",
+          outcome: "accepted" as const
+        })
+      },
+      {
+        name: "actorPeerId",
+        buildMessage: (value: string) => ({
+          ...createMessageBase("session-demo"),
+          type: "audit-event",
+          eventId: "audit-demo",
+          actorPeerId: value,
+          action: "agent-shell.test",
+          outcome: "accepted" as const
+        })
+      }
+    ] as const;
+
+    for (const { buildMessage, name } of cases) {
+      for (const unsafeValue of secretBearingAuditEventIdentifiers) {
+        const message = buildMessage(unsafeValue);
+
+        for (const operation of [
+          () => parseProtocolEnvelope(message),
+          () => encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+        ]) {
+          let thrown: unknown;
+
+          try {
+            operation();
+          } catch (error) {
+            thrown = error;
+          }
+
+          expect(thrown, `${name}:${unsafeValue}`).toBeInstanceOf(Error);
+          expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain(
+            "Audit event identifier"
+          );
+          expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain(
+            "sensitive metadata"
+          );
+          expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain(unsafeValue);
+          expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain("raw-fixed");
+        }
+      }
+    }
+  });
+
   it("rejects blank audit-event actions", () => {
     expect(() =>
       parseProtocolEnvelope({
