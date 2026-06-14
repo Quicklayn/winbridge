@@ -96,12 +96,20 @@ export const AuthorizationIdSchema = ProtocolIdentifierSchema.min(8).refine(
   (authorizationId) => !hasSecretBearingProtocolIdentifierMetadata(authorizationId),
   "Authorization id must not contain sensitive metadata"
 );
+const AuthorizationSessionIdSchema = SessionIdSchema.refine(
+  (sessionId) => !hasSecretBearingProtocolIdentifierMetadata(sessionId),
+  "Authorization session id must not contain sensitive metadata"
+);
+const AuthorizationPeerIdSchema = PeerIdSchema.refine(
+  (peerId) => !hasSecretBearingProtocolIdentifierMetadata(peerId),
+  "Authorization peer id must not contain sensitive metadata"
+);
 
 const SessionAuthorizationBaseSchema = z.object({
   authorizationId: AuthorizationIdSchema,
-  sessionId: SessionIdSchema,
-  hostPeerId: PeerIdSchema,
-  viewerPeerId: PeerIdSchema,
+  sessionId: AuthorizationSessionIdSchema,
+  hostPeerId: AuthorizationPeerIdSchema,
+  viewerPeerId: AuthorizationPeerIdSchema,
   status: SessionAuthorizationStatusSchema,
   permissions: createPermissionListSchema({
     duplicateMessage: "Session authorization permissions must be unique"

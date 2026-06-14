@@ -54,6 +54,23 @@ const secretBearingGrantIdentifiers = [
   "auth-header-raw-grant",
   "proxy-authorization-raw-grant"
 ] as const;
+const secretBearingAuthorizationRecordIdentifiers = [
+  "token-raw-auth-record",
+  "credential-raw-auth-record",
+  "password-raw-auth-record",
+  "passphrase-raw-auth-record",
+  "secret-raw-auth-record",
+  "pairing-code-raw-auth-record",
+  "api-key-raw-auth-record",
+  "access-key-raw-auth-record",
+  "cookie-raw-auth-record",
+  "private-key-raw-auth-record",
+  "ssh-key-raw-auth-record",
+  "authorization-raw-auth-record",
+  "authorization-header-raw-auth-record",
+  "auth-header-raw-auth-record",
+  "proxy-authorization-raw-auth-record"
+] as const;
 
 function pending() {
   return createPendingSessionAuthorization({
@@ -361,6 +378,164 @@ describe("session authorization state machine", () => {
         now: baseTime
       }).authorizationId
     ).toBe("authz-public-metadata");
+  });
+
+  it("rejects secret-bearing authorization record fixed identifiers without exposing raw text", () => {
+    const cases = [
+      {
+        name: "sessionId",
+        expectedMessage: "Authorization session id",
+        buildPending: (value: string) => ({
+          sessionId: value,
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          requestedPermissions: ["screen:view"],
+          now: baseTime
+        }),
+        buildRecord: (value: string) => ({
+          ...pending(),
+          sessionId: value
+        })
+      },
+      {
+        name: "hostPeerId",
+        expectedMessage: "Authorization peer id",
+        buildPending: (value: string) => ({
+          sessionId: "session-demo",
+          hostPeerId: value,
+          viewerPeerId: "viewer-1",
+          requestedPermissions: ["screen:view"],
+          now: baseTime
+        }),
+        buildRecord: (value: string) => ({
+          ...pending(),
+          hostPeerId: value
+        })
+      },
+      {
+        name: "viewerPeerId",
+        expectedMessage: "Authorization peer id",
+        buildPending: (value: string) => ({
+          sessionId: "session-demo",
+          hostPeerId: "host-1",
+          viewerPeerId: value,
+          requestedPermissions: ["screen:view"],
+          now: baseTime
+        }),
+        buildRecord: (value: string) => ({
+          ...pending(),
+          viewerPeerId: value
+        })
+      }
+    ] as const;
+
+    for (const { buildPending, buildRecord, expectedMessage, name } of cases) {
+      for (const unsafeValue of secretBearingAuthorizationRecordIdentifiers) {
+        const assertions = [
+          () =>
+            createPendingSessionAuthorization(
+              buildPending(unsafeValue) as Parameters<typeof createPendingSessionAuthorization>[0]
+            ),
+          () => SessionAuthorizationSchema.parse(buildRecord(unsafeValue))
+        ];
+
+        for (const assertion of assertions) {
+          let thrown: unknown;
+
+          try {
+            assertion();
+          } catch (error) {
+            thrown = error;
+          }
+
+          expect(thrown, `${name}:${unsafeValue}`).toBeInstanceOf(Error);
+          expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain(expectedMessage);
+          expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain(
+            "sensitive metadata"
+          );
+          expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain(unsafeValue);
+          expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain(
+            "raw-auth-record"
+          );
+        }
+      }
+    }
+  });
+
+  it("rejects secret-bearing authorization record fixed identifiers through lifecycle entrypoints", () => {
+    const approved = approveSessionAuthorization(pending(), {
+      grantedPermissions: ["screen:view"],
+      now: baseTime
+    });
+    const active = activateSessionAuthorization(approved, {
+      visibleToHost: true,
+      now: baseTime
+    });
+    const unsafeValue = "token-raw-auth-record";
+    const cases = [
+      {
+        name: "sessionId",
+        expectedMessage: "Authorization session id",
+        apply: <T extends SessionAuthorization>(authorization: T) => ({
+          ...authorization,
+          sessionId: unsafeValue
+        })
+      },
+      {
+        name: "hostPeerId",
+        expectedMessage: "Authorization peer id",
+        apply: <T extends SessionAuthorization>(authorization: T) => ({
+          ...authorization,
+          hostPeerId: unsafeValue
+        })
+      },
+      {
+        name: "viewerPeerId",
+        expectedMessage: "Authorization peer id",
+        apply: <T extends SessionAuthorization>(authorization: T) => ({
+          ...authorization,
+          viewerPeerId: unsafeValue
+        })
+      }
+    ] as const;
+
+    for (const { apply, expectedMessage, name } of cases) {
+      const assertions = [
+        () =>
+          approveSessionAuthorization(apply(pending()), {
+            grantedPermissions: ["screen:view"],
+            now: baseTime
+          }),
+        () =>
+          activateSessionAuthorization(apply(approved), {
+            visibleToHost: true,
+            now: baseTime
+          }),
+        () => expireSessionAuthorization(apply(active), new Date("2026-06-11T00:31:00.000Z")),
+        () =>
+          assertSessionActionAuthorized({
+            authorization: apply(active),
+            permission: "screen:view",
+            now: baseTime
+          })
+      ];
+
+      for (const assertion of assertions) {
+        let thrown: unknown;
+
+        try {
+          assertion();
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown, name).toBeInstanceOf(Error);
+        expect((thrown as Error).message, name).toContain(expectedMessage);
+        expect((thrown as Error).message, name).toContain("sensitive metadata");
+        expect((thrown as Error).message, name).not.toContain(unsafeValue);
+        expect((thrown as Error).message, name).not.toContain("raw-auth-record");
+      }
+    }
   });
 
   it("rejects secret-bearing consent-bound grant identifiers without exposing raw text", () => {
