@@ -37,6 +37,23 @@ const secretBearingReasons = [
   "diagnostics dump: raw-authz-diagnostics",
   "screen content: raw-authz-screen"
 ] as const;
+const secretBearingGrantIdentifiers = [
+  "token-raw-grant",
+  "credential-raw-grant",
+  "password-raw-grant",
+  "passphrase-raw-grant",
+  "secret-raw-grant",
+  "pairing-code-raw-grant",
+  "api-key-raw-grant",
+  "access-key-raw-grant",
+  "cookie-raw-grant",
+  "private-key-raw-grant",
+  "ssh-key-raw-grant",
+  "authorization-raw-grant",
+  "authorization-header-raw-grant",
+  "auth-header-raw-grant",
+  "proxy-authorization-raw-grant"
+] as const;
 
 function pending() {
   return createPendingSessionAuthorization({
@@ -344,6 +361,87 @@ describe("session authorization state machine", () => {
         now: baseTime
       }).authorizationId
     ).toBe("authz-public-metadata");
+  });
+
+  it("rejects secret-bearing consent-bound grant identifiers without exposing raw text", () => {
+    const cases = [
+      {
+        name: "sessionId",
+        buildGrant: (value: string) => ({
+          sessionId: value,
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          permissions: ["screen:view"],
+          requiresHostApproval: true,
+          visibleSessionRequired: true,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          auditId: "audit-demo"
+        })
+      },
+      {
+        name: "hostPeerId",
+        buildGrant: (value: string) => ({
+          sessionId: "session-demo",
+          hostPeerId: value,
+          viewerPeerId: "viewer-1",
+          permissions: ["screen:view"],
+          requiresHostApproval: true,
+          visibleSessionRequired: true,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          auditId: "audit-demo"
+        })
+      },
+      {
+        name: "viewerPeerId",
+        buildGrant: (value: string) => ({
+          sessionId: "session-demo",
+          hostPeerId: "host-1",
+          viewerPeerId: value,
+          permissions: ["screen:view"],
+          requiresHostApproval: true,
+          visibleSessionRequired: true,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          auditId: "audit-demo"
+        })
+      },
+      {
+        name: "auditId",
+        buildGrant: (value: string) => ({
+          sessionId: "session-demo",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          permissions: ["screen:view"],
+          requiresHostApproval: true,
+          visibleSessionRequired: true,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          auditId: value
+        })
+      }
+    ] as const;
+
+    for (const { buildGrant, name } of cases) {
+      for (const unsafeValue of secretBearingGrantIdentifiers) {
+        let thrown: unknown;
+
+        try {
+          assertConsentBoundGrant(
+            buildGrant(unsafeValue) as Parameters<typeof assertConsentBoundGrant>[0]
+          );
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown, `${name}:${unsafeValue}`).toBeInstanceOf(Error);
+        expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain(
+          "Session grant identifier"
+        );
+        expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain(
+          "sensitive metadata"
+        );
+        expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain(unsafeValue);
+        expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain("raw-grant");
+      }
+    }
   });
 
   it("rejects authorization records and grants with unknown fixed fields", () => {

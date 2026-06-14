@@ -17,6 +17,28 @@ export const ProtocolIdentifierSchema = z
   );
 export const SessionIdSchema = ProtocolIdentifierSchema;
 export const PeerIdSchema = ProtocolIdentifierSchema;
+const SessionGrantIdentifierSchema = ProtocolIdentifierSchema.refine(
+  (identifier) => !hasSecretBearingSessionGrantIdentifierMetadata(identifier),
+  "Session grant identifier must not contain sensitive metadata"
+);
+
+const sensitiveSessionGrantIdentifierMarkers = [
+  "token",
+  "credential",
+  "password",
+  "passphrase",
+  "secret",
+  "pairingcode",
+  "apikey",
+  "accesskey",
+  "cookie",
+  "privatekey",
+  "sshkey",
+  "authorization",
+  "authorizationheader",
+  "authheader",
+  "proxyauthorization"
+] as const;
 
 const BasePermissionSchema = z.enum([
   "screen:view",
@@ -55,14 +77,14 @@ const SessionGrantPermissionsSchema = z
   });
 
 export const SessionGrantSchema = z.object({
-  sessionId: SessionIdSchema,
-  hostPeerId: PeerIdSchema,
-  viewerPeerId: PeerIdSchema,
+  sessionId: SessionGrantIdentifierSchema,
+  hostPeerId: SessionGrantIdentifierSchema,
+  viewerPeerId: SessionGrantIdentifierSchema,
   permissions: SessionGrantPermissionsSchema,
   requiresHostApproval: z.literal(true),
   visibleSessionRequired: z.literal(true),
   expiresAt: z.string().datetime(),
-  auditId: ProtocolIdentifierSchema
+  auditId: SessionGrantIdentifierSchema
 }).strict();
 export type SessionGrant = z.infer<typeof SessionGrantSchema>;
 
@@ -102,4 +124,10 @@ function deepFreeze<T>(value: T): T {
   }
 
   return Object.freeze(value) as T;
+}
+
+function hasSecretBearingSessionGrantIdentifierMetadata(value: string): boolean {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  return sensitiveSessionGrantIdentifierMarkers.some((marker) => normalized.includes(marker));
 }

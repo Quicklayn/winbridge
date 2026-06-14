@@ -550,4 +550,88 @@ describe("pairing tickets", () => {
       })
     ).not.toThrow();
   });
+
+  it("fails remote action authorization for secret-bearing consent grant identifiers", () => {
+    const cases = [
+      {
+        name: "sessionId",
+        unsafeValue: "token-raw-grant-authz",
+        buildGrant: (value: string) => ({
+          sessionId: value,
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          permissions: ["screen:view"],
+          requiresHostApproval: true,
+          visibleSessionRequired: true,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          auditId: "audit-demo"
+        })
+      },
+      {
+        name: "hostPeerId",
+        unsafeValue: "credential-raw-grant-authz",
+        buildGrant: (value: string) => ({
+          sessionId: "session-demo",
+          hostPeerId: value,
+          viewerPeerId: "viewer-1",
+          permissions: ["screen:view"],
+          requiresHostApproval: true,
+          visibleSessionRequired: true,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          auditId: "audit-demo"
+        })
+      },
+      {
+        name: "viewerPeerId",
+        unsafeValue: "cookie-raw-grant-authz",
+        buildGrant: (value: string) => ({
+          sessionId: "session-demo",
+          hostPeerId: "host-1",
+          viewerPeerId: value,
+          permissions: ["screen:view"],
+          requiresHostApproval: true,
+          visibleSessionRequired: true,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          auditId: "audit-demo"
+        })
+      },
+      {
+        name: "auditId",
+        unsafeValue: "ssh-key-raw-grant-authz",
+        buildGrant: (value: string) => ({
+          sessionId: "session-demo",
+          hostPeerId: "host-1",
+          viewerPeerId: "viewer-1",
+          permissions: ["screen:view"],
+          requiresHostApproval: true,
+          visibleSessionRequired: true,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          auditId: value
+        })
+      }
+    ] as const;
+
+    for (const { buildGrant, name, unsafeValue } of cases) {
+      let thrown: unknown;
+
+      try {
+        assertRemoteActionAuthorized({
+          permission: "screen:view",
+          grant: buildGrant(unsafeValue)
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown, `${name}:${unsafeValue}`).toBeInstanceOf(Error);
+      expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain(
+        "Session grant identifier"
+      );
+      expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain(
+        "sensitive metadata"
+      );
+      expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain(unsafeValue);
+      expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain("raw-grant");
+    }
+  });
 });
