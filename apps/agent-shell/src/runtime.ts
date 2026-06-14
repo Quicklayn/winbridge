@@ -3526,7 +3526,11 @@ function reportRuntimeError(options: AgentShellRuntimeOptions, error: unknown): 
     error: createSanitizedRuntimeError(),
     messageBytes: diagnostic.messageBytes
   });
-  options.logger?.error(formatAgentShellErrorLog("runtime", error));
+  try {
+    options.logger?.error(formatAgentShellErrorLog("runtime", error));
+  } catch {
+    // Runtime error logger diagnostics must not replace sanitized failures.
+  }
 }
 
 function reportRuntimeErrorBestEffort(options: AgentShellRuntimeOptions, error: unknown): void {

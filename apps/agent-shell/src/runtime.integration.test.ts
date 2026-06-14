@@ -13591,6 +13591,86 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("contains direct pause runtime error logger failure without replacing sanitized error", async () => {
+    const backingSink = new MemoryAuditSink();
+    const hostLogs: string[] = [];
+    const rawAuditErrorMessage = "direct pause audit sink failed with raw-audit-token";
+    const rawLoggerMarker = "runtime error logger failed with raw-runtime-logger-token";
+    const failingSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.authorization.paused") {
+          throw new Error(rawAuditErrorMessage);
+        }
+
+        return backingSink.write(input);
+      }
+    };
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      hostLogger: {
+        log: (message) => hostLogs.push(message),
+        warn: (message) => hostLogs.push(message),
+        error: (message) => {
+          hostLogs.push(message);
+          if (message.includes("runtime error messageBytes=")) {
+            throw new Error(rawLoggerMarker);
+          }
+        }
+      },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    expect(() => host.pause()).toThrow("Agent shell runtime error");
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    await delay(50);
+
+    const protocolEvents = [...hostEvents, ...viewerEvents].filter(
+      (event): event is Extract<AgentShellEvent, { direction: "received" | "sent" }> =>
+        event.direction === "received" || event.direction === "sent"
+    );
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+
+    expect(errorEvent.error.message).toBe("Agent shell runtime error");
+    expect(errorEvent.error.stack).toBeUndefined();
+    expect(errorEvent.messageBytes).toBe(Buffer.byteLength(rawAuditErrorMessage));
+    expect(logOutput).toContain("runtime error messageBytes=");
+    expect(backingSink.records().map((record) => record.action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active"
+    ]);
+    expect(
+      protocolEvents.some(
+        (event) =>
+          (event.message.type === "session-control" && event.message.action === "pause") ||
+          (event.message.type === "session-authorization-state" &&
+            event.message.status === "paused") ||
+          (event.message.type === "audit-event" &&
+            event.message.action === "agent-shell.authorization.paused") ||
+          event.message.type === "signal" ||
+          event.message.type === "permission-revoked"
+      )
+    ).toBe(false);
+
+    for (const rawValue of [
+      rawAuditErrorMessage,
+      "raw-audit-token",
+      rawLoggerMarker,
+      "raw-runtime-logger-token"
+    ]) {
+      expect(logOutput).not.toContain(rawValue);
+      expect(serializedEvents).not.toContain(rawValue);
+    }
+  });
+
   it("does not send direct resume messages when resume audit persistence fails", async () => {
     const backingSink = new MemoryAuditSink();
     const rawErrorMessage = "direct resume audit sink failed with raw-token";
