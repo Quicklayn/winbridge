@@ -1869,6 +1869,98 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("treats inbound signal payloads with malformed kinds as raw unsafe input", async () => {
+    const hostLogs: string[] = [];
+    const hostEvents: AgentShellEvent[] = [];
+    const safePayloadMarker = "agent-authorized-safe-signal-after-malformed-kinds";
+    const invalidKindCases = [
+      {
+        name: "untrimmed",
+        payload: { kind: " inbound-private-kind " },
+        rawValues: ["inbound-private-kind"]
+      },
+      {
+        name: "secret-bearing",
+        payload: { kind: "token-raw-agent-kind-secret" },
+        rawValues: ["token-raw-agent-kind-secret"]
+      },
+      {
+        name: "non-string",
+        payload: { kind: { safeMarker: "kind-object-private-marker" } },
+        rawValues: ["kind-object-private-marker"]
+      }
+    ];
+    const server = await startHostAuthorizedSignalPayloadServer((authorizationId) => [
+      ...invalidKindCases.map((testCase) => ({
+        authorizationId,
+        ...testCase.payload
+      })),
+      {
+        authorizationId,
+        kind: "viewer-offer",
+        safeMarker: safePayloadMarker
+      }
+    ]);
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        hostDecision: "approve",
+        relayUrl: server.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => hostEvents.push(event),
+        visibleToHost: true
+      }));
+      await host.start();
+
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+      const rawEvents = await waitForRawEventCount(hostEvents, invalidKindCases.length);
+      const receivedSignal = await waitForMessage(
+        hostEvents,
+        (message) => message.type === "signal" && message.fromPeerId === "viewer-1"
+      );
+      await delay(100);
+
+      for (const rawEvent of rawEvents) {
+        expect(rawEvent).toMatchObject({
+          direction: "raw",
+          text: "[REDACTED]",
+          byteLength: expect.any(Number)
+        });
+        expect(rawEvent.byteLength).toBeGreaterThan(0);
+      }
+      expect(hostEvents.filter((event) => event.direction === "received" && event.message.type === "signal")).toHaveLength(1);
+      expect(receivedSignal).toMatchObject({
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(
+            JSON.stringify({
+              authorizationId,
+              kind: "viewer-offer",
+              safeMarker: safePayloadMarker
+            })
+          )
+        }
+      });
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const serializedLogs = hostLogs.join("\n");
+      for (const testCase of invalidKindCases) {
+        for (const rawValue of testCase.rawValues) {
+          expect(serializedEvents, testCase.name).not.toContain(rawValue);
+          expect(serializedLogs, testCase.name).not.toContain(rawValue);
+        }
+      }
+      expect(serializedEvents).not.toContain(safePayloadMarker);
+    } finally {
+      await host?.stop();
+      await server.stop();
+    }
+  });
+
   it("sends public signal payloads from a canonical JSON snapshot", async () => {
     const hostLogs: string[] = [];
     const viewerLogs: string[] = [];

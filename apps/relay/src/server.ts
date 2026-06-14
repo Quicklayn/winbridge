@@ -76,6 +76,7 @@ const SAFE_RELAY_REJECTION_REASONS = new Set([
   "Peer disconnect notices are relay-originated",
   "Signal payload must not be empty",
   "Signal payload must be 16384 bytes or less",
+  "Signal payload kind must be bounded safe metadata",
   "Signal payload must not contain sensitive remote-assistance data"
 ]);
 
@@ -558,6 +559,10 @@ function safeRelayRejectionReason(error: unknown): string {
 
   if (error.message.includes("Signal payload must not be empty")) {
     return "Signal payload must not be empty";
+  }
+
+  if (error.message.includes("Signal payload kind must be bounded safe metadata")) {
+    return "Signal payload kind must be bounded safe metadata";
   }
 
   if (error.message.includes("Signal payload must not contain sensitive remote-assistance data")) {

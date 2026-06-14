@@ -709,6 +709,123 @@ describe("protocol envelopes", () => {
     }
   });
 
+  it.each(["offer", "answer", "candidate", "host-offer", "viewer-signal-probe", "webrtc.v1:offer"] as const)(
+    "accepts bounded signal payload kind %s",
+    (kind) => {
+      const signalMessage = {
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          authorizationId: "authz-demo",
+          kind
+        }
+      } as const;
+
+      expect(parseProtocolEnvelope(signalMessage)).toMatchObject({
+        type: "signal",
+        payload: {
+          authorizationId: "authz-demo",
+          kind
+        }
+      });
+      expect(JSON.parse(encodeProtocolEnvelope(signalMessage))).toMatchObject({
+        type: "signal",
+        payload: {
+          authorizationId: "authz-demo",
+          kind
+        }
+      });
+    }
+  );
+
+  it("rejects malformed signal payload kinds without exposing raw text", () => {
+    const cases = [
+      { name: "blank", kind: "", rawValues: [] },
+      { name: "whitespace", kind: "   ", rawValues: [] },
+      { name: "leading whitespace", kind: " private-leading-kind", rawValues: ["private-leading-kind"] },
+      { name: "trailing whitespace", kind: "private-trailing-kind ", rawValues: ["private-trailing-kind"] },
+      { name: "oversized", kind: `private-${"k".repeat(81)}`, rawValues: ["private-"] },
+      { name: "unsafe character", kind: "kind/unsafe-private-marker", rawValues: ["unsafe-private-marker"] },
+      { name: "number", kind: 42, rawValues: [] },
+      { name: "object", kind: { safeMarker: "kind-object-private-marker" }, rawValues: ["kind-object-private-marker"] }
+    ] satisfies Array<{ name: string; kind: unknown; rawValues: string[] }>;
+
+    for (const testCase of cases) {
+      const signalMessage = {
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          authorizationId: "authz-demo",
+          kind: testCase.kind
+        }
+      } as const;
+
+      for (const operation of [
+        () => parseProtocolEnvelope(signalMessage),
+        () => encodeProtocolEnvelope(signalMessage as Parameters<typeof encodeProtocolEnvelope>[0])
+      ]) {
+        let thrown: unknown;
+        try {
+          operation();
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown, testCase.name).toBeInstanceOf(Error);
+        const message = thrown instanceof Error ? thrown.message : String(thrown);
+        expect(message, testCase.name).toContain("Signal payload kind must be bounded safe metadata");
+        for (const rawValue of testCase.rawValues) {
+          expect(message, testCase.name).not.toContain(rawValue);
+        }
+      }
+    }
+  });
+
+  it("rejects secret-bearing signal payload kinds without exposing raw text", () => {
+    const secretKinds = [
+      "token-raw-signal-kind-secret",
+      "cookie.raw.signal.kind.secret",
+      "ssh-key-raw-signal-kind-secret",
+      "screen-content-private-kind",
+      "clipboard-content-private-kind",
+      "diagnostics-dump-private-kind"
+    ];
+
+    for (const kind of secretKinds) {
+      const signalMessage = {
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: {
+          authorizationId: "authz-demo",
+          kind
+        }
+      } as const;
+
+      for (const operation of [
+        () => parseProtocolEnvelope(signalMessage),
+        () => encodeProtocolEnvelope(signalMessage as Parameters<typeof encodeProtocolEnvelope>[0])
+      ]) {
+        let thrown: unknown;
+        try {
+          operation();
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown, kind).toBeInstanceOf(Error);
+        const message = thrown instanceof Error ? thrown.message : String(thrown);
+        expect(message, kind).toContain("Signal payload kind must be bounded safe metadata");
+        expect(message, kind).not.toContain(kind);
+      }
+    }
+  });
+
   it("encodes signal payloads from a canonical JSON snapshot", () => {
     const payload = createLateSensitiveSignalPayloadProxy();
     const encoded = encodeProtocolEnvelope({

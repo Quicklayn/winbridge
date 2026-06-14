@@ -25,6 +25,8 @@ import { hasAsciiControlCharacter, hasUnsafeTextFormatControl } from "./text-saf
 
 export const PROTOCOL_VERSION = 1;
 const MAX_SIGNAL_PAYLOAD_BYTES = 16 * 1024;
+const MAX_SIGNAL_PAYLOAD_KIND_LENGTH = 80;
+const SIGNAL_PAYLOAD_KIND_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
 const SENSITIVE_SIGNAL_PAYLOAD_KEY_INDICATORS = [
   "token",
   "credential",
@@ -393,6 +395,7 @@ export const SignalMessageSchema = BaseMessageSchema.extend({
       });
     }
   }
+  validateSignalPayloadKind(message.payload, context);
 
   if (Object.keys(message.payload).length === 0) {
     context.addIssue({
@@ -568,6 +571,32 @@ function measureSignalPayloadBytes(
       path: ["payload"]
     });
     return undefined;
+  }
+}
+
+function validateSignalPayloadKind(
+  payload: JsonObject,
+  context: z.RefinementCtx
+): void {
+  if (!Object.prototype.hasOwnProperty.call(payload, "kind")) {
+    return;
+  }
+
+  const kind = payload.kind;
+  if (
+    typeof kind !== "string" ||
+    kind.length === 0 ||
+    kind !== kind.trim() ||
+    kind.length > MAX_SIGNAL_PAYLOAD_KIND_LENGTH ||
+    !SIGNAL_PAYLOAD_KIND_PATTERN.test(kind) ||
+    hasSecretBearingProtocolIdentifierMetadata(kind) ||
+    isSensitiveSignalPayloadKey(kind)
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Signal payload kind must be bounded safe metadata",
+      path: ["payload", "kind"]
+    });
   }
 }
 

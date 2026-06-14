@@ -2189,6 +2189,62 @@ describe("relay runtime integration", () => {
   });
 
   it.each([
+    ["untrimmed", " relay-private-kind ", ["relay-private-kind"]],
+    ["secret-bearing", "token-raw-relay-kind-secret", ["token-raw-relay-kind-secret"]]
+  ] satisfies Array<[string, unknown, string[]]>)(
+    "rejects %s signal payload kind before forwarding",
+    async (_name, kind, rawValues) => {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+      const relayErrorPromise = waitForJsonMessage(host, (message) => message.type === "relay-error");
+
+      host.send(
+        JSON.stringify({
+          ...createMessageBase("session-demo"),
+          type: "signal",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          payload: {
+            authorizationId: "authz-demo",
+            kind
+          }
+        })
+      );
+
+      const relayError = await relayErrorPromise;
+      expect(relayError).toEqual({
+        type: "relay-error",
+        reason: "Signal payload kind must be bounded safe metadata"
+      });
+      await expectNoProtocolMessage(viewer, (message) => message.type === "signal");
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) =>
+          record.action === "relay.message.rejected" &&
+          record.reason === "Signal payload kind must be bounded safe metadata"
+      );
+      expect(rejected).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        detail: {
+          registered: true
+        }
+      });
+      expect(auditSink.records().some((record) => record.action === "relay.message.forwarded")).toBe(false);
+
+      const serializedRelayError = JSON.stringify(relayError);
+      const serializedRejected = JSON.stringify(rejected);
+      for (const rawValue of rawValues) {
+        expect(serializedRelayError).not.toContain(rawValue);
+        expect(serializedRejected).not.toContain(rawValue);
+      }
+    }
+  );
+
+  it.each([
     ["accessKey", { nested: { accessKey: "raw-access-key" } }, ["raw-access-key"]],
     [
       "access_key",
