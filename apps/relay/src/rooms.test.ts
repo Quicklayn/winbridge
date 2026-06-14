@@ -59,6 +59,98 @@ describe("RoomRegistry", () => {
     expect(JSON.stringify(rooms.peers("session-demo"))).not.toContain("123-456");
   });
 
+  it("returns immutable join peer snapshots", () => {
+    const rooms = new RoomRegistry();
+    const originalSend = () => true;
+    const originalClose = () => undefined;
+
+    const hostJoin = rooms.join(
+      joinPeer({
+        peerId: "host-1",
+        role: "host",
+        send: originalSend,
+        close: originalClose
+      })
+    );
+    const [host] = hostJoin.peers;
+
+    expect(Object.isFrozen(hostJoin.peers)).toBe(true);
+    expect(Object.isFrozen(host)).toBe(true);
+    expect(() => {
+      hostJoin.peers.push(peer({ peerId: "viewer-1", role: "viewer" }));
+    }).toThrow(TypeError);
+    expect(() => {
+      host.peerId = "viewer-1";
+    }).toThrow(TypeError);
+    expect(() => {
+      host.role = "viewer";
+    }).toThrow(TypeError);
+    expect(() => {
+      host.deviceId = "dev_viewer_1";
+    }).toThrow(TypeError);
+    expect(() => {
+      host.send = () => false;
+    }).toThrow(TypeError);
+    expect(() => {
+      host.close = () => undefined;
+    }).toThrow(TypeError);
+
+    const [registeredHost] = rooms.peers("session-demo");
+    expect(registeredHost).toMatchObject({
+      peerId: "host-1",
+      role: "host",
+      sessionId: "session-demo",
+      deviceId: "dev_host_1"
+    });
+    expect(registeredHost?.send).toBe(originalSend);
+    expect(registeredHost?.close).toBe(originalClose);
+  });
+
+  it("returns immutable peer lookup snapshots without changing membership", () => {
+    const rooms = new RoomRegistry();
+    const originalViewerSend = () => true;
+
+    rooms.join(joinPeer({ peerId: "host-1", role: "host" }));
+    rooms.join(
+      joinPeer({
+        peerId: "viewer-1",
+        role: "viewer",
+        deviceId: "dev_viewer_1",
+        send: originalViewerSend
+      })
+    );
+
+    const peers = rooms.peers("session-demo");
+    const viewer = peers.find((existing) => existing.peerId === "viewer-1");
+
+    expect(Object.isFrozen(peers)).toBe(true);
+    expect(Object.isFrozen(viewer)).toBe(true);
+    expect(() => {
+      peers.pop();
+    }).toThrow(TypeError);
+    expect(() => {
+      peers[0] = peer({ peerId: "viewer-2", role: "viewer", deviceId: "dev_viewer_2" });
+    }).toThrow(TypeError);
+    expect(() => {
+      viewer!.peerId = "viewer-2";
+    }).toThrow(TypeError);
+    expect(() => {
+      viewer!.send = () => false;
+    }).toThrow(TypeError);
+
+    expect(rooms.size("session-demo")).toBe(2);
+    expect(rooms.hasPeer("session-demo", "viewer-1")).toBe(true);
+    expect(rooms.peers("session-demo").find((existing) => existing.peerId === "viewer-1")?.send).toBe(
+      originalViewerSend
+    );
+
+    const missingRoomPeers = rooms.peers("missing-session");
+    expect(Object.isFrozen(missingRoomPeers)).toBe(true);
+    expect(() => {
+      missingRoomPeers.push(peer({ peerId: "host-2", role: "host", sessionId: "missing-session" }));
+    }).toThrow(TypeError);
+  });
+
   it("rejects a second peer with the same role", () => {
     const rooms = new RoomRegistry();
 
@@ -216,6 +308,61 @@ describe("RoomRegistry", () => {
       ticketConsumed: true,
       ticketRemainingUses: 0
     });
+  });
+
+  it("returns immutable leave cleanup snapshots", () => {
+    const rooms = new RoomRegistry();
+    const viewerClose = () => undefined;
+
+    rooms.join(joinPeer({ peerId: "host-1", role: "host" }));
+    rooms.join(
+      joinPeer({
+        peerId: "viewer-1",
+        role: "viewer",
+        deviceId: "dev_viewer_1",
+        close: viewerClose
+      })
+    );
+
+    const leaveResult = rooms.leave("session-demo", "host-1");
+    const [remainingViewer] = leaveResult.remainingPeers;
+    const [removedViewer] = leaveResult.removedPeers;
+
+    expect(Object.isFrozen(leaveResult.remainingPeers)).toBe(true);
+    expect(Object.isFrozen(leaveResult.removedPeers)).toBe(true);
+    expect(Object.isFrozen(remainingViewer)).toBe(true);
+    expect(Object.isFrozen(removedViewer)).toBe(true);
+    expect(remainingViewer).toBe(removedViewer);
+    expect(() => {
+      leaveResult.removedPeers.push(peer({ peerId: "viewer-2", role: "viewer" }));
+    }).toThrow(TypeError);
+    expect(() => {
+      removedViewer.peerId = "viewer-2";
+    }).toThrow(TypeError);
+    expect(() => {
+      removedViewer.close = () => undefined;
+    }).toThrow(TypeError);
+
+    expect(removedViewer.close).toBe(viewerClose);
+    expect(rooms.size("session-demo")).toBe(0);
+    expect(rooms.hasPeer("session-demo", "viewer-1")).toBe(false);
+
+    expect(
+      rooms.join(joinPeer({ peerId: "host-2", role: "host", pairingCode: "999-000" }))
+    ).toMatchObject({
+      ticketCreated: true,
+      ticketRemainingUses: 1
+    });
+    expect(() =>
+      rooms.join(
+        joinPeer({
+          peerId: "viewer-1",
+          role: "viewer",
+          deviceId: "dev_viewer_1",
+          pairingCode: "123-456"
+        })
+      )
+    ).toThrow("Pairing code mismatch");
   });
 
   it("rejects viewer joins before the host creates pairing material", () => {

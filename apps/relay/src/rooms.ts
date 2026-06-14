@@ -123,19 +123,19 @@ export class RoomRegistry {
       }
     }
 
-    const registeredPeer: RelayPeer = {
+    const registeredPeer = freezeRelayPeer({
       peerId: peer.peerId,
       role: peer.role,
       sessionId: peer.sessionId,
       deviceId: peer.deviceId,
       send: peer.send,
       close: peer.close
-    };
+    });
     room.peers.set(peer.peerId, registeredPeer);
     this.rooms.set(peer.sessionId, room);
 
     return {
-      peers: [...room.peers.values()],
+      peers: immutablePeerList(room.peers.values()),
       ticketCreated,
       ticketConsumed,
       ticketRemainingUses: room.pairingTicket?.remainingUses,
@@ -146,12 +146,18 @@ export class RoomRegistry {
   leave(sessionId: string, peerId: string): RelayLeaveResult {
     const room = this.rooms.get(sessionId);
     if (!room) {
-      return { remainingPeers: [], removedPeers: [] };
+      return {
+        remainingPeers: immutablePeerList([]),
+        removedPeers: immutablePeerList([])
+      };
     }
 
     const leavingPeer = room.peers.get(peerId);
     if (!leavingPeer) {
-      return { remainingPeers: [...room.peers.values()], removedPeers: [] };
+      return {
+        remainingPeers: immutablePeerList(room.peers.values()),
+        removedPeers: immutablePeerList([])
+      };
     }
 
     const remainingPeers = [...room.peers.values()].filter((peer) => peer.peerId !== peerId);
@@ -169,17 +175,22 @@ export class RoomRegistry {
       this.rooms.delete(sessionId);
     }
 
-    return { remainingPeers, removedPeers };
+    return {
+      remainingPeers: immutablePeerList(remainingPeers),
+      removedPeers: immutablePeerList(removedPeers)
+    };
   }
 
   peers(sessionId: string, exceptPeerId?: string): RelayPeer[] {
     const room = this.rooms.get(sessionId);
 
     if (!room) {
-      return [];
+      return immutablePeerList([]);
     }
 
-    return [...room.peers.values()].filter((peer) => peer.peerId !== exceptPeerId);
+    return immutablePeerList(
+      [...room.peers.values()].filter((peer) => peer.peerId !== exceptPeerId)
+    );
   }
 
   size(sessionId: string): number {
@@ -189,6 +200,14 @@ export class RoomRegistry {
   hasPeer(sessionId: string, peerId: string): boolean {
     return this.rooms.get(sessionId)?.peers.has(peerId) ?? false;
   }
+}
+
+function freezeRelayPeer(peer: RelayPeer): RelayPeer {
+  return Object.freeze(peer);
+}
+
+function immutablePeerList(peers: Iterable<RelayPeer>): RelayPeer[] {
+  return Object.freeze([...peers]) as RelayPeer[];
 }
 
 export function normalizeRelayPairingConfig(
