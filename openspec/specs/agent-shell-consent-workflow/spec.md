@@ -1512,7 +1512,7 @@ The agent shell SHALL treat inbound and public-send protocol messages with unkno
 - **THEN** thrown errors, runtime events, and logs MUST NOT expose raw protocol payloads, unknown field values, tokens, pairing codes, private reasons, keystrokes, screenshots, screen contents, or input contents
 
 ### Requirement: Interactive host consent prompt
-The host agent shell SHALL support an opt-in interactive consent path that asks the host operator to approve or deny a received `session-authorization-request` before sending any authorization decision. The prompt SHALL show the host operator the requesting viewer identity using bounded metadata from the observed viewer peer and SHALL show the requested permission names and count before accepting input. Interactive prompt waiting SHALL be bounded by a positive host consent timeout with a default of `60000` milliseconds. This prompt path is a development host workflow only and MUST NOT authorize screen capture, input, clipboard access, file transfer, diagnostics, reconnect, hidden sessions, stealth persistence, or consent bypass.
+The host agent shell SHALL support an opt-in interactive consent path that asks the host operator to approve or deny a received `session-authorization-request` before sending any authorization decision. The prompt SHALL show the host operator the requesting viewer identity using bounded metadata from the observed viewer peer and SHALL show the requested permission names and count before accepting input. Interactive prompt metadata rendering MUST independently validate prompt request fields before writing host-facing text; invalid optional display-name or request-reason values MUST render as `unavailable`, and invalid required peer-id or requested-permission values MUST render bounded placeholder text without echoing raw unsafe values. Interactive prompt waiting SHALL be bounded by a positive host consent timeout with a default of `60000` milliseconds. This prompt path is a development host workflow only and MUST NOT authorize screen capture, input, clipboard access, file transfer, diagnostics, reconnect, hidden sessions, stealth persistence, or consent bypass.
 
 #### Scenario: Host approves through interactive prompt
 - **WHEN** a host shell is configured for interactive consent and receives a same-session authorization request from the observed viewer
@@ -1530,6 +1530,12 @@ The host agent shell SHALL support an opt-in interactive consent path that asks 
 - **WHEN** a host shell is configured for interactive consent and receives a same-session authorization request from the observed viewer
 - **THEN** the host-facing prompt text MUST include the trusted viewer peer id, the validated viewer display name when available, the requested permission names, and the requested permission count before asking for `approve` or `deny`
 - **AND** it MUST NOT use unbound authorization request fields, unvalidated display names, raw protocol payloads, tokens, pairing codes, private reasons, signal payloads, screen contents, input contents, clipboard contents, file-transfer contents, diagnostics dumps, or credentials as prompt identity content
+
+#### Scenario: Prompt sanitizes direct helper metadata
+- **WHEN** the interactive host consent prompt helper is called directly with an unsafe viewer display name, malformed viewer peer id, unsafe request reason, or malformed requested permission
+- **THEN** the host-facing prompt text MUST render only bounded placeholders for those unsafe fields before asking for `approve` or `deny`
+- **AND** it MUST NOT expose the raw unsafe display name, raw malformed peer id, raw unsafe request reason, raw malformed permission, protocol payloads, tokens, pairing codes, credentials, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, input contents, or full secrets
+- **AND** this rendering MUST NOT approve authorization, activate visibility, grant permissions, start capture, send input, reconnect peers, suppress host visibility, or bypass consent workflows
 
 #### Scenario: Prompt timeout fails closed
 - **WHEN** an interactive host consent prompt waits longer than the configured host consent timeout

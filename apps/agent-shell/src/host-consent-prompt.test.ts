@@ -99,6 +99,32 @@ describe("interactive host consent prompt", () => {
     expect(renderedPrompt).not.toContain("protocol-payload");
   });
 
+  it("sanitizes unsafe direct helper metadata before rendering the prompt", async () => {
+    const output = createCapturingOutput();
+
+    await promptForHostConsentDecision(
+      {
+        viewerPeerId: "viewer-token-secret",
+        viewerDisplayName: "Viewer token=raw-token",
+        requestedPermissions: ["screen:view", "credential:read", "raw-token"],
+        requestedPermissionCount: "raw-token",
+        requestReason: "token=raw-token"
+      } as any,
+      { input: Readable.from(["deny\n"]), output }
+    );
+
+    const renderedPrompt = output.text();
+    expect(renderedPrompt).toContain("Viewer peer: invalid");
+    expect(renderedPrompt).toContain("Viewer display name: unavailable");
+    expect(renderedPrompt).toContain("Requested permissions (3): screen:view,invalid,invalid");
+    expect(renderedPrompt).toContain("Request reason: unavailable");
+    expect(renderedPrompt).not.toContain("viewer-token-secret");
+    expect(renderedPrompt).not.toContain("Viewer token=raw-token");
+    expect(renderedPrompt).not.toContain("credential:read");
+    expect(renderedPrompt).not.toContain("raw-token");
+    expect(renderedPrompt).not.toContain("token=raw-token");
+  });
+
   it("renders an unavailable display-name fallback", async () => {
     const output = createCapturingOutput();
 
