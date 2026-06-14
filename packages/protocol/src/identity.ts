@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { deepFreeze } from "./immutable-snapshot.js";
 import {
   PairingCodeSchema,
   PermissionSchema,
@@ -247,16 +248,4 @@ function assertBoundedInteger(
   if (!Number.isInteger(value) || value < min || value > max) {
     throw new Error(`${label} must be an integer from ${min} through ${max}`);
   }
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
-    return value;
-  }
-
-  for (const nested of Object.values(value as Record<string, unknown>)) {
-    deepFreeze(nested);
-  }
-
-  return Object.freeze(value) as T;
 }

@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { hasSecretBearingProtocolIdentifierMetadata } from "./identifier-metadata.js";
+import { deepFreeze } from "./immutable-snapshot.js";
 
 export const SessionRoleSchema = z.enum(["host", "viewer"]);
 export type SessionRole = z.infer<typeof SessionRoleSchema>;
@@ -95,16 +96,4 @@ export function assertConsentBoundGrant(grant: SessionGrant, now = new Date()): 
   }
 
   return deepFreeze(parsed);
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
-    return value;
-  }
-
-  for (const nested of Object.values(value as Record<string, unknown>)) {
-    deepFreeze(nested);
-  }
-
-  return Object.freeze(value) as T;
 }

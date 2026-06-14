@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { hasSecretBearingAuditMetadata } from "./audit.js";
 import { hasSecretBearingProtocolIdentifierMetadata } from "./identifier-metadata.js";
+import { deepFreeze } from "./immutable-snapshot.js";
 import { PeerIdSchema, PermissionSchema, type Permission, ProtocolIdentifierSchema, SessionIdSchema } from "./session.js";
 import { hasAsciiControlCharacter, hasUnsafeTextFormatControl } from "./text-safety.js";
 
@@ -216,18 +217,6 @@ export type SessionAuthorization = z.infer<typeof SessionAuthorizationSchema>;
 
 function parseImmutableSessionAuthorization(input: unknown): SessionAuthorization {
   return deepFreeze(SessionAuthorizationSchema.parse(input));
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
-    return value;
-  }
-
-  for (const nested of Object.values(value as Record<string, unknown>)) {
-    deepFreeze(nested);
-  }
-
-  return Object.freeze(value) as T;
 }
 
 export function createPendingSessionAuthorization(input: {

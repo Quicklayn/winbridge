@@ -4,6 +4,7 @@ import {
   hasSecretBearingProtocolIdentifierMetadata,
   SECRET_BEARING_PROTOCOL_IDENTIFIER_MARKERS
 } from "./identifier-metadata.js";
+import { deepFreeze } from "./immutable-snapshot.js";
 import { createJsonObjectSchema, type JsonObject, type JsonValue } from "./json.js";
 import { ProtocolIdentifierSchema, SessionIdSchema } from "./session.js";
 import { hasAsciiControlCharacter, hasUnsafeTextFormatControl } from "./text-safety.js";
@@ -296,18 +297,6 @@ function redactAuditReason(reason: string | undefined): string | undefined {
   }
 
   return isSensitiveAuditReason(reason) ? REDACTED_AUDIT_VALUE : reason;
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
-    return value;
-  }
-
-  for (const nested of Object.values(value as Record<string, unknown>)) {
-    deepFreeze(nested);
-  }
-
-  return Object.freeze(value) as T;
 }
 
 export function hasSecretBearingAuditMetadata(

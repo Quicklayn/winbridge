@@ -10,6 +10,7 @@ import {
 import { AuthorizationIdSchema, SessionAuthorizationStatusSchema } from "./authorization.js";
 import { DeviceDisplayNameSchema, DeviceIdentitySchema } from "./identity.js";
 import { hasSecretBearingProtocolIdentifierMetadata } from "./identifier-metadata.js";
+import { deepFreeze } from "./immutable-snapshot.js";
 import { createJsonObjectSchema, stringifyJson, type JsonObject, type JsonValue } from "./json.js";
 import {
   PairingCodeSchema,
@@ -510,18 +511,6 @@ export function createMessageBase(sessionId: string) {
     sessionId,
     createdAt: new Date().toISOString()
   } as const;
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== "object" || Object.isFrozen(value)) {
-    return value;
-  }
-
-  for (const nested of Object.values(value as Record<string, unknown>)) {
-    deepFreeze(nested);
-  }
-
-  return Object.freeze(value) as T;
 }
 
 function rejectDuplicatePermissions(
