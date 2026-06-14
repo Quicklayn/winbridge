@@ -12,6 +12,7 @@ import {
   PairingTicketSchema,
   SELF_PAIRING_DEVICE_REJECTION_REASON
 } from "./identity.js";
+import type { DeviceIdentity, PairedDevice, PairingTicket } from "./identity.js";
 
 const secretBearingDisplayNames = [
   "Authorization: Bearer raw-display-token",
@@ -29,6 +30,30 @@ const secretBearingIdentityIdentifiers = [
 ] as const;
 const identityPairingIdentifierRejectionMessage =
   "Identity or pairing identifier must not contain sensitive metadata";
+
+type MutableDeviceIdentity = {
+  -readonly [K in keyof DeviceIdentity]: DeviceIdentity[K];
+};
+
+type MutablePairingTicket = {
+  -readonly [K in keyof PairingTicket]: PairingTicket[K];
+};
+
+type MutablePairedDevice = {
+  -readonly [K in keyof PairedDevice]: PairedDevice[K];
+};
+
+function mutableDeviceIdentity(identity: DeviceIdentity): MutableDeviceIdentity {
+  return identity as MutableDeviceIdentity;
+}
+
+function mutablePairingTicket(ticket: PairingTicket): MutablePairingTicket {
+  return ticket as MutablePairingTicket;
+}
+
+function mutablePairedDevice(pair: PairedDevice): MutablePairedDevice {
+  return pair as MutablePairedDevice;
+}
 
 function expectSecretBearingIdentifierError(error: unknown, unsafeValue: string): void {
   expect(error).toBeInstanceOf(Error);
@@ -62,10 +87,10 @@ describe("device identity", () => {
 
     expect(Object.isFrozen(identity)).toBe(true);
     expect(() => {
-      identity.deviceId = "dev_viewer_1";
+      mutableDeviceIdentity(identity).deviceId = "dev_viewer_1";
     }).toThrow(TypeError);
     expect(() => {
-      identity.displayName = "Viewer workstation";
+      mutableDeviceIdentity(identity).displayName = "Viewer workstation";
     }).toThrow(TypeError);
     expect(JSON.parse(JSON.stringify(identity))).toStrictEqual({
       deviceId: "dev_host_1",
@@ -223,10 +248,13 @@ describe("pairing tickets", () => {
 
     expect(Object.isFrozen(ticket)).toBe(true);
     expect(() => {
-      ticket.remainingUses = 10;
+      mutablePairingTicket(ticket).remainingUses = 10;
     }).toThrow(TypeError);
     expect(() => {
-      ticket.pairingCodeHash = hashPairingCode("999-000", ticket.pairingCodeSalt);
+      mutablePairingTicket(ticket).pairingCodeHash = hashPairingCode(
+        "999-000",
+        ticket.pairingCodeSalt
+      );
     }).toThrow(TypeError);
     expect(JSON.parse(JSON.stringify(ticket))).toStrictEqual({
       pairingId: "pair-demo",
@@ -525,7 +553,7 @@ describe("pairing tickets", () => {
     expect(ticket.remainingUses).toBe(1);
     expect(Object.isFrozen(consumed)).toBe(true);
     expect(() => {
-      consumed.remainingUses = 1;
+      mutablePairingTicket(consumed).remainingUses = 1;
     }).toThrow(TypeError);
     expect(() =>
       consumePairingTicket(consumed, "123-456", new Date("2026-06-11T00:00:00.600Z"))
@@ -675,10 +703,10 @@ describe("pairing tickets", () => {
     expect(pair.viewerDeviceId).toBe("dev_viewer_1");
     expect(Object.isFrozen(pair)).toBe(true);
     expect(() => {
-      pair.hostDeviceId = "dev_other_1";
+      mutablePairedDevice(pair).hostDeviceId = "dev_other_1";
     }).toThrow(TypeError);
     expect(() => {
-      pair.viewerDeviceId = "dev_host_1";
+      mutablePairedDevice(pair).viewerDeviceId = "dev_host_1";
     }).toThrow(TypeError);
     expect(JSON.parse(JSON.stringify(pair))).toStrictEqual({
       pairingId: ticket.pairingId,

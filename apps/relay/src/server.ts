@@ -101,10 +101,10 @@ export type RelayRuntime = {
   url(): string;
 };
 
-type RelayJoinAuditDeviceIdentity = Pick<
-  DeviceIdentity,
-  "createdAt" | "platform" | "trustLevel"
-> & {
+type RelayJoinAuditDeviceIdentity = {
+  createdAt: DeviceIdentity["createdAt"];
+  platform: DeviceIdentity["platform"];
+  trustLevel: DeviceIdentity["trustLevel"];
   deviceId?: string;
   deviceIdRedacted?: boolean;
   deviceIdLength?: number;

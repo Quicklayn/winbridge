@@ -54,7 +54,8 @@ export const DeviceIdentitySchema = z.object({
   trustLevel: DeviceTrustLevelSchema,
   createdAt: z.string().datetime()
 }).strict();
-export type DeviceIdentity = z.infer<typeof DeviceIdentitySchema>;
+type DeviceIdentityFields = z.infer<typeof DeviceIdentitySchema>;
+export type DeviceIdentity = Readonly<DeviceIdentityFields>;
 
 export const PairingTicketSchema = z.object({
   pairingId: IdentityPairingDeviceIdentifierSchema,
@@ -66,7 +67,8 @@ export const PairingTicketSchema = z.object({
   expiresAt: z.string().datetime(),
   remainingUses: z.number().int().min(0).max(10)
 }).strict();
-export type PairingTicket = z.infer<typeof PairingTicketSchema>;
+type PairingTicketFields = z.infer<typeof PairingTicketSchema>;
+export type PairingTicket = Readonly<PairingTicketFields>;
 
 export const PairedDeviceSchema = z.object({
   pairingId: IdentityPairingDeviceIdentifierSchema,
@@ -75,7 +77,8 @@ export const PairedDeviceSchema = z.object({
   viewerDeviceId: IdentityPairingDeviceIdentifierSchema,
   pairedAt: z.string().datetime()
 }).strict();
-export type PairedDevice = z.infer<typeof PairedDeviceSchema>;
+type PairedDeviceFields = z.infer<typeof PairedDeviceSchema>;
+export type PairedDevice = Readonly<PairedDeviceFields>;
 
 const DEFAULT_PAIRING_TICKET_TTL_MS = 5 * 60_000;
 const DEFAULT_PAIRING_TICKET_MAX_USES = 1;
@@ -99,7 +102,7 @@ export function createDeviceIdentity(input: {
       trustLevel: input.trustLevel ?? "local-dev",
       createdAt: (input.now ?? new Date()).toISOString()
     })
-  );
+  ) as DeviceIdentity;
 }
 
 export function createPairingCodeSalt(): string {
@@ -151,7 +154,7 @@ export function createPairingTicket(input: {
       expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
       remainingUses: maxUses
     })
-  );
+  ) as PairingTicket;
 }
 
 export function isPairingTicketExpired(ticket: PairingTicket, now = new Date()): boolean {
@@ -187,7 +190,7 @@ export function consumePairingTicket(
       ...parsed,
       remainingUses: parsed.remainingUses - 1
     })
-  );
+  ) as PairingTicket;
 }
 
 export function createPairedDevice(input: {
@@ -222,7 +225,7 @@ export function createPairedDevice(input: {
       viewerDeviceId,
       pairedAt: pairedAt.toISOString()
     })
-  );
+  ) as PairedDevice;
 }
 
 export function assertRemoteActionAuthorized(input: {
