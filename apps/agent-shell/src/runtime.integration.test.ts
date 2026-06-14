@@ -16,6 +16,7 @@ import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { createRelayRuntime, type RelayRuntime } from "../../relay/src/server.js";
 import { parseArgs } from "./args.js";
 import {
+  createAgentShellErrorDiagnostic,
   createAgentShellRuntime,
   formatAgentShellErrorLog,
   type AgentShellEvent,
@@ -10314,6 +10315,280 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(hostEvents)).not.toContain("raw-token");
   });
 
+  it("keeps scheduled host disconnect cleanup when audit diagnostics throw", async () => {
+    const backingSink = new MemoryAuditSink();
+    const hostLogs: string[] = [];
+    const rawErrorMessage = "local disconnect audit sink failed with raw-token";
+    const callbackErrorMessage = "local disconnect diagnostic callback failed with callback-token";
+    const loggerErrorMessage = "local disconnect diagnostic logger failed with logger-token";
+    const privateDisconnectReason = "Scheduled host diagnostic close marker";
+    const failingSink = createLocalDisconnectAuditFailureSink(backingSink, rawErrorMessage);
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      hostDisconnectAfterMs: 10,
+      hostDisconnectReason: privateDisconnectReason,
+      hostLogger: createThrowingLocalDisconnectDiagnosticLogger(hostLogs, loggerErrorMessage),
+      hostOnEvent: createThrowingLocalDisconnectDiagnosticEvent(callbackErrorMessage),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    const inactiveIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "inactive" && event.cause === "local-disconnect"
+    );
+    const closed = await waitForClosedEvent(hostEvents);
+    const disconnect = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "peer-disconnected"
+    );
+
+    expect(errorEvent.error.message).toBe("Agent shell runtime error");
+    expect(errorEvent.error.stack).toBeUndefined();
+    expect(errorEvent.messageBytes).toBe(Buffer.byteLength(rawErrorMessage));
+    expect(inactiveIndicator).toMatchObject({
+      direction: "indicator",
+      state: "inactive",
+      authorizationStatus: "active",
+      visibleToHost: false,
+      permissionCount: 0,
+      cause: "local-disconnect"
+    });
+    expect(closed).toMatchObject({
+      direction: "closed",
+      code: 1000,
+      reason: "[REDACTED]",
+      reasonBytes: Buffer.byteLength(privateDisconnectReason)
+    });
+    expect(disconnect).toMatchObject({
+      type: "peer-disconnected",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+    expect(host.getHostStatus()).toMatchObject({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0,
+      inactiveCause: "local-disconnect"
+    });
+    expect(backingSink.records().map((record) => record.action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active"
+    ]);
+    expect(hostEvents.some(
+      (event) =>
+        event.direction === "sent" &&
+        event.message.type === "audit-event" &&
+        event.message.action === "agent-shell.session.disconnected"
+    )).toBe(false);
+    const serializedDiagnostics = JSON.stringify({
+      backingAudit: backingSink.records(),
+      hostEvents,
+      hostLogs
+    });
+    for (const rawValue of [
+      rawErrorMessage,
+      "raw-token",
+      callbackErrorMessage,
+      "callback-token",
+      loggerErrorMessage,
+      "logger-token",
+      privateDisconnectReason,
+      "123-456"
+    ]) {
+      expect(serializedDiagnostics).not.toContain(rawValue);
+    }
+  });
+
+  it("keeps direct host disconnect cleanup when audit diagnostics throw", async () => {
+    const backingSink = new MemoryAuditSink();
+    const hostLogs: string[] = [];
+    const rawErrorMessage = "direct disconnect audit sink failed with raw-token";
+    const callbackErrorMessage = "direct disconnect diagnostic callback failed with callback-token";
+    const loggerErrorMessage = "direct disconnect diagnostic logger failed with logger-token";
+    const privateDisconnectReason = "Direct host diagnostic close marker";
+    const failingSink = createLocalDisconnectAuditFailureSink(backingSink, rawErrorMessage);
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      hostDisconnectReason: privateDisconnectReason,
+      hostLogger: createThrowingLocalDisconnectDiagnosticLogger(hostLogs, loggerErrorMessage),
+      hostOnEvent: createThrowingLocalDisconnectDiagnosticEvent(callbackErrorMessage),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    expect(() => host.disconnect()).not.toThrow();
+
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    const inactiveIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "inactive" && event.cause === "local-disconnect"
+    );
+    const closed = await waitForClosedEvent(hostEvents);
+    const disconnect = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "peer-disconnected"
+    );
+
+    expect(errorEvent.error.message).toBe("Agent shell runtime error");
+    expect(errorEvent.error.stack).toBeUndefined();
+    expect(errorEvent.messageBytes).toBe(Buffer.byteLength(rawErrorMessage));
+    expect(inactiveIndicator).toMatchObject({
+      direction: "indicator",
+      state: "inactive",
+      authorizationStatus: "active",
+      visibleToHost: false,
+      permissionCount: 0,
+      cause: "local-disconnect"
+    });
+    expect(closed).toMatchObject({
+      direction: "closed",
+      code: 1000,
+      reason: "[REDACTED]",
+      reasonBytes: Buffer.byteLength(privateDisconnectReason)
+    });
+    expect(disconnect).toMatchObject({
+      type: "peer-disconnected",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+    expect(host.getHostStatus()).toMatchObject({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0,
+      inactiveCause: "local-disconnect"
+    });
+    expect(backingSink.records().map((record) => record.action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active"
+    ]);
+    expect(hostEvents.some(
+      (event) =>
+        event.direction === "sent" &&
+        event.message.type === "audit-event" &&
+        event.message.action === "agent-shell.session.disconnected"
+    )).toBe(false);
+    const serializedDiagnostics = JSON.stringify({
+      backingAudit: backingSink.records(),
+      hostEvents,
+      hostLogs
+    });
+    for (const rawValue of [
+      rawErrorMessage,
+      "raw-token",
+      callbackErrorMessage,
+      "callback-token",
+      loggerErrorMessage,
+      "logger-token",
+      privateDisconnectReason,
+      "123-456"
+    ]) {
+      expect(serializedDiagnostics).not.toContain(rawValue);
+    }
+  });
+
+  it("keeps direct host disconnect cleanup when audit error message access throws", async () => {
+    const backingSink = new MemoryAuditSink();
+    const hostLogs: string[] = [];
+    const rawGetterErrorMessage = "message getter failed with raw-token";
+    const privateDisconnectReason = "Direct host hostile diagnostic close marker";
+    const failingSink = createLocalDisconnectHostileAuditFailureSink(
+      backingSink,
+      rawGetterErrorMessage
+    );
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      hostDisconnectReason: privateDisconnectReason,
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    expect(() => host.disconnect()).not.toThrow();
+
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    const inactiveIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "inactive" && event.cause === "local-disconnect"
+    );
+    const closed = await waitForClosedEvent(hostEvents);
+    const disconnect = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "peer-disconnected"
+    );
+
+    expect(errorEvent.error.message).toBe("Agent shell runtime error");
+    expect(errorEvent.error.stack).toBeUndefined();
+    expect(errorEvent.messageBytes).toBe(Buffer.byteLength("Agent shell runtime error"));
+    expect(inactiveIndicator).toMatchObject({
+      direction: "indicator",
+      state: "inactive",
+      authorizationStatus: "active",
+      visibleToHost: false,
+      permissionCount: 0,
+      cause: "local-disconnect"
+    });
+    expect(closed).toMatchObject({
+      direction: "closed",
+      code: 1000,
+      reason: "[REDACTED]",
+      reasonBytes: Buffer.byteLength(privateDisconnectReason)
+    });
+    expect(disconnect).toMatchObject({
+      type: "peer-disconnected",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+    expect(host.getHostStatus()).toMatchObject({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0,
+      inactiveCause: "local-disconnect"
+    });
+    expect(backingSink.records().map((record) => record.action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active"
+    ]);
+    const serializedDiagnostics = JSON.stringify({
+      backingAudit: backingSink.records(),
+      hostEvents,
+      hostLogs
+    });
+    for (const rawValue of [
+      rawGetterErrorMessage,
+      "raw-token",
+      privateDisconnectReason,
+      "123-456"
+    ]) {
+      expect(serializedDiagnostics).not.toContain(rawValue);
+    }
+  });
+
   it("ignores peer-disconnected notices that identify the local peer", async () => {
     const selfDisconnectServer = await startSelfDisconnectNoticeServer();
     const hostEvents: AgentShellEvent[] = [];
@@ -11654,6 +11929,26 @@ describe("agent shell consent workflow", () => {
     expect(logLine).not.toContain("C:\\Users\\Nur");
   });
 
+  it("summarizes hostile error message access without raw error text", () => {
+    const rawGetterErrorMessage = "message getter failed with raw-token";
+    const diagnostic = createAgentShellErrorDiagnostic(
+      createHostileMessageError(rawGetterErrorMessage)
+    );
+    const logLine = formatAgentShellErrorLog(
+      "runtime",
+      createHostileMessageError(rawGetterErrorMessage)
+    );
+
+    expect(diagnostic).toEqual({
+      messageBytes: Buffer.byteLength("Agent shell runtime error")
+    });
+    expect(logLine).toBe(
+      `[winbridge-agent] runtime error messageBytes=${Buffer.byteLength("Agent shell runtime error")}`
+    );
+    expect(logLine).not.toContain(rawGetterErrorMessage);
+    expect(logLine).not.toContain("raw-token");
+  });
+
   it("logs non-protocol message summaries without raw text", async () => {
     const nonProtocolServer = await startNonProtocolMessageServer(
       "relay-error do-not-log Message session does not match registered peer"
@@ -12212,6 +12507,85 @@ function captureLogger(logs: string[]): TestLogger {
     log: (message) => logs.push(message),
     warn: (message) => logs.push(message),
     error: (message) => logs.push(message)
+  };
+}
+
+function createLocalDisconnectAuditFailureSink(
+  backingSink: MemoryAuditSink,
+  rawErrorMessage: string
+): AuditSink {
+  return {
+    write: (input) => {
+      if (input.action === "agent-shell.session.disconnected") {
+        throw new Error(rawErrorMessage);
+      }
+
+      return backingSink.write(input);
+    }
+  };
+}
+
+function createLocalDisconnectHostileAuditFailureSink(
+  backingSink: MemoryAuditSink,
+  rawGetterErrorMessage: string
+): AuditSink {
+  return {
+    write: (input) => {
+      if (input.action === "agent-shell.session.disconnected") {
+        throw createHostileMessageError(rawGetterErrorMessage);
+      }
+
+      return backingSink.write(input);
+    }
+  };
+}
+
+function createHostileMessageError(rawGetterErrorMessage: string): Error {
+  const error = new Error("placeholder");
+  Object.defineProperty(error, "message", {
+    get() {
+      throw new Error(rawGetterErrorMessage);
+    }
+  });
+  return error;
+}
+
+function createThrowingLocalDisconnectDiagnosticLogger(
+  logs: string[],
+  thrownMessage: string
+): TestLogger {
+  return {
+    log: (message) => {
+      if (
+        message.includes("disconnect simulation closing local relay connection") ||
+        message.includes("disconnect control closing local relay connection")
+      ) {
+        throw new Error(thrownMessage);
+      }
+
+      logs.push(message);
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => {
+      if (message.includes("runtime error messageBytes=")) {
+        throw new Error(thrownMessage);
+      }
+
+      logs.push(message);
+    }
+  };
+}
+
+function createThrowingLocalDisconnectDiagnosticEvent(
+  thrownMessage: string
+): (event: AgentShellEvent) => void {
+  return (event) => {
+    if (
+      event.direction === "error" ||
+      (event.direction === "indicator" && event.cause === "local-disconnect")
+    ) {
+      throw new Error(thrownMessage);
+    }
   };
 }
 

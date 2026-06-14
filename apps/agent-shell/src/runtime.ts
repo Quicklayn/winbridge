@@ -3232,8 +3232,8 @@ function closeLocalHostConnection(
 ): void {
   persistLocalHostDisconnectAudit(options, authorization);
   sessionState.localPeerDisconnected = true;
-  deactivateHostIndicator(options, sessionState, "local-disconnect");
-  options.logger?.log(`[winbridge-agent] ${logMessage}`);
+  deactivateHostIndicatorBestEffort(options, sessionState, "local-disconnect");
+  logRuntimeMessageBestEffort(options, `[winbridge-agent] ${logMessage}`);
   socket?.close(1000, closeReason);
 }
 
@@ -3254,7 +3254,19 @@ function persistLocalHostDisconnectAudit(
       }
     });
   } catch (error) {
-    reportRuntimeError(options, error);
+    reportRuntimeErrorBestEffort(options, error);
+  }
+}
+
+function deactivateHostIndicatorBestEffort(
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  cause: AgentShellHostIndicatorEvent["cause"]
+): void {
+  try {
+    deactivateHostIndicator(options, sessionState, cause);
+  } catch {
+    // Local host disconnect cleanup must not depend on optional diagnostics.
   }
 }
 
@@ -3321,8 +3333,20 @@ function writeDevelopmentAuditRecord(
 }
 
 export function createAgentShellErrorDiagnostic(error: unknown): AgentShellErrorDiagnostic {
-  const message = error instanceof Error ? error.message : AGENT_SHELL_RUNTIME_ERROR_MESSAGE;
+  const message = safeRuntimeErrorMessage(error);
   return { messageBytes: Buffer.byteLength(message) };
+}
+
+function safeRuntimeErrorMessage(error: unknown): string {
+  try {
+    if (error instanceof Error && typeof error.message === "string") {
+      return error.message;
+    }
+  } catch {
+    return AGENT_SHELL_RUNTIME_ERROR_MESSAGE;
+  }
+
+  return AGENT_SHELL_RUNTIME_ERROR_MESSAGE;
 }
 
 export function formatAgentShellErrorLog(kind: AgentShellErrorLogKind, error: unknown): string {
@@ -3344,6 +3368,36 @@ function reportRuntimeError(options: AgentShellRuntimeOptions, error: unknown): 
     messageBytes: diagnostic.messageBytes
   });
   options.logger?.error(formatAgentShellErrorLog("runtime", error));
+}
+
+function reportRuntimeErrorBestEffort(options: AgentShellRuntimeOptions, error: unknown): void {
+  const diagnostic = createAgentShellErrorDiagnostic(error);
+  try {
+    options.onEvent?.({
+      direction: "error",
+      error: createSanitizedRuntimeError(),
+      messageBytes: diagnostic.messageBytes
+    });
+  } catch {
+    // Best-effort local disconnect diagnostics must not block cleanup.
+  }
+
+  try {
+    options.logger?.error(formatAgentShellErrorLog("runtime", error));
+  } catch {
+    // Best-effort local disconnect diagnostics must not block cleanup.
+  }
+}
+
+function logRuntimeMessageBestEffort(
+  options: AgentShellRuntimeOptions,
+  message: string
+): void {
+  try {
+    options.logger?.log(message);
+  } catch {
+    // Best-effort local disconnect logging must not block cleanup.
+  }
 }
 
 function hasAuthorizationExpired(expiresAt: string): boolean {
