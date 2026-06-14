@@ -166,7 +166,7 @@ export type AgentShellRuntime = {
   send(message: ProtocolEnvelope): void;
 };
 
-export type AgentShellHostStatusSnapshot = {
+export type AgentShellHostStatusSnapshot = Readonly<{
   state: AgentShellHostIndicatorEvent["state"];
   visibleToHost: boolean;
   permissionCount: number;
@@ -175,7 +175,7 @@ export type AgentShellHostStatusSnapshot = {
   expiresAt?: string;
   inactiveCause?: AgentShellHostIndicatorEvent["cause"];
   remoteDisconnectReasonCode?: AgentShellRemoteDisconnectReasonCode;
-};
+}>;
 
 export type AgentShellRemoteDisconnectReasonCode = Extract<
   ProtocolEnvelope,
@@ -184,7 +184,7 @@ export type AgentShellRemoteDisconnectReasonCode = Extract<
 
 export type AgentShellViewerLocalInactiveCause = "local-leave" | "socket-closed";
 
-export type AgentShellViewerStatusSnapshot = {
+export type AgentShellViewerStatusSnapshot = Readonly<{
   state: AgentShellHostIndicatorEvent["state"];
   visibleToHost: boolean;
   permissionCount: number;
@@ -194,7 +194,7 @@ export type AgentShellViewerStatusSnapshot = {
   remoteDisconnectReasonCode?: AgentShellRemoteDisconnectReasonCode;
   localInactiveCause?: AgentShellViewerLocalInactiveCause;
   signalProbeAckReceived?: boolean;
-};
+}>;
 
 export const MAX_AGENT_SHELL_REASON_LENGTH = 240;
 export const MAX_AGENT_SHELL_DISCONNECT_REASON_BYTES = 123;

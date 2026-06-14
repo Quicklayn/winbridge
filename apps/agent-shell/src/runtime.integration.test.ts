@@ -37,6 +37,9 @@ type TestLogger = {
   warn(message: string): void;
   error(message: string): void;
 };
+type MutableStatusSnapshot<T> = {
+  -readonly [K in keyof T]: T[K];
+};
 
 const silentLogger: TestLogger = {
   log: () => undefined,
@@ -3358,7 +3361,7 @@ describe("agent shell consent workflow", () => {
     expect(logOutput).not.toContain("Private Viewer");
   });
 
-  it("reports read-only host status snapshots across authorization lifecycle", async () => {
+  it("reports immutable host status snapshots across authorization lifecycle", async () => {
     const inactiveRuntime = createAgentShellRuntime(createRuntimeOptions({
       logger: silentLogger
     }));
@@ -3463,7 +3466,7 @@ describe("agent shell consent workflow", () => {
     expect(() => viewer.getHostStatus()).toThrow("Agent shell host status is only valid for host runtimes");
   });
 
-  it("reports read-only viewer status snapshots across authorization lifecycle", async () => {
+  it("reports immutable viewer status snapshots across authorization lifecycle", async () => {
     const inactiveRuntime = createAgentShellRuntime(createRuntimeOptions({
       role: "viewer",
       peerId: "viewer-inactive",
@@ -14719,10 +14722,10 @@ async function startMismatchedHostAuthorizationRequestServer(): Promise<{
 
 function expectFrozenStatusSnapshot<
   T extends AgentShellHostStatusSnapshot | AgentShellViewerStatusSnapshot
->(snapshot: T, expected: T, mutate: (snapshot: T) => void): void {
+>(snapshot: T, expected: T, mutate: (snapshot: MutableStatusSnapshot<T>) => void): void {
   expect(snapshot).toEqual(expected);
   expect(Object.isFrozen(snapshot)).toBe(true);
-  expect(() => mutate(snapshot)).toThrow(TypeError);
+  expect(() => mutate(snapshot as MutableStatusSnapshot<T>)).toThrow(TypeError);
   expect(snapshot).toEqual(expected);
 }
 
