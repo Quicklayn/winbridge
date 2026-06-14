@@ -132,8 +132,23 @@ export const AuditRecordSchema = z.object({
   reason: AuditReasonSchema.optional(),
   detail: AuditDetailSchema.default({})
 }).strict();
-export type AuditRecord = z.infer<typeof AuditRecordSchema>;
-export type AuditRecordInput = Omit<AuditRecord, "eventId" | "timestamp"> & {
+type AuditRecordFields = z.infer<typeof AuditRecordSchema>;
+export type ReadonlyAuditJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly ReadonlyAuditJsonValue[]
+  | { readonly [key: string]: ReadonlyAuditJsonValue };
+export type ReadonlyAuditDetail = { readonly [key: string]: ReadonlyAuditJsonValue };
+export type AuditRecord = Readonly<
+  Omit<AuditRecordFields, "actor" | "target" | "detail"> & {
+    actor: Readonly<AuditRecordFields["actor"]>;
+    target?: Readonly<NonNullable<AuditRecordFields["target"]>>;
+    detail: ReadonlyAuditDetail;
+  }
+>;
+export type AuditRecordInput = Omit<AuditRecordFields, "eventId" | "timestamp"> & {
   eventId?: string;
   timestamp?: string;
 };
@@ -250,7 +265,7 @@ export function createAuditRecord(input: AuditRecordInput): AuditRecord {
       reason: redactAuditReason(input.reason),
       detail: redactAuditDetail(input.detail ?? {})
     })
-  );
+  ) as AuditRecord;
 }
 
 export function redactAuditDetail(detail: Record<string, unknown>): AuditDetail {

@@ -2,7 +2,21 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:f
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
+import type { AuditRecord } from "@winbridge/protocol";
 import { ConsoleAuditSink, FileAuditSink, MemoryAuditSink } from "./index.js";
+
+type MutableAuditRecord = {
+  action: string;
+  detail: Record<string, unknown>;
+};
+
+function mutableAuditRecord(record: AuditRecord): MutableAuditRecord {
+  return record as unknown as MutableAuditRecord;
+}
+
+function mutableAuditRecords(records: readonly AuditRecord[]): AuditRecord[] {
+  return records as AuditRecord[];
+}
 
 describe("MemoryAuditSink", () => {
   it("stores audit records in write order", () => {
@@ -109,7 +123,7 @@ describe("MemoryAuditSink", () => {
     expect(Object.isFrozen(record.detail.attempts as object)).toBe(true);
     expect(Object.isFrozen((record.detail.attempts as Array<Record<string, unknown>>)[0])).toBe(true);
     expect(() => {
-      (record as unknown as { action: string }).action = "tampered";
+      mutableAuditRecord(record).action = "tampered";
     }).toThrow(TypeError);
     expect(() => {
       ((record.detail.nested as Record<string, unknown>).safe) = "tampered";
@@ -169,13 +183,13 @@ describe("MemoryAuditSink", () => {
     });
 
     const records = sink.records();
-    records.pop();
+    mutableAuditRecords(records).pop();
     const [record] = sink.records();
 
     expect(sink.records()).toHaveLength(1);
     try {
       if (record) {
-        (record as unknown as { action: string }).action = "tampered";
+        mutableAuditRecord(record).action = "tampered";
         ((record.detail.nested as Record<string, unknown>).safe) = "tampered";
       }
     } catch {

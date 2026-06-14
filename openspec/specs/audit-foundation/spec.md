@@ -405,6 +405,7 @@ The audit layer SHALL reject fixed audit identifier fields that contain secret-b
 #### Scenario: Fixed identifier rejection remains non-authorizing
 - **WHEN** audit validation rejects a fixed identifier containing secret-bearing metadata
 - **THEN** the rejection MUST NOT grant permissions, approve authorization, activate host visibility, start capture, send input, reconnect peers, suppress host visibility, sync clipboard, transfer files, expose diagnostics, install services, configure startup persistence, collect credentials, hide the session from the host, or bypass consent workflows
+
 ### Requirement: Protocol audit-event fixed identifiers reject secret-bearing metadata
 The protocol schema SHALL reject `audit-event` envelopes whose fixed identifiers contain secret-bearing protocol identifier metadata before parsing, encoding, forwarding, local emission, local storage, file persistence, or development component storage. Fixed protocol audit-event identifiers MUST include `messageId`, `sessionId`, `eventId`, and `actorPeerId`. Secret-bearing metadata MUST include raw token, credential, password, passphrase, secret, pairing-code, API-key, access-key, cookie, private-key, SSH-key, authorization, authorization-header, auth-header, or proxy-authorization marker families. Rejection diagnostics MUST NOT expose the raw rejected identifier value.
 
@@ -439,3 +440,21 @@ The protocol schema SHALL reject `audit-event` envelopes whose fixed identifiers
 #### Scenario: Protocol audit-event identifier rejection remains non-authorizing
 - **WHEN** the protocol schema rejects an `audit-event` fixed identifier containing secret-bearing metadata
 - **THEN** the rejection MUST NOT grant permissions, approve authorization, activate host visibility, start capture, send input, reconnect peers, suppress host visibility, sync clipboard, transfer files, expose diagnostics, install services, configure startup persistence, collect credentials, hide the session from the host, or bypass consent workflows
+
+### Requirement: Audit record snapshot types are read-only
+The audit layer SHALL expose created audit records and retained in-memory audit history views as read-only TypeScript snapshots. Compile-time read-only audit record fields MUST match the runtime immutable audit record contract and MUST NOT change audit validation, redaction, JSON serialization, local storage, console output, file persistence, protocol `audit-event` behavior, relay routing, authorization behavior, or workflow audit emission behavior.
+
+#### Scenario: Audit record type prevents direct evidence mutation
+- **WHEN** TypeScript code receives an audit record returned by the shared audit factory or an audit sink write
+- **THEN** the audit record type marks top-level audit evidence, actor metadata, optional target metadata, and detail metadata as read-only
+- **AND** the type-level read-only contract MUST NOT emit audit events, rewrite audit evidence, restore redacted values, grant permissions, start capture, send input, reconnect peers, or bypass consent workflows
+
+#### Scenario: Audit input types remain constructible
+- **WHEN** TypeScript code constructs audit record inputs or audit detail objects before validation
+- **THEN** audit input and detail construction types remain mutable-friendly
+- **AND** read-only output typing MUST NOT force callers to mutate returned audit records, bypass validation, skip redaction, or use unstructured logging
+
+#### Scenario: In-memory audit history view type prevents direct collection mutation
+- **WHEN** TypeScript code reads records from the in-memory audit sink
+- **THEN** the returned history view type is a read-only audit record collection
+- **AND** the type-level read-only contract MUST NOT change write order, expose the internal entry array, add audit records, remove audit records, alter persistence behavior, or change audit output semantics

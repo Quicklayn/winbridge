@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { createAuditRecord, redactAuditDetail, type AuditDetail, type AuditRecord } from "./audit.js";
 
+type MutableAuditRecord = {
+  action: string;
+  actor: { id: string };
+  target?: { id: string };
+  reason?: string;
+  detail: Record<string, unknown>;
+};
+
+function mutableAuditRecord(record: AuditRecord): MutableAuditRecord {
+  return record as unknown as MutableAuditRecord;
+}
+
 function expectImmutableAuditRecordSnapshot(record: AuditRecord): void {
   expect(Object.isFrozen(record)).toBe(true);
   expect(Object.isFrozen(record.actor)).toBe(true);
@@ -46,13 +58,13 @@ describe("audit records", () => {
     expect(Object.isFrozen(record.detail.attempts as object)).toBe(true);
     expect(Object.isFrozen((record.detail.attempts as Array<Record<string, unknown>>)[0])).toBe(true);
     expect(() => {
-      (record as unknown as { action: string }).action = "tampered";
+      mutableAuditRecord(record).action = "tampered";
     }).toThrow(TypeError);
     expect(() => {
-      record.actor.id = "viewer-1";
+      mutableAuditRecord(record).actor.id = "viewer-1";
     }).toThrow(TypeError);
     expect(() => {
-      record.target!.id = "other-authz";
+      mutableAuditRecord(record).target!.id = "other-authz";
     }).toThrow(TypeError);
     expect(() => {
       (record.detail.nested as Record<string, unknown>).safe = "tampered";
@@ -87,10 +99,10 @@ describe("audit records", () => {
     const nested = record.detail.nested as Record<string, unknown>;
     expect(Object.isFrozen(nested)).toBe(true);
     expect(() => {
-      record.reason = "token raw-token";
+      mutableAuditRecord(record).reason = "token raw-token";
     }).toThrow(TypeError);
     expect(() => {
-      record.detail.token = "raw-token";
+      mutableAuditRecord(record).detail.token = "raw-token";
     }).toThrow(TypeError);
     expect(() => {
       nested.password = "raw-password";

@@ -24,7 +24,7 @@ export class MemoryAuditSink implements AuditSink {
     return record;
   }
 
-  records(): AuditRecord[] {
+  records(): readonly AuditRecord[] {
     return [...this.entries];
   }
 
