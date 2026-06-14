@@ -2996,6 +2996,81 @@ describe("agent shell consent workflow", () => {
     expect(hostLogs.join("\n")).not.toContain("input:pointer");
   });
 
+  it("contains configured grant-scope diagnostic logger failures without runtime error", async () => {
+    const rawLoggerMarker = "grant scope logger failed with raw-grant-scope-logger-token";
+    const blockedHostSignal = "blocked-grant-scope-host-signal";
+    const blockedViewerSignal = "blocked-grant-scope-viewer-signal";
+    const hostLogs: string[] = [];
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostGrantPermissions: ["input:pointer"],
+      hostLogger: createThrowingGrantScopeDiagnosticLogger(hostLogs, rawLoggerMarker),
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(hostEvents, (message) => message.type === "session-authorization-request");
+    await delay(100);
+
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          event.direction !== "indicator" &&
+          "message" in event &&
+          (event.message.type === "session-authorization-decision" ||
+            event.message.type === "session-authorization-state" ||
+            event.message.type === "session-control" ||
+            event.message.type === "permission-revoked" ||
+            event.message.type === "signal" ||
+            event.message.type === "peer-disconnected" ||
+            event.message.type === "audit-event")
+      )
+    ).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+    expect(() =>
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: { kind: "offer", sdp: blockedHostSignal }
+      })
+    ).toThrow("Agent shell signal requires active visible screen authorization");
+    expect(() =>
+      viewer.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: { kind: "offer", sdp: blockedViewerSignal }
+      })
+    ).toThrow("Agent shell signal requires active visible screen authorization");
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    expect(logOutput).toContain("configured grant scope is not requested");
+    for (const rawValue of [
+      rawLoggerMarker,
+      "raw-grant-scope-logger-token",
+      "screen:view",
+      "input:pointer",
+      blockedHostSignal,
+      blockedViewerSignal
+    ]) {
+      expect(logOutput).not.toContain(rawValue);
+    }
+    for (const rawValue of [
+      rawLoggerMarker,
+      "raw-grant-scope-logger-token",
+      blockedHostSignal,
+      blockedViewerSignal
+    ]) {
+      expect(serializedEvents).not.toContain(rawValue);
+    }
+  });
+
   it("uses narrowed host grant scope for delayed revoke eligibility", async () => {
     const hostLogs: string[] = [];
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -13992,6 +14067,22 @@ function createThrowingInvisibleApprovalLogger(
     log: (message) => {
       logs.push(message);
       if (message.includes("active state withheld because visible session is false")) {
+        throw new Error(thrownMessage);
+      }
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => logs.push(message)
+  };
+}
+
+function createThrowingGrantScopeDiagnosticLogger(
+  logs: string[],
+  thrownMessage: string
+): TestLogger {
+  return {
+    log: (message) => {
+      logs.push(message);
+      if (message.includes("configured grant scope is not requested")) {
         throw new Error(thrownMessage);
       }
     },

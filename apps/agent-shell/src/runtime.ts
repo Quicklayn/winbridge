@@ -1824,7 +1824,10 @@ function resolveHostGrantedPermissions(
   }
 
   if (options.hostGrantPermissions.some((permission) => !request.requestedPermissions.includes(permission))) {
-    options.logger?.log("[winbridge-agent] approval skipped because configured grant scope is not requested");
+    logRuntimeMessageBestEffort(
+      options,
+      "[winbridge-agent] approval skipped because configured grant scope is not requested"
+    );
     return undefined;
   }
 
