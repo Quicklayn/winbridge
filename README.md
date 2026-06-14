@@ -43,6 +43,7 @@ Release and privacy gates:
 
 - [Release readiness checklist](docs/release-checklist.md)
 - [Bootstrap privacy notice](docs/privacy-notice.md)
+- [Bootstrap threat model](docs/threat-model.md)
 
 ## Quick Start
 

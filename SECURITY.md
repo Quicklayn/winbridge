@@ -6,6 +6,8 @@ WinBridge is a remote assistance project and has strict abuse-prevention boundar
 
 Security work currently applies to the bootstrap code, protocol schemas, development relay, OpenSpec requirements, and repository process.
 
+Review the bootstrap threat model in [docs/threat-model.md](docs/threat-model.md) before changing consent, visibility, authorization, relay routing, audit logging, diagnostics, installer, startup, service, privilege, or native Windows boundaries.
+
 ## Prohibited Requests
 
 The project will not implement or accept contributions for:

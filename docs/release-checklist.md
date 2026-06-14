@@ -23,6 +23,12 @@ Use this checklist before publishing a release candidate, tagging a build, or pr
 - Audit records and diagnostics are secret-safe: no raw tokens, pairing codes, credentials, display names, private reasons, protocol payloads, signal payloads, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, or diagnostics dumps.
 - Audit write failure behavior is documented and tested for the affected component.
 
+## Threat Model And Abuse Cases
+
+- Review [Bootstrap Threat Model](threat-model.md) for every release candidate.
+- Update the threat model when consent, visibility, authorization, relay routing, audit logging, diagnostics, installer, startup, service, privilege, native Windows APIs, or data handling changes.
+- Confirm new behavior documents abuse cases, trust boundaries, fail-closed behavior, and security review gates before release.
+
 ## Data Handling
 
 - Review [Privacy Notice](privacy-notice.md) and update it when data handling changes.
