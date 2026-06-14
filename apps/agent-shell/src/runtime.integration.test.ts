@@ -2887,6 +2887,64 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("keeps interactive host consent fail-closed when diagnostics throw", async () => {
+    const hostLogs: string[] = [];
+    const providerErrorText = "private provider token raw-token";
+    const callbackErrorText = "private callback credential raw-callback";
+    const loggerErrorText = "private logger diagnostics raw-logger";
+    const viewerDisplayName = "Private Viewer Consent Display";
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: () => {
+        throw new Error(providerErrorText);
+      },
+      hostLogger: createThrowingHostConsentDiagnosticLogger(hostLogs, loggerErrorText),
+      hostOnEvent: createThrowingHostConsentDiagnosticEvent(callbackErrorText),
+      visibleToHost: true
+    });
+    await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      silentLogger,
+      undefined,
+      viewerDisplayName
+    );
+
+    await waitForMessage(hostEvents, (message) => message.type === "session-authorization-request");
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    await delay(100);
+
+    const workflowEvents = [...hostEvents, ...viewerEvents].filter(
+      (event): event is Extract<AgentShellEvent, { direction: "received" | "sent" }> =>
+        event.direction === "received" || event.direction === "sent"
+    );
+    const logOutput = hostLogs.join("\n");
+
+    expect(errorEvent.error.message).toBe("Agent shell runtime error");
+    expect(errorEvent.error.stack).toBeUndefined();
+    expect(errorEvent.messageBytes).toBe(Buffer.byteLength(providerErrorText));
+    expect(JSON.stringify(errorEvent)).not.toContain(providerErrorText);
+    expect(JSON.stringify(errorEvent)).not.toContain(callbackErrorText);
+    expect(JSON.stringify(errorEvent)).not.toContain(loggerErrorText);
+    expect(JSON.stringify(errorEvent)).not.toContain(viewerDisplayName);
+    expect(logOutput).not.toContain(providerErrorText);
+    expect(logOutput).not.toContain(callbackErrorText);
+    expect(logOutput).not.toContain(loggerErrorText);
+    expect(logOutput).not.toContain(viewerDisplayName);
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+    expect(
+      workflowEvents.some(
+        (event) =>
+          event.message.type === "session-authorization-decision" ||
+          event.message.type === "session-authorization-state" ||
+          event.message.type === "session-control" ||
+          event.message.type === "permission-revoked" ||
+          event.message.type === "signal" ||
+          event.message.type === "audit-event"
+      )
+    ).toBe(false);
+  });
+
   it("fails closed when interactive host consent resolves after the viewer disconnects", async () => {
     const hostLogs: string[] = [];
     let resolveDecision: (decision: HostDecision) => void = () => undefined;
@@ -12584,6 +12642,42 @@ function createThrowingLocalDisconnectDiagnosticEvent(
       event.direction === "error" ||
       (event.direction === "indicator" && event.cause === "local-disconnect")
     ) {
+      throw new Error(thrownMessage);
+    }
+  };
+}
+
+function createThrowingHostConsentDiagnosticLogger(
+  logs: string[],
+  thrownMessage: string
+): TestLogger {
+  return {
+    log: (message) => {
+      if (
+        message.includes("interactive host consent failed closed") ||
+        message.includes("authorization request received; no host decision configured")
+      ) {
+        throw new Error(thrownMessage);
+      }
+
+      logs.push(message);
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => {
+      if (message.includes("runtime error messageBytes=")) {
+        throw new Error(thrownMessage);
+      }
+
+      logs.push(message);
+    }
+  };
+}
+
+function createThrowingHostConsentDiagnosticEvent(
+  thrownMessage: string
+): (event: AgentShellEvent) => void {
+  return (event) => {
+    if (event.direction === "error") {
       throw new Error(thrownMessage);
     }
   };

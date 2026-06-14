@@ -1596,7 +1596,10 @@ async function handleHostAuthorizationRequest(
 ): Promise<void> {
   const decision = await resolveHostDecision(options, request, sessionState);
   if (decision === "none") {
-    options.logger?.log("[winbridge-agent] authorization request received; no host decision configured");
+    logRuntimeMessageBestEffort(
+      options,
+      "[winbridge-agent] authorization request received; no host decision configured"
+    );
     return;
   }
 
@@ -1795,8 +1798,8 @@ async function resolveHostDecision(
     options.logger?.log("[winbridge-agent] interactive host consent returned no accepted decision");
     return "none";
   } catch (error) {
-    reportRuntimeError(options, error);
-    options.logger?.log("[winbridge-agent] interactive host consent failed closed");
+    reportRuntimeErrorBestEffort(options, error);
+    logRuntimeMessageBestEffort(options, "[winbridge-agent] interactive host consent failed closed");
     return "none";
   }
 }
@@ -3379,13 +3382,13 @@ function reportRuntimeErrorBestEffort(options: AgentShellRuntimeOptions, error: 
       messageBytes: diagnostic.messageBytes
     });
   } catch {
-    // Best-effort local disconnect diagnostics must not block cleanup.
+    // Best-effort runtime diagnostics must not block fail-closed cleanup.
   }
 
   try {
     options.logger?.error(formatAgentShellErrorLog("runtime", error));
   } catch {
-    // Best-effort local disconnect diagnostics must not block cleanup.
+    // Best-effort runtime diagnostics must not block fail-closed cleanup.
   }
 }
 
@@ -3396,7 +3399,7 @@ function logRuntimeMessageBestEffort(
   try {
     options.logger?.log(message);
   } catch {
-    // Best-effort local disconnect logging must not block cleanup.
+    // Best-effort runtime logging must not block fail-closed cleanup.
   }
 }
 
