@@ -838,12 +838,51 @@ describe("session authorization state machine", () => {
     }
   });
 
+  it("requires visible host history for parsed post-activation terminal records", () => {
+    const active = activateSessionAuthorization(
+      approveSessionAuthorization(pending(), {
+        grantedPermissions: ["screen:view"],
+        now: new Date("2026-06-11T00:01:00.000Z")
+      }),
+      {
+        visibleToHost: true,
+        now: new Date("2026-06-11T00:02:00.000Z")
+      }
+    );
+    const revoked = revokeSessionPermission(active, {
+      permission: "screen:view",
+      now: new Date("2026-06-11T00:03:00.000Z")
+    });
+    const terminated = terminateSessionAuthorization(active, {
+      reason: "Host disconnected",
+      now: new Date("2026-06-11T00:03:00.000Z")
+    });
+    const expired = expireSessionAuthorization(active, new Date("2026-06-11T00:31:00.000Z"));
+
+    for (const authorization of [revoked, terminated, expired]) {
+      expect(() =>
+        SessionAuthorizationSchema.parse({
+          ...authorization,
+          visibleToHost: false
+        })
+      ).toThrow("must preserve visible host history");
+    }
+  });
+
   it("accepts pre-access denied and non-visible expired authorization records", () => {
     const denied = denySessionAuthorization(pending(), {
       reason: "Host denied",
       now: baseTime
     });
     const expired = expireSessionAuthorization(pending(), new Date("2026-06-11T00:31:00.000Z"));
+    const approved = approveSessionAuthorization(pending(), {
+      grantedPermissions: ["screen:view"],
+      now: baseTime
+    });
+    const approvedExpired = expireSessionAuthorization(
+      approved,
+      new Date("2026-06-11T00:31:00.000Z")
+    );
 
     expect(SessionAuthorizationSchema.parse(denied)).toMatchObject({
       status: "denied",
@@ -860,6 +899,13 @@ describe("session authorization state machine", () => {
     });
     expect(expired.approvedAt).toBeUndefined();
     expect(expired.activatedAt).toBeUndefined();
+    expect(SessionAuthorizationSchema.parse(approvedExpired)).toMatchObject({
+      status: "expired",
+      visibleToHost: false,
+      permissions: [],
+      approvedAt: baseTime.toISOString()
+    });
+    expect(approvedExpired.activatedAt).toBeUndefined();
     expect(() =>
       assertSessionActionAuthorized({
         authorization: expired,

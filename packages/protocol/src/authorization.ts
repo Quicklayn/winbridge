@@ -574,14 +574,21 @@ function requireLifecycleTimestamp(
   });
 }
 
+function isPostActivationTerminalAuthorization(
+  authorization: z.infer<typeof SessionAuthorizationBaseSchema>
+): boolean {
+  return (
+    postActivationTerminalStatuses.has(authorization.status) ||
+    (authorization.status === "expired" &&
+      (authorization.visibleToHost || authorization.activatedAt !== undefined))
+  );
+}
+
 function requirePostActivationTerminalHistory(
   authorization: z.infer<typeof SessionAuthorizationBaseSchema>,
   ctx: z.RefinementCtx
 ): void {
-  if (
-    !postActivationTerminalStatuses.has(authorization.status) &&
-    !(authorization.status === "expired" && authorization.visibleToHost)
-  ) {
+  if (!isPostActivationTerminalAuthorization(authorization)) {
     return;
   }
 
@@ -598,6 +605,14 @@ function requirePostActivationTerminalHistory(
       code: z.ZodIssueCode.custom,
       message: `${authorization.status} session authorization requires activatedAt`,
       path: ["activatedAt"]
+    });
+  }
+
+  if (!authorization.visibleToHost) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${authorization.status} session authorization must preserve visible host history`,
+      path: ["visibleToHost"]
     });
   }
 }
