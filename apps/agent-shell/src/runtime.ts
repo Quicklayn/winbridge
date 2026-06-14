@@ -1949,11 +1949,11 @@ function getHostStatusSnapshot(
 
   const snapshot = sessionState.hostAuthorization;
   if (!snapshot) {
-    return {
+    return freezeStatusSnapshot({
       state: "inactive",
       visibleToHost: false,
       permissionCount: 0
-    };
+    });
   }
 
   if (sessionState.hostIndicator?.state === "inactive") {
@@ -1962,7 +1962,7 @@ function getHostStatusSnapshot(
         ? sessionState.remoteDisconnectReasonCode
         : undefined;
 
-    return {
+    return freezeStatusSnapshot({
       state: "inactive",
       authorizationId: sessionState.hostIndicator.authorizationId,
       authorizationStatus: sessionState.hostIndicator.authorizationStatus,
@@ -1970,18 +1970,18 @@ function getHostStatusSnapshot(
       permissionCount: 0,
       inactiveCause: sessionState.hostIndicator.cause,
       ...(remoteDisconnectReasonCode ? { remoteDisconnectReasonCode } : {})
-    };
+    });
   }
 
   const state = hostIndicatorStateForAuthorization(snapshot.status);
-  return {
+  return freezeStatusSnapshot({
     state,
     authorizationId: snapshot.authorizationId,
     authorizationStatus: snapshot.status,
     ...(hostIndicatorHasActiveGrant(state) && snapshot.expiresAt ? { expiresAt: snapshot.expiresAt } : {}),
     visibleToHost: state === "inactive" ? false : snapshot.visibleToHost,
     permissionCount: state === "inactive" ? 0 : snapshot.permissions.length
-  };
+  });
 }
 
 function hasViewerSignalProbeAck(
@@ -2004,30 +2004,30 @@ function getViewerStatusSnapshot(
 
   const snapshot = sessionState.viewerAuthorization;
   if (!snapshot) {
-    return {
+    return freezeStatusSnapshot({
       state: "inactive",
       visibleToHost: false,
       permissionCount: 0,
       ...(sessionState.viewerLocalInactiveCause
         ? { localInactiveCause: sessionState.viewerLocalInactiveCause }
         : {})
-    };
+    });
   }
 
   if (sessionState.remotePeerDisconnected) {
     const remoteDisconnectReasonCode = sessionState.remoteDisconnectReasonCode;
-    return {
+    return freezeStatusSnapshot({
       state: "inactive",
       authorizationId: snapshot.authorizationId,
       authorizationStatus: snapshot.status,
       visibleToHost: false,
       permissionCount: 0,
       ...(remoteDisconnectReasonCode ? { remoteDisconnectReasonCode } : {})
-    };
+    });
   }
 
   const state = hostIndicatorStateForAuthorization(snapshot.status);
-  return {
+  return freezeStatusSnapshot({
     state,
     authorizationId: snapshot.authorizationId,
     authorizationStatus: snapshot.status,
@@ -2037,7 +2037,13 @@ function getViewerStatusSnapshot(
     ...(hasViewerSignalProbeAck(sessionState, snapshot)
       ? { signalProbeAckReceived: true }
       : {})
-  };
+  });
+}
+
+function freezeStatusSnapshot<T extends AgentShellHostStatusSnapshot | AgentShellViewerStatusSnapshot>(
+  snapshot: T
+): T {
+  return Object.freeze(snapshot);
 }
 
 function deactivateHostIndicator(

@@ -21,7 +21,9 @@ import {
   formatAgentShellErrorLog,
   type AgentShellEvent,
   type AgentShellHostIndicatorEvent,
+  type AgentShellHostStatusSnapshot,
   type AgentShellReceivedProtocolEnvelope,
+  type AgentShellViewerStatusSnapshot,
   type AgentShellSentProtocolEnvelope,
   type AgentShellRuntimeOptions,
   type AgentShellRuntime,
@@ -3360,6 +3362,17 @@ describe("agent shell consent workflow", () => {
     const inactiveRuntime = createAgentShellRuntime(createRuntimeOptions({
       logger: silentLogger
     }));
+    expectFrozenStatusSnapshot(
+      inactiveRuntime.getHostStatus(),
+      {
+        state: "inactive",
+        visibleToHost: false,
+        permissionCount: 0
+      },
+      (status) => {
+        status.visibleToHost = true;
+      }
+    );
     expect(inactiveRuntime.getHostStatus()).toEqual({
       state: "inactive",
       visibleToHost: false,
@@ -3384,13 +3397,16 @@ describe("agent shell consent workflow", () => {
     expect(activeState.expiresAt).toEqual(expect.any(String));
 
     const sentCountBeforeStatus = hostEvents.filter((event) => event.direction === "sent").length;
-    expect(host.getHostStatus()).toEqual({
+    const activeHostStatus = {
       state: "active",
       authorizationId: activeState.authorizationId,
       authorizationStatus: "active",
       expiresAt: activeState.expiresAt,
       visibleToHost: true,
       permissionCount: 1
+    } satisfies AgentShellHostStatusSnapshot;
+    expectFrozenStatusSnapshot(host.getHostStatus(), activeHostStatus, (status) => {
+      status.authorizationId = "authz_mutated_status";
     });
     expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBeforeStatus);
 
@@ -3399,28 +3415,40 @@ describe("agent shell consent workflow", () => {
       viewerEvents,
       (message) => message.type === "session-authorization-state" && message.status === "paused"
     );
-    expect(host.getHostStatus()).toEqual({
-      state: "paused",
-      authorizationId: activeState.authorizationId,
-      authorizationStatus: "paused",
-      expiresAt: activeState.expiresAt,
-      visibleToHost: true,
-      permissionCount: 1
-    });
+    expectFrozenStatusSnapshot(
+      host.getHostStatus(),
+      {
+        state: "paused",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "paused",
+        expiresAt: activeState.expiresAt,
+        visibleToHost: true,
+        permissionCount: 1
+      },
+      (status) => {
+        status.authorizationStatus = "active";
+      }
+    );
 
     host.terminate();
     await waitForMessage(
       viewerEvents,
       (message) => message.type === "session-authorization-state" && message.status === "terminated"
     );
-    expect(host.getHostStatus()).toEqual({
-      state: "inactive",
-      authorizationId: activeState.authorizationId,
-      authorizationStatus: "terminated",
-      visibleToHost: false,
-      permissionCount: 0,
-      inactiveCause: "terminated"
-    });
+    expectFrozenStatusSnapshot(
+      host.getHostStatus(),
+      {
+        state: "inactive",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "terminated",
+        visibleToHost: false,
+        permissionCount: 0,
+        inactiveCause: "terminated"
+      },
+      (status) => {
+        status.inactiveCause = "local-disconnect";
+      }
+    );
   });
 
   it("rejects host status snapshots on viewer runtimes", () => {
@@ -3443,6 +3471,17 @@ describe("agent shell consent workflow", () => {
       deviceId: "dev_viewer_inactive",
       logger: silentLogger
     }));
+    expectFrozenStatusSnapshot(
+      inactiveRuntime.getViewerStatus(),
+      {
+        state: "inactive",
+        visibleToHost: false,
+        permissionCount: 0
+      },
+      (status) => {
+        status.permissionCount = 99;
+      }
+    );
     expect(inactiveRuntime.getViewerStatus()).toEqual({
       state: "inactive",
       visibleToHost: false,
@@ -3467,14 +3506,20 @@ describe("agent shell consent workflow", () => {
     expect(activeState.expiresAt).toEqual(expect.any(String));
 
     const sentCountBeforeActiveStatus = viewerEvents.filter((event) => event.direction === "sent").length;
-    expect(viewer.getViewerStatus()).toEqual({
-      state: "active",
-      authorizationId: activeState.authorizationId,
-      authorizationStatus: "active",
-      expiresAt: activeState.expiresAt,
-      visibleToHost: true,
-      permissionCount: 1
-    });
+    expectFrozenStatusSnapshot(
+      viewer.getViewerStatus(),
+      {
+        state: "active",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "active",
+        expiresAt: activeState.expiresAt,
+        visibleToHost: true,
+        permissionCount: 1
+      },
+      (status) => {
+        status.visibleToHost = false;
+      }
+    );
     expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(
       sentCountBeforeActiveStatus
     );
@@ -3485,14 +3530,20 @@ describe("agent shell consent workflow", () => {
       (message) => message.type === "session-authorization-state" && message.status === "paused"
     );
     const sentCountBeforePausedStatus = viewerEvents.filter((event) => event.direction === "sent").length;
-    expect(viewer.getViewerStatus()).toEqual({
-      state: "paused",
-      authorizationId: activeState.authorizationId,
-      authorizationStatus: "paused",
-      expiresAt: activeState.expiresAt,
-      visibleToHost: true,
-      permissionCount: 1
-    });
+    expectFrozenStatusSnapshot(
+      viewer.getViewerStatus(),
+      {
+        state: "paused",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "paused",
+        expiresAt: activeState.expiresAt,
+        visibleToHost: true,
+        permissionCount: 1
+      },
+      (status) => {
+        status.authorizationStatus = "active";
+      }
+    );
     expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(
       sentCountBeforePausedStatus
     );
@@ -3502,13 +3553,19 @@ describe("agent shell consent workflow", () => {
       viewerEvents,
       (message) => message.type === "session-authorization-state" && message.status === "terminated"
     );
-    expect(viewer.getViewerStatus()).toEqual({
-      state: "inactive",
-      authorizationId: activeState.authorizationId,
-      authorizationStatus: "terminated",
-      visibleToHost: false,
-      permissionCount: 0
-    });
+    expectFrozenStatusSnapshot(
+      viewer.getViewerStatus(),
+      {
+        state: "inactive",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "terminated",
+        visibleToHost: false,
+        permissionCount: 0
+      },
+      (status) => {
+        status.permissionCount = 1;
+      }
+    );
   });
 
   it("reports active viewer status as inactive after trusted host disconnect", async () => {
@@ -3539,14 +3596,20 @@ describe("agent shell consent workflow", () => {
       (event) => event.direction === "sent"
     ).length;
 
-    expect(viewer.getViewerStatus()).toEqual({
-      state: "inactive",
-      authorizationId: activeState.authorizationId,
-      authorizationStatus: "active",
-      visibleToHost: false,
-      permissionCount: 0,
-      remoteDisconnectReasonCode: disconnectNotice.reasonCode
-    });
+    expectFrozenStatusSnapshot(
+      viewer.getViewerStatus(),
+      {
+        state: "inactive",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "active",
+        visibleToHost: false,
+        permissionCount: 0,
+        remoteDisconnectReasonCode: disconnectNotice.reasonCode
+      },
+      (status) => {
+        status.remoteDisconnectReasonCode = "peer-closed";
+      }
+    );
     expect(viewerEvents.filter((event) => event.direction === "sent")).toHaveLength(
       sentCountBeforeDisconnectedStatus
     );
@@ -3571,12 +3634,18 @@ describe("agent shell consent workflow", () => {
     await waitForClosedEvent(viewerEvents);
 
     const statusAfterSocketClose = viewer.getViewerStatus();
-    expect(statusAfterSocketClose).toEqual({
-      state: "inactive",
-      visibleToHost: false,
-      permissionCount: 0,
-      localInactiveCause: "socket-closed"
-    });
+    expectFrozenStatusSnapshot(
+      statusAfterSocketClose,
+      {
+        state: "inactive",
+        visibleToHost: false,
+        permissionCount: 0,
+        localInactiveCause: "socket-closed"
+      },
+      (status) => {
+        status.localInactiveCause = "local-leave";
+      }
+    );
     expect(statusAfterSocketClose).not.toHaveProperty("authorizationId");
     expect(statusAfterSocketClose).not.toHaveProperty("authorizationStatus");
     expect(statusAfterSocketClose).not.toHaveProperty("remoteDisconnectReasonCode");
@@ -3614,14 +3683,20 @@ describe("agent shell consent workflow", () => {
     forgetRelayRuntime(relay);
     await waitForClosedEvent(viewerEvents);
 
-    expect(viewer.getViewerStatus()).toEqual({
-      state: "inactive",
-      authorizationId: activeState.authorizationId,
-      authorizationStatus: "active",
-      visibleToHost: false,
-      permissionCount: 0,
-      remoteDisconnectReasonCode: disconnectNotice.reasonCode
-    });
+    expectFrozenStatusSnapshot(
+      viewer.getViewerStatus(),
+      {
+        state: "inactive",
+        authorizationId: activeState.authorizationId,
+        authorizationStatus: "active",
+        visibleToHost: false,
+        permissionCount: 0,
+        remoteDisconnectReasonCode: disconnectNotice.reasonCode
+      },
+      (status) => {
+        status.remoteDisconnectReasonCode = "peer-closed";
+      }
+    );
   });
 
   it("leaves the viewer runtime locally and reports inactive viewer status", async () => {
@@ -3649,12 +3724,18 @@ describe("agent shell consent workflow", () => {
     );
 
     const statusAfterLeave = viewer.getViewerStatus();
-    expect(statusAfterLeave).toEqual({
-      state: "inactive",
-      visibleToHost: false,
-      permissionCount: 0,
-      localInactiveCause: "local-leave"
-    });
+    expectFrozenStatusSnapshot(
+      statusAfterLeave,
+      {
+        state: "inactive",
+        visibleToHost: false,
+        permissionCount: 0,
+        localInactiveCause: "local-leave"
+      },
+      (status) => {
+        status.localInactiveCause = "socket-closed";
+      }
+    );
     expect(statusAfterLeave).not.toHaveProperty("authorizationId");
     expect(statusAfterLeave).not.toHaveProperty("authorizationStatus");
     expect(statusAfterLeave).not.toHaveProperty("remoteDisconnectReasonCode");
@@ -8619,6 +8700,16 @@ describe("agent shell consent workflow", () => {
         byteLength: Buffer.byteLength(JSON.stringify(hostAckPayload))
       }
     });
+    const statusAfterSignalAck = viewer.getViewerStatus();
+    expect(statusAfterSignalAck).toMatchObject({
+      state: "active",
+      authorizationId,
+      signalProbeAckReceived: true
+    });
+    expect(Object.isFrozen(statusAfterSignalAck)).toBe(true);
+    expect(() => {
+      statusAfterSignalAck.signalProbeAckReceived = false;
+    }).toThrow(TypeError);
     expect(viewer.getViewerStatus()).toMatchObject({
       state: "active",
       authorizationId,
@@ -11618,15 +11709,21 @@ describe("agent shell consent workflow", () => {
       cause: "peer-disconnected"
     });
     const sentCountBeforeStatus = hostEvents.filter((event) => event.direction === "sent").length;
-    expect(host.getHostStatus()).toEqual({
-      state: "inactive",
-      authorizationId: inactiveIndicator.authorizationId,
-      authorizationStatus: "active",
-      visibleToHost: false,
-      permissionCount: 0,
-      inactiveCause: "peer-disconnected",
-      remoteDisconnectReasonCode: disconnectNotice.reasonCode
-    });
+    expectFrozenStatusSnapshot(
+      host.getHostStatus(),
+      {
+        state: "inactive",
+        authorizationId: inactiveIndicator.authorizationId,
+        authorizationStatus: "active",
+        visibleToHost: false,
+        permissionCount: 0,
+        inactiveCause: "peer-disconnected",
+        remoteDisconnectReasonCode: disconnectNotice.reasonCode
+      },
+      (status) => {
+        status.remoteDisconnectReasonCode = "peer-closed";
+      }
+    );
     expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBeforeStatus);
     expect(hostLogs.join("\n")).toContain("skipped because peer disconnected");
   });
@@ -14618,6 +14715,15 @@ async function startMismatchedHostAuthorizationRequestServer(): Promise<{
         });
       })
   };
+}
+
+function expectFrozenStatusSnapshot<
+  T extends AgentShellHostStatusSnapshot | AgentShellViewerStatusSnapshot
+>(snapshot: T, expected: T, mutate: (snapshot: T) => void): void {
+  expect(snapshot).toEqual(expected);
+  expect(Object.isFrozen(snapshot)).toBe(true);
+  expect(() => mutate(snapshot)).toThrow(TypeError);
+  expect(snapshot).toEqual(expected);
 }
 
 function withTimeout<T>(promise: Promise<T>): Promise<T> {
