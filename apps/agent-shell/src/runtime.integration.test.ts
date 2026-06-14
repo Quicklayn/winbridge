@@ -5876,6 +5876,77 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("contains terminal lifecycle skip logger failure after termination without runtime error", async () => {
+    const hostLogs: string[] = [];
+    const rawLoggerMarker = "lifecycle skip logger failed with raw-terminal-lifecycle-token";
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: createThrowingDelayedWorkflowSkipLogger(
+        hostLogs,
+        rawLoggerMarker,
+        "revoke skipped because authorization is terminated"
+      ),
+      hostRevokeAfterMs: 40,
+      hostRevokePermission: "screen:view",
+      hostTerminateAfterMs: 10,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const terminatedState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "terminated"
+    );
+    const terminatedAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.terminated"
+    );
+    await delay(90);
+
+    expect(terminatedState).toMatchObject({
+      type: "session-authorization-state",
+      status: "terminated",
+      visibleToHost: true,
+      permissions: []
+    });
+    expect(terminatedAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        terminated: true,
+        visibleToHost: true
+      }
+    });
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          event.direction !== "indicator" &&
+          "message" in event &&
+          (event.message.type === "permission-revoked" ||
+            (event.message.type === "session-control" &&
+              event.message.action === "revoke-permission") ||
+            (event.message.type === "session-authorization-state" &&
+              event.message.status === "revoked") ||
+            (event.message.type === "audit-event" &&
+              event.message.action === "agent-shell.permission.revoked"))
+      )
+    ).toBe(false);
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    expect(logOutput).toContain("revoke skipped because authorization is terminated");
+    for (const rawValue of [rawLoggerMarker, "raw-terminal-lifecycle-token"]) {
+      expect(logOutput).not.toContain(rawValue);
+      expect(serializedEvents).not.toContain(rawValue);
+    }
+  });
+
   it("sends paused state and audit after host pauses visible session", async () => {
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
@@ -6562,6 +6633,89 @@ describe("agent shell consent workflow", () => {
           (event.message.action === "pause" || event.message.action === "resume")
       )
     ).toBe(false);
+  });
+
+  it("contains resume-without-pause lifecycle config logger failure without blocking active state", async () => {
+    const hostLogs: string[] = [];
+    const rawLoggerMarker = "lifecycle skip logger failed with raw-resume-config-token";
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: createThrowingDelayedWorkflowSkipLogger(
+        hostLogs,
+        rawLoggerMarker,
+        "resume delay configured without pause delay"
+      ),
+      hostResumeAfterMs: 10,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active" &&
+        message.visibleToHost
+    );
+    if (activeState.type !== "session-authorization-state") {
+      throw new Error("Expected active authorization state");
+    }
+    const activeAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.active"
+    );
+    const activeIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "active" && event.authorizationId === activeState.authorizationId
+    );
+    await delay(50);
+
+    expect(activeState).toMatchObject({
+      type: "session-authorization-state",
+      status: "active",
+      visibleToHost: true,
+      permissions: ["screen:view"]
+    });
+    expect(activeAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        grantedPermissionCount: 1,
+        visibleToHost: true
+      }
+    });
+    expect(activeIndicator).toMatchObject({
+      direction: "indicator",
+      state: "active",
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          event.direction !== "indicator" &&
+          "message" in event &&
+          ((event.message.type === "session-control" &&
+            (event.message.action === "pause" || event.message.action === "resume")) ||
+            (event.message.type === "session-authorization-state" &&
+              event.message.status === "paused") ||
+            (event.message.type === "audit-event" &&
+              (event.message.action === "agent-shell.authorization.paused" ||
+                event.message.action === "agent-shell.authorization.resumed")))
+      )
+    ).toBe(false);
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    expect(logOutput).toContain("resume delay configured without pause delay");
+    for (const rawValue of [rawLoggerMarker, "raw-resume-config-token"]) {
+      expect(logOutput).not.toContain(rawValue);
+      expect(serializedEvents).not.toContain(rawValue);
+    }
   });
 
   it("does not send pause when authorization reaches the ttl boundary first", async () => {

@@ -2633,12 +2633,15 @@ function canSendHostRevoke(
   revokedPermission: Permission
 ): boolean {
   if (workflowState.terminalStatus) {
-    options.logger?.log(`[winbridge-agent] revoke skipped because authorization is ${workflowState.terminalStatus}`);
+    logRuntimeMessageBestEffort(
+      options,
+      `[winbridge-agent] revoke skipped because authorization is ${workflowState.terminalStatus}`
+    );
     return false;
   }
 
   if (!workflowState.permissions.includes(revokedPermission)) {
-    options.logger?.log("[winbridge-agent] revoke skipped because permission is not granted");
+    logRuntimeMessageBestEffort(options, "[winbridge-agent] revoke skipped because permission is not granted");
     return false;
   }
 
@@ -2647,7 +2650,7 @@ function canSendHostRevoke(
   }
 
   if (hasAuthorizationExpired(expiresAt)) {
-    options.logger?.log("[winbridge-agent] revoke skipped because authorization is expired");
+    logRuntimeMessageBestEffort(options, "[winbridge-agent] revoke skipped because authorization is expired");
     return false;
   }
 
@@ -2736,12 +2739,18 @@ function canSendHostPause(
   expiresAt: string
 ): boolean {
   if (workflowState.terminalStatus) {
-    options.logger?.log(`[winbridge-agent] pause skipped because authorization is ${workflowState.terminalStatus}`);
+    logRuntimeMessageBestEffort(
+      options,
+      `[winbridge-agent] pause skipped because authorization is ${workflowState.terminalStatus}`
+    );
     return false;
   }
 
   if (workflowState.paused) {
-    options.logger?.log("[winbridge-agent] pause skipped because authorization is already paused");
+    logRuntimeMessageBestEffort(
+      options,
+      "[winbridge-agent] pause skipped because authorization is already paused"
+    );
     return false;
   }
 
@@ -2750,7 +2759,7 @@ function canSendHostPause(
   }
 
   if (hasAuthorizationExpired(expiresAt)) {
-    options.logger?.log("[winbridge-agent] pause skipped because authorization is expired");
+    logRuntimeMessageBestEffort(options, "[winbridge-agent] pause skipped because authorization is expired");
     return false;
   }
 
@@ -2765,12 +2774,15 @@ function canSendHostResume(
   expiresAt: string
 ): boolean {
   if (workflowState.terminalStatus) {
-    options.logger?.log(`[winbridge-agent] resume skipped because authorization is ${workflowState.terminalStatus}`);
+    logRuntimeMessageBestEffort(
+      options,
+      `[winbridge-agent] resume skipped because authorization is ${workflowState.terminalStatus}`
+    );
     return false;
   }
 
   if (!workflowState.paused) {
-    options.logger?.log("[winbridge-agent] resume skipped because authorization is not paused");
+    logRuntimeMessageBestEffort(options, "[winbridge-agent] resume skipped because authorization is not paused");
     return false;
   }
 
@@ -2779,7 +2791,7 @@ function canSendHostResume(
   }
 
   if (hasAuthorizationExpired(expiresAt)) {
-    options.logger?.log("[winbridge-agent] resume skipped because authorization is expired");
+    logRuntimeMessageBestEffort(options, "[winbridge-agent] resume skipped because authorization is expired");
     return false;
   }
 
@@ -2905,7 +2917,7 @@ function scheduleHostPause(
 ): void {
   if (options.hostPauseAfterMs === undefined) {
     if (options.hostResumeAfterMs !== undefined) {
-      options.logger?.log("[winbridge-agent] resume delay configured without pause delay");
+      logRuntimeMessageBestEffort(options, "[winbridge-agent] resume delay configured without pause delay");
     }
     return;
   }
@@ -3005,7 +3017,10 @@ function canSendHostTerminate(
   expiresAt: string
 ): boolean {
   if (workflowState.terminalStatus) {
-    options.logger?.log(`[winbridge-agent] terminate skipped because authorization is ${workflowState.terminalStatus}`);
+    logRuntimeMessageBestEffort(
+      options,
+      `[winbridge-agent] terminate skipped because authorization is ${workflowState.terminalStatus}`
+    );
     return false;
   }
 
@@ -3014,12 +3029,15 @@ function canSendHostTerminate(
   }
 
   if (hasAuthorizationExpired(expiresAt)) {
-    options.logger?.log("[winbridge-agent] terminate skipped because authorization is expired");
+    logRuntimeMessageBestEffort(options, "[winbridge-agent] terminate skipped because authorization is expired");
     return false;
   }
 
   if (!hasLocalHostTerminateAuthorization(sessionState.hostAuthorization)) {
-    options.logger?.log("[winbridge-agent] terminate skipped because authorization is not active or paused visible");
+    logRuntimeMessageBestEffort(
+      options,
+      "[winbridge-agent] terminate skipped because authorization is not active or paused visible"
+    );
     return false;
   }
 
@@ -3096,7 +3114,10 @@ function scheduleHostExpiration(
 
   scheduleTimer(() => {
     if (workflowState.terminalStatus) {
-      options.logger?.log(`[winbridge-agent] expiration skipped because authorization is ${workflowState.terminalStatus}`);
+      logRuntimeMessageBestEffort(
+        options,
+        `[winbridge-agent] expiration skipped because authorization is ${workflowState.terminalStatus}`
+      );
       return;
     }
 
@@ -3154,7 +3175,10 @@ function scheduleHostDisconnect(
 
   scheduleTimer(() => {
     if (workflowState.terminalStatus) {
-      options.logger?.log(`[winbridge-agent] disconnect skipped because authorization is ${workflowState.terminalStatus}`);
+      logRuntimeMessageBestEffort(
+        options,
+        `[winbridge-agent] disconnect skipped because authorization is ${workflowState.terminalStatus}`
+      );
       return;
     }
 
@@ -3163,13 +3187,16 @@ function scheduleHostDisconnect(
     }
 
     if (hasAuthorizationExpired(expiresAt)) {
-      options.logger?.log("[winbridge-agent] disconnect skipped because authorization is expired");
+      logRuntimeMessageBestEffort(options, "[winbridge-agent] disconnect skipped because authorization is expired");
       return;
     }
 
     const authorization = sessionState.hostAuthorization;
     if (!hasLocalHostDisconnectAuthorization(authorization)) {
-      options.logger?.log("[winbridge-agent] disconnect skipped because authorization is not active visible");
+      logRuntimeMessageBestEffort(
+        options,
+        "[winbridge-agent] disconnect skipped because authorization is not active visible"
+      );
       return;
     }
 
