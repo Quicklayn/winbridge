@@ -1759,7 +1759,7 @@ The host agent shell SHALL support an explicit development grant scope for appro
 - **THEN** CLI errors, runtime events, audit details, and logs MUST NOT expose raw protocol payloads, tokens, pairing codes, private reasons, display names, signal payloads, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, or input contents
 
 ### Requirement: Host status snapshot
-The managed host agent shell runtime SHALL expose a read-only local host status snapshot derived from the current host authorization and indicator state. The snapshot MUST NOT send protocol messages, emit workflow audit events, grant permissions, change authorization lifecycle state, start signaling, reconnect peers, or invoke host controls. Status snapshots MUST be host-only and MUST expose only bounded lifecycle metadata: local indicator state, visible host-session flag, action-capable permission count, optional authorization id/status, optional authorization expiration timestamp while the authorization is active or paused, and optional local inactive indicator cause when the host indicator has been deactivated.
+The managed host agent shell runtime SHALL expose a read-only local host status snapshot derived from the current host authorization and indicator state. The snapshot MUST NOT send protocol messages, emit workflow audit events, grant permissions, change authorization lifecycle state, start signaling, reconnect peers, or invoke host controls. Status snapshots MUST be host-only and MUST expose only bounded lifecycle metadata: local indicator state, visible host-session flag, action-capable permission count, optional authorization id/status, optional authorization expiration timestamp while the authorization is active or paused, optional local inactive indicator cause when the host indicator has been deactivated, and optional relay-defined remote disconnect reason code when the host indicator has been deactivated by a trusted remote viewer disconnect.
 
 #### Scenario: Host status is inactive before visible authorization
 - **WHEN** a host runtime has not emitted an active visible authorization state
@@ -1777,11 +1777,13 @@ The managed host agent shell runtime SHALL expose a read-only local host status 
 #### Scenario: Host status reports terminal authorization as inactive
 - **WHEN** a host runtime reaches a terminal authorization state such as revoked, terminated, or expired
 - **THEN** the host status snapshot reports inactive local state, `visibleToHost: false`, permission count `0`, and a bounded local inactive cause
-- **AND** it MUST NOT retain stale `expiresAt` metadata from the prior active or paused authorization
+- **AND** it MUST NOT retain stale `expiresAt` or remote disconnect reason metadata from the prior active or paused authorization
 
 #### Scenario: Host status reflects inactive indicator after disconnect
 - **WHEN** a host runtime deactivates its local indicator because of local disconnect, remote peer disconnect, socket close, or runtime stop
 - **THEN** the host status snapshot reports inactive local state, `visibleToHost: false`, permission count `0`, and the bounded local inactive cause
+- **AND** when the cause is a trusted remote peer disconnect, it MAY include the bounded relay-defined remote disconnect reason code
+- **AND** when the cause is not a trusted remote peer disconnect, it MUST NOT retain stale remote disconnect reason metadata
 - **AND** it MUST NOT expose peer ids, display names, private reasons, raw WebSocket close reason text, tokens, pairing codes, signal payloads, raw protocol data, screen contents, input contents, clipboard contents, file-transfer contents, diagnostics dumps, or stale `expiresAt` metadata
 - **AND** reading status MUST NOT reconnect peers, grant permissions, start signaling, invoke host controls, emit workflow audit events, send protocol messages, or change authorization lifecycle state
 
@@ -1794,7 +1796,7 @@ The interactive host control prompt SHALL support an exact read-only `status` co
 
 #### Scenario: Host control prompt prints status
 - **WHEN** host control prompt mode receives exact command `status`
-- **THEN** it prints a bounded local host status line with indicator state, visible flag, permission count, optional authorization id/status, optional authorization expiration timestamp for active or paused authorization, and optional local inactive cause when the host indicator is inactive
+- **THEN** it prints a bounded local host status line with indicator state, visible flag, permission count, optional authorization id/status, optional authorization expiration timestamp for active or paused authorization, optional local inactive cause when the host indicator is inactive, and optional relay-defined remote disconnect reason code after trusted remote viewer disconnect
 - **AND** it does not invoke host lifecycle controls or public runtime sends
 
 #### Scenario: Host control prompt rejects malformed status commands
@@ -2342,7 +2344,7 @@ The agent shell SHALL reject malformed, viewer-mode, or host-control-prompt-conf
 - **AND** those existing options retain their existing protocol, audit, and lifecycle behavior without being expanded by the host status print
 
 ### Requirement: Host status CLI output
-The host agent shell SHALL support an opt-in development status print that calls the managed runtime `getHostStatus()` snapshot after the configured delay. The scheduled status read MUST expose only bounded local lifecycle metadata: local indicator state, visible host-session flag, action-capable permission count, optional authorization id/status, optional authorization expiration timestamp for active or paused authorization, and optional local inactive indicator cause. The scheduled status read MUST NOT send protocol messages, emit workflow audit events, grant permissions, change authorization lifecycle state, start signaling, reconnect peers, invoke host controls, or expose screen, input, clipboard, file-transfer, diagnostics, token, pairing, credential, private-reason, display-name, peer-id, signal-payload, raw protocol data, or raw WebSocket close reason text. Ordinary host runtime startup and other explicit host workflow options remain governed by their existing requirements and are not introduced by the scheduled status read.
+The host agent shell SHALL support an opt-in development status print that calls the managed runtime `getHostStatus()` snapshot after the configured delay. The scheduled status read MUST expose only bounded local lifecycle metadata: local indicator state, visible host-session flag, action-capable permission count, optional authorization id/status, optional authorization expiration timestamp for active or paused authorization, optional local inactive indicator cause, and optional relay-defined remote disconnect reason code after trusted remote viewer disconnect. The scheduled status read MUST NOT send protocol messages, emit workflow audit events, grant permissions, change authorization lifecycle state, start signaling, reconnect peers, invoke host controls, or expose screen, input, clipboard, file-transfer, diagnostics, token, pairing, credential, private-reason, display-name, peer-id, signal-payload, raw protocol data, or raw WebSocket close reason text. Ordinary host runtime startup and other explicit host workflow options remain governed by their existing requirements and are not introduced by the scheduled status read.
 
 #### Scenario: Host status prints inactive status
 - **WHEN** host status print mode fires before the host has emitted active visible authorization
@@ -2353,6 +2355,11 @@ The host agent shell SHALL support an opt-in development status print that calls
 - **WHEN** host status print mode fires after active visible authorization
 - **THEN** it prints bounded active host status metadata with visible flag, permission count, optional authorization id, optional authorization status, and optional authorization expiration timestamp
 - **AND** it MUST NOT print raw permission names, peer ids, display names, private reasons, tokens, pairing codes, signal payloads, raw protocol data, screen contents, input contents, clipboard contents, file-transfer contents, diagnostics dumps, or raw WebSocket close reason text
+
+#### Scenario: Host status prints remote disconnect reason code
+- **WHEN** host status print mode fires after the host has recorded trusted remote viewer disconnect state
+- **THEN** it prints bounded inactive host status metadata with `visibleToHost=false`, permission count `0`, local inactive cause `peer-disconnected`, and the relay-defined remote disconnect reason code
+- **AND** it MUST NOT print peer ids, display names, private reasons, raw WebSocket close reason text, tokens, pairing codes, protocol payloads, screen contents, input contents, clipboard contents, file-transfer contents, diagnostics dumps, or stale `expiresAt` metadata
 
 #### Scenario: Host status print failures are secret-safe
 - **WHEN** host status print mode catches a runtime status failure

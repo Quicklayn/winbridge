@@ -122,6 +122,10 @@ export function formatHostControlStatus(status: AgentShellHostStatusSnapshot): s
     parts.push(`inactiveCause=${status.inactiveCause}`);
   }
 
+  if (status.remoteDisconnectReasonCode) {
+    parts.push(`remoteDisconnectReasonCode=${status.remoteDisconnectReasonCode}`);
+  }
+
   return `${parts.join(" ")}\n`;
 }
 

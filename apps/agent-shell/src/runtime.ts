@@ -174,6 +174,7 @@ export type AgentShellHostStatusSnapshot = {
   authorizationStatus?: SessionAuthorizationStatus;
   expiresAt?: string;
   inactiveCause?: AgentShellHostIndicatorEvent["cause"];
+  remoteDisconnectReasonCode?: AgentShellRemoteDisconnectReasonCode;
 };
 
 export type AgentShellRemoteDisconnectReasonCode = Extract<
@@ -1919,13 +1920,19 @@ function getHostStatusSnapshot(
   }
 
   if (sessionState.hostIndicator?.state === "inactive") {
+    const remoteDisconnectReasonCode =
+      sessionState.hostIndicator.cause === "peer-disconnected"
+        ? sessionState.remoteDisconnectReasonCode
+        : undefined;
+
     return {
       state: "inactive",
       authorizationId: sessionState.hostIndicator.authorizationId,
       authorizationStatus: sessionState.hostIndicator.authorizationStatus,
       visibleToHost: false,
       permissionCount: 0,
-      inactiveCause: sessionState.hostIndicator.cause
+      inactiveCause: sessionState.hostIndicator.cause,
+      ...(remoteDisconnectReasonCode ? { remoteDisconnectReasonCode } : {})
     };
   }
 

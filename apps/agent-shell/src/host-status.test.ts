@@ -61,7 +61,8 @@ describe("host status print", () => {
         authorizationId: "authz_host_status_1",
         visibleToHost: false,
         permissionCount: 0,
-        inactiveCause: "peer-disconnected"
+        inactiveCause: "peer-disconnected",
+        remoteDisconnectReasonCode: "peer-closed"
       });
       const output = createCapturingOutput();
 
@@ -73,6 +74,7 @@ describe("host status print", () => {
       expect(output.text()).toContain("visibleToHost=false");
       expect(output.text()).toContain("permissionCount=0");
       expect(output.text()).toContain("inactiveCause=peer-disconnected");
+      expect(output.text()).toContain("remoteDisconnectReasonCode=peer-closed");
       expect(output.text()).not.toContain("viewer-1");
       expect(output.text()).not.toContain("Host closed session");
       expect(output.text()).not.toContain("raw-token");

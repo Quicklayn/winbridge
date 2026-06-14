@@ -10870,12 +10870,14 @@ describe("agent shell consent workflow", () => {
       role: "host",
       reasonCode: "peer-closed"
     });
-    expect(host.getHostStatus()).toMatchObject({
+    const hostStatus = host.getHostStatus();
+    expect(hostStatus).toMatchObject({
       state: "inactive",
       visibleToHost: false,
       permissionCount: 0,
       inactiveCause: "local-disconnect"
     });
+    expect(hostStatus).not.toHaveProperty("remoteDisconnectReasonCode");
     expect(backingSink.records().map((record) => record.action)).toEqual([
       "agent-shell.authorization.approved",
       "agent-shell.authorization.active"
@@ -11313,7 +11315,10 @@ describe("agent shell consent workflow", () => {
         message.status === "active"
     );
     await viewer.stop();
-    await waitForMessage(hostEvents, (message) => message.type === "peer-disconnected");
+    const disconnectNotice = await waitForMessage(hostEvents, (message) => message.type === "peer-disconnected");
+    if (disconnectNotice.type !== "peer-disconnected") {
+      throw new Error("Expected trusted viewer disconnect notice");
+    }
     const inactiveIndicator = await waitForIndicatorEvent(
       hostEvents,
       (event) => event.state === "inactive" && event.cause === "peer-disconnected"
@@ -11341,7 +11346,8 @@ describe("agent shell consent workflow", () => {
       authorizationStatus: "active",
       visibleToHost: false,
       permissionCount: 0,
-      inactiveCause: "peer-disconnected"
+      inactiveCause: "peer-disconnected",
+      remoteDisconnectReasonCode: disconnectNotice.reasonCode
     });
     expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBeforeStatus);
     expect(hostLogs.join("\n")).toContain("skipped because peer disconnected");

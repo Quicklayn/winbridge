@@ -322,10 +322,11 @@ describe("interactive host control prompt", () => {
         authorizationId: "authz_status_1",
         visibleToHost: false,
         permissionCount: 0,
-        inactiveCause: "peer-disconnected"
+        inactiveCause: "peer-disconnected",
+        remoteDisconnectReasonCode: "heartbeat-timeout"
       })
     ).toBe(
-      "[winbridge-agent] host status state=inactive visibleToHost=false permissionCount=0 authorizationStatus=active authorizationId=authz_status_1 inactiveCause=peer-disconnected\n"
+      "[winbridge-agent] host status state=inactive visibleToHost=false permissionCount=0 authorizationStatus=active authorizationId=authz_status_1 inactiveCause=peer-disconnected remoteDisconnectReasonCode=heartbeat-timeout\n"
     );
   });
 
