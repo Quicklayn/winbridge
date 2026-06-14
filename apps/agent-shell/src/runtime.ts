@@ -193,6 +193,7 @@ export type AgentShellViewerStatusSnapshot = {
   expiresAt?: string;
   remoteDisconnectReasonCode?: AgentShellRemoteDisconnectReasonCode;
   localInactiveCause?: AgentShellViewerLocalInactiveCause;
+  signalProbeAckReceived?: boolean;
 };
 
 export const MAX_AGENT_SHELL_REASON_LENGTH = 240;
@@ -307,6 +308,7 @@ type AgentShellSessionState = {
   viewerAuthorization?: RuntimeAuthorizationSnapshot;
   viewerLocalInactiveCause?: AgentShellViewerLocalInactiveCause;
   viewerSignalProbeAuthorizationId?: string;
+  viewerSignalProbeAckAuthorizationId?: string;
   viewerSignalProbeGeneration: number;
   hostSignalProbeAckAuthorizationId?: string;
   hostIndicator?: AgentShellHostIndicatorEvent;
@@ -694,6 +696,7 @@ function resetConnectionScopedSessionState(sessionState: AgentShellSessionState)
   sessionState.viewerAuthorization = undefined;
   sessionState.viewerLocalInactiveCause = undefined;
   sessionState.viewerSignalProbeAuthorizationId = undefined;
+  sessionState.viewerSignalProbeAckAuthorizationId = undefined;
   sessionState.viewerSignalProbeGeneration = 0;
   sessionState.hostSignalProbeAckAuthorizationId = undefined;
   sessionState.hostIndicator = undefined;
@@ -800,6 +803,7 @@ async function handleMessage(
 
   try {
     updateViewerAuthorizationState(options, sessionState, envelope);
+    recordViewerSignalProbeAck(options, sessionState, envelope);
     sendHostSignalProbeAck(socket, options, sessionState, envelope);
 
     if (isViewerAuthorizationLifecycleMessage(envelope) && !hasActiveSignalAuthorization(sessionState.viewerAuthorization)) {
@@ -1464,6 +1468,7 @@ function scheduleViewerSignalProbe(
 
 function invalidateViewerSignalProbe(sessionState: AgentShellSessionState): void {
   sessionState.viewerSignalProbeGeneration += 1;
+  sessionState.viewerSignalProbeAckAuthorizationId = undefined;
 }
 
 function sendViewerSignalProbe(
@@ -1522,8 +1527,38 @@ function sendHostSignalProbeAck(
   sessionState.hostSignalProbeAckAuthorizationId = authorizationId;
 }
 
+function recordViewerSignalProbeAck(
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  message: ProtocolEnvelope
+): void {
+  if (options.role !== "viewer" || message.type !== "signal") {
+    return;
+  }
+
+  const authorizationId = signalPayloadAuthorizationId(message);
+  if (!authorizationId || !isHostSignalProbeAckPayload(message.payload)) {
+    return;
+  }
+
+  const snapshot = sessionState.viewerAuthorization;
+  if (
+    !hasActiveSignalAuthorization(snapshot) ||
+    snapshot.authorizationId !== authorizationId ||
+    message.fromPeerId !== snapshot.remotePeerId
+  ) {
+    return;
+  }
+
+  sessionState.viewerSignalProbeAckAuthorizationId = authorizationId;
+}
+
 function isViewerSignalProbePayload(payload: Record<string, unknown>): boolean {
   return payload.probe === VIEWER_SIGNAL_PROBE_MARKER;
+}
+
+function isHostSignalProbeAckPayload(payload: Record<string, unknown>): boolean {
+  return payload.probeAck === HOST_SIGNAL_PROBE_ACK_MARKER;
 }
 
 function signalPayloadAuthorizationId(
@@ -1947,6 +1982,16 @@ function getHostStatusSnapshot(
   };
 }
 
+function hasViewerSignalProbeAck(
+  sessionState: AgentShellSessionState,
+  snapshot: RuntimeAuthorizationSnapshot
+): boolean {
+  return (
+    hasActiveSignalAuthorization(snapshot) &&
+    sessionState.viewerSignalProbeAckAuthorizationId === snapshot.authorizationId
+  );
+}
+
 function getViewerStatusSnapshot(
   options: AgentShellRuntimeOptions,
   sessionState: AgentShellSessionState
@@ -1986,7 +2031,10 @@ function getViewerStatusSnapshot(
     authorizationStatus: snapshot.status,
     ...(hostIndicatorHasActiveGrant(state) && snapshot.expiresAt ? { expiresAt: snapshot.expiresAt } : {}),
     visibleToHost: state === "inactive" ? false : snapshot.visibleToHost,
-    permissionCount: state === "inactive" ? 0 : snapshot.permissions.length
+    permissionCount: state === "inactive" ? 0 : snapshot.permissions.length,
+    ...(hasViewerSignalProbeAck(sessionState, snapshot)
+      ? { signalProbeAckReceived: true }
+      : {})
   };
 }
 

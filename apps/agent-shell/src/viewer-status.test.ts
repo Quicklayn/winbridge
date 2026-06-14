@@ -47,6 +47,27 @@ describe("viewer status print", () => {
     expect(formatted).not.toContain("raw-token");
   });
 
+  it("formats trusted signal acknowledgement status as bounded metadata", () => {
+    const formatted = formatViewerStatus({
+      state: "active",
+      authorizationStatus: "active",
+      authorizationId: "authz_viewer_status_1",
+      expiresAt: "2026-06-14T12:00:00.000Z",
+      visibleToHost: true,
+      permissionCount: 1,
+      signalProbeAckReceived: true
+    });
+
+    expect(formatted).toBe(
+      "[winbridge-agent] viewer status state=active visibleToHost=true permissionCount=1 authorizationStatus=active authorizationId=authz_viewer_status_1 expiresAt=2026-06-14T12:00:00.000Z signalProbeAckReceived=true\n"
+    );
+    expect(formatted).not.toContain("host-signal-probe-ack-v1");
+    expect(formatted).not.toContain("viewer-signal-probe-v1");
+    expect(formatted).not.toContain("host-1");
+    expect(formatted).not.toContain("Viewer Support");
+    expect(formatted).not.toContain("raw-token");
+  });
+
   it("formats local leave inactive cause without authorization metadata", () => {
     const formatted = formatViewerStatus({
       state: "inactive",

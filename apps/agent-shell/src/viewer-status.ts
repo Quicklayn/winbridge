@@ -40,6 +40,10 @@ export function formatViewerStatus(status: AgentShellViewerStatusSnapshot): stri
     parts.push(`localInactiveCause=${status.localInactiveCause}`);
   }
 
+  if (status.signalProbeAckReceived) {
+    parts.push("signalProbeAckReceived=true");
+  }
+
   return `${parts.join(" ")}\n`;
 }
 
