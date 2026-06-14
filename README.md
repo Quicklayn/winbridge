@@ -99,7 +99,7 @@ $env:WINBRIDGE_RELAY_AUDIT_LOG_PATH = "logs\\relay-audit.jsonl"
 npm run dev:relay
 ```
 
-Omit `WINBRIDGE_RELAY_AUDIT_LOG_PATH` to keep console audit output. Do not set it to an empty, whitespace-only, untrimmed, control-character, bidi/zero-width-control, oversized, or Windows reserved device path value such as `NUL`, `CON`, `COM1`, or `LPT1`.
+Omit `WINBRIDGE_RELAY_AUDIT_LOG_PATH` to keep console audit output. Do not set it to an empty, whitespace-only, untrimmed, control-character, bidi/zero-width-control, oversized, Windows reserved device path value such as `NUL`, `CON`, `COM1`, or `LPT1`, or Windows alternate data stream path value such as `logs\relay-audit.jsonl:hidden`.
 Relay audit attribution remains secret-safe: raw attempted protocol identifiers are omitted or redacted when they contain pairing codes or obvious token, credential, cookie, or key secret-marker families, including marker words separated by `.`, `_`, `-`, or `:`.
 
 Development relay heartbeat is enabled by default. For local tuning:
@@ -250,7 +250,7 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-decision appro
 ```
 
 The same path can be passed with `--audit-log logs\\agent-audit.jsonl`. Agent audit files record only secret-safe workflow audit metadata; they do not store raw protocol payloads, screen contents, input, or private reason text. Audit action, reason, target type, and detail key metadata must be bounded, trimmed where applicable, and free of control or bidi/zero-width formatting controls.
-Omit `WINBRIDGE_AGENT_AUDIT_LOG_PATH` and `--audit-log` to skip local agent audit file persistence. Do not set either audit path to an empty, whitespace-only, untrimmed, control-character, bidi/zero-width-control, oversized, or Windows reserved device path value such as `NUL`, `CON`, `COM1`, or `LPT1`.
+Omit `WINBRIDGE_AGENT_AUDIT_LOG_PATH` and `--audit-log` to skip local agent audit file persistence. Do not set either audit path to an empty, whitespace-only, untrimmed, control-character, bidi/zero-width-control, oversized, Windows reserved device path value such as `NUL`, `CON`, `COM1`, or `LPT1`, or Windows alternate data stream path value such as `logs\agent-audit.jsonl:hidden`.
 
 Use a short development authorization TTL:
 

@@ -996,6 +996,14 @@ describe("agent shell arguments", () => {
       parseArgs(["host"], { WINBRIDGE_AGENT_AUDIT_LOG_PATH: "logs/com10.jsonl" }, 42)
         .auditLogPath
     ).toBe("logs/com10.jsonl");
+    expect(
+      parseArgs(["host", "--audit-log", String.raw`C:\logs\agent-audit.jsonl`], {}, 42)
+        .auditLogPath
+    ).toBe(String.raw`C:\logs\agent-audit.jsonl`);
+    expect(
+      parseArgs(["host"], { WINBRIDGE_AGENT_AUDIT_LOG_PATH: "D:/logs/agent-audit.jsonl" }, 42)
+        .auditLogPath
+    ).toBe("D:/logs/agent-audit.jsonl");
   });
 
   it("rejects malformed audit log paths", () => {
@@ -1035,6 +1043,23 @@ describe("agent shell arguments", () => {
     }
   });
 
+  it("rejects Windows alternate data stream audit log paths", () => {
+    for (const auditLogPath of [
+      "logs/agent-audit.jsonl:hidden",
+      String.raw`logs\agent-audit.jsonl:hidden`,
+      "agent-audit.jsonl:$DATA",
+      String.raw`C:\audit\agent-audit.jsonl:hidden`,
+      "C:agent-audit.jsonl"
+    ]) {
+      expect(() => parseArgs(["host", "--audit-log", auditLogPath], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+      expect(() =>
+        parseArgs(["host"], { WINBRIDGE_AGENT_AUDIT_LOG_PATH: auditLogPath }, 42)
+      ).toThrow(AgentShellUsageError);
+    }
+  });
+
   it("rejects invalid audit log paths without exposing raw path text", () => {
     for (const auditLogPath of [
       " logs/agent-audit-private-marker.jsonl ",
@@ -1042,6 +1067,7 @@ describe("agent shell arguments", () => {
       "logs/agent-audit-private-marker\u202e.jsonl",
       "logs/agent-audit-private-marker\u200b.jsonl",
       "logs/agent-audit-private-marker\ufeff.jsonl",
+      "logs/agent-audit-private-marker.jsonl:hidden",
       `logs/${"agent-audit-private-marker".repeat(43)}.jsonl`
     ]) {
       try {

@@ -55,12 +55,26 @@ The relay CLI SHALL report unexpected startup and shutdown failures without expo
 - **AND** stderr output MUST NOT include the raw exception message or stack trace
 
 ### Requirement: Relay audit path runtime validation
-The relay runtime SHALL reject configured development audit log paths that are empty, whitespace-only, untrimmed, exceed 1024 UTF-8 bytes, contain ASCII control characters, contain Unicode bidirectional formatting controls, or contain zero-width formatting controls before selecting a file audit sink, opening a listener, or accepting peer connections.
+The relay runtime SHALL reject configured development audit log paths that are empty, whitespace-only, untrimmed, exceed 1024 UTF-8 bytes, contain ASCII control characters, contain Unicode bidirectional formatting controls, contain zero-width formatting controls, contain Windows reserved device path segments, or contain Windows alternate data stream path segments before selecting a file audit sink, opening a listener, or accepting peer connections. Alternate data stream detection MUST allow an initial Windows drive prefix segment such as `C:` while rejecting colon-bearing path segments after that prefix.
 
 #### Scenario: Relay audit path contains format controls
 - **WHEN** the relay is configured with a `WINBRIDGE_RELAY_AUDIT_LOG_PATH` value containing a Unicode bidirectional or zero-width formatting control
 - **THEN** relay startup fails before selecting a file audit sink, opening a listener, or accepting peer connections
 - **AND** startup diagnostics MUST NOT include the raw configured path value
+
+#### Scenario: Relay audit path targets reserved device
+- **WHEN** the relay is configured with a `WINBRIDGE_RELAY_AUDIT_LOG_PATH` value targeting a Windows reserved device path segment
+- **THEN** relay startup fails before selecting a file audit sink, opening a listener, or accepting peer connections
+- **AND** startup diagnostics MUST NOT include the raw configured path value
+
+#### Scenario: Relay audit path targets alternate data stream
+- **WHEN** the relay is configured with a `WINBRIDGE_RELAY_AUDIT_LOG_PATH` value targeting a Windows alternate data stream path segment
+- **THEN** relay startup fails before selecting a file audit sink, opening a listener, or accepting peer connections
+- **AND** startup diagnostics MUST NOT include the raw configured path value
+
+#### Scenario: Relay audit path uses ordinary Windows drive prefix
+- **WHEN** the relay is configured with a `WINBRIDGE_RELAY_AUDIT_LOG_PATH` value such as `C:\logs\relay-audit.jsonl` or `D:/logs/relay-audit.jsonl`
+- **THEN** relay audit path validation accepts the value when all other relay audit path requirements pass
 
 ### Requirement: End-to-end broker verification
 The relay runtime SHALL be verifiable through WebSocket integration tests for accepted joins, message forwarding, rejected joins, invalid tokens, and rate-limit closure.

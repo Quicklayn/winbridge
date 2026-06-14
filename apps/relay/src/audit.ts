@@ -18,7 +18,7 @@ const relayActor = { type: "relay", id: "development-relay" } as const;
 const boundedRelayPeerActorPrefix = `${relayActor.id}:peer`;
 const redactedRelayPeerActorId = `${boundedRelayPeerActorPrefix}:redacted`;
 const RELAY_AUDIT_LOG_PATH_ERROR_MESSAGE =
-  "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, and contain no Windows reserved device path segments";
+  "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, and contain no Windows alternate data stream path segments";
 
 export function createRelayAuditSink(env: NodeJS.ProcessEnv = process.env): AuditSink {
   const auditLogPath = env.WINBRIDGE_RELAY_AUDIT_LOG_PATH;

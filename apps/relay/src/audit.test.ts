@@ -173,7 +173,7 @@ describe("relay audit", () => {
           WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
         })
       ).toThrow(
-        "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, and contain no Windows reserved device path segments"
+        "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, and contain no Windows alternate data stream path segments"
       );
     }
   });
@@ -193,8 +193,30 @@ describe("relay audit", () => {
     }
   });
 
+  it("rejects Windows alternate data stream WINBRIDGE_RELAY_AUDIT_LOG_PATH values", () => {
+    for (const auditLogPath of [
+      "logs/relay-audit.jsonl:hidden",
+      String.raw`logs\relay-audit.jsonl:hidden`,
+      "relay-audit.jsonl:$DATA",
+      String.raw`C:\audit\relay-audit.jsonl:hidden`,
+      "C:relay-audit.jsonl"
+    ]) {
+      expect(() =>
+        createRelayAuditSink({
+          WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
+        })
+      ).toThrow("Windows alternate data stream path segments");
+    }
+  });
+
   it("accepts safe lookalike WINBRIDGE_RELAY_AUDIT_LOG_PATH values", () => {
-    for (const auditLogPath of ["logs/null-audit.jsonl", "logs/com10.jsonl", "logs/lpt10.jsonl"]) {
+    for (const auditLogPath of [
+      "logs/null-audit.jsonl",
+      "logs/com10.jsonl",
+      "logs/lpt10.jsonl",
+      String.raw`C:\logs\relay-audit.jsonl`,
+      "D:/logs/relay-audit.jsonl"
+    ]) {
       expect(() =>
         createRelayAuditSink({
           WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
@@ -210,6 +232,7 @@ describe("relay audit", () => {
       "logs/relay-audit-private-marker\u202e.jsonl",
       "logs/relay-audit-private-marker\u200b.jsonl",
       "logs/relay-audit-private-marker\ufeff.jsonl",
+      "logs/relay-audit-private-marker.jsonl:hidden",
       `logs/${"relay-audit-private-marker".repeat(43)}.jsonl`
     ]) {
       try {
