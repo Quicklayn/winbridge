@@ -50,6 +50,8 @@ const ORPHANED_VIEWER_CLOSE_REASON = "Host disconnected";
 const STALE_REGISTERED_PEER_REASON = "Registered peer is no longer in room";
 const RELAY_DELIVERY_AUDIT_FAILED_WARNING =
   "[winbridge-relay] Forward delivery audit failed after send attempt";
+const RELAY_DISCONNECT_AUDIT_FAILED_WARNING =
+  "[winbridge-relay] Disconnect audit failed after close cleanup";
 const RELAY_RUNTIME_ALREADY_STARTED_ERROR_MESSAGE = "Relay runtime is already started";
 const RELAY_SHARED_TOKEN_ERROR_MESSAGE =
   "WINBRIDGE_RELAY_SHARED_TOKEN must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
@@ -400,9 +402,9 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
           peer.close(1000, ORPHANED_VIEWER_CLOSE_REASON);
         }
 
-        writeRelayAudit(auditSink, {
-          action: "relay.peer.disconnect",
-          outcome: "accepted",
+        writeRelayDisconnectAudit({
+          auditSink,
+          logger,
           sessionId: registeredPeer.sessionId,
           peerId: registeredPeer.peerId,
           detail: {
@@ -825,6 +827,30 @@ function writeRelayDeliveryAudit(options: {
       options.logger?.warn(RELAY_DELIVERY_AUDIT_FAILED_WARNING);
     } catch {
       // Post-send delivery audit diagnostics are best-effort only.
+    }
+  }
+}
+
+function writeRelayDisconnectAudit(options: {
+  auditSink: AuditSink;
+  detail: AuditDetail;
+  logger: RelayRuntimeOptions["logger"];
+  peerId: string;
+  sessionId: string;
+}): void {
+  try {
+    writeRelayAudit(options.auditSink, {
+      action: "relay.peer.disconnect",
+      outcome: "accepted",
+      sessionId: options.sessionId,
+      peerId: options.peerId,
+      detail: options.detail
+    });
+  } catch {
+    try {
+      options.logger?.warn(RELAY_DISCONNECT_AUDIT_FAILED_WARNING);
+    } catch {
+      // Post-cleanup disconnect audit diagnostics are best-effort only.
     }
   }
 }

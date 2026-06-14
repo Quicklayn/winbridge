@@ -82,6 +82,16 @@ class DeliveryAuditFailureSink extends MemoryAuditSink {
   }
 }
 
+class DisconnectAuditFailureSink extends MemoryAuditSink {
+  override write(input: Parameters<MemoryAuditSink["write"]>[0]): AuditRecord {
+    if (input.action === "relay.peer.disconnect") {
+      throw new Error("Disconnect audit unavailable private-disconnect-audit-marker");
+    }
+
+    return super.write(input);
+  }
+}
+
 afterEach(async () => {
   await Promise.all(runtimes.splice(0).map((runtime) => runtime.stop()));
 });
@@ -2959,6 +2969,150 @@ describe("relay runtime integration", () => {
       }
     });
     expect(JSON.stringify(disconnect)).not.toContain("123-456");
+  });
+
+  it("keeps host disconnect cleanup when disconnect audit persistence fails", async () => {
+    const auditSink = new DisconnectAuditFailureSink();
+    const logger = createMemoryLogger();
+    const runtime = await startRuntime({ auditSink, logger });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    const viewerDisconnectNotice = waitForProtocolMessage(
+      viewer,
+      (message) => message.type === "peer-disconnected"
+    );
+    const viewerClosed = waitForClose(viewer);
+
+    host.close(1000, "private-close-reason raw-token");
+
+    expect(await viewerDisconnectNotice).toMatchObject({
+      type: "peer-disconnected",
+      sessionId: "session-demo",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+    expect(await viewerClosed).toEqual({ code: 1000, reason: "Host disconnected" });
+
+    const replacementHost = await openSocket(runtime.url());
+    replacementHost.send(joinMessage("session-demo", "host-1", "host", "999-000"));
+    expect(
+      await waitForProtocolMessage(replacementHost, (message) => message.type === "relay-ready")
+    ).toMatchObject({
+      type: "relay-ready",
+      peerId: "host-1",
+      roomSize: 1
+    });
+    replacementHost.send(
+      encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: { authorizationId: "authz-after-disconnect-audit-failure", kind: "stale-viewer-probe" }
+      })
+    );
+    expect(await waitForJsonMessage(replacementHost, (message) => message.type === "relay-error")).toEqual({
+      type: "relay-error",
+      reason: "No recipient peer is registered"
+    });
+
+    expect(
+      auditSink.records().some(
+        (record) => record.action === "relay.peer.disconnect" && record.actor.id.endsWith(":host-1")
+      )
+    ).toBe(false);
+    expect(logger.warns).toContain("[winbridge-relay] Disconnect audit failed after close cleanup");
+
+    const serialized = JSON.stringify([auditSink.records(), logger.warns]);
+    expect(serialized).not.toContain("private-close-reason");
+    expect(serialized).not.toContain("raw-token");
+    expect(serialized).not.toContain("Disconnect audit unavailable");
+    expect(serialized).not.toContain("private-disconnect-audit-marker");
+    expect(serialized).not.toContain("123-456");
+    expect(serialized).not.toContain("999-000");
+  });
+
+  it("keeps viewer disconnect notification when disconnect audit persistence fails", async () => {
+    const auditSink = new DisconnectAuditFailureSink();
+    const logger = createMemoryLogger();
+    const runtime = await startRuntime({ auditSink, logger });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    viewer.close(1000, "private-viewer-close raw-token");
+
+    expect(
+      await waitForProtocolMessage(host, (message) => message.type === "peer-disconnected")
+    ).toMatchObject({
+      type: "peer-disconnected",
+      sessionId: "session-demo",
+      peerId: "viewer-1",
+      role: "viewer",
+      reasonCode: "peer-closed"
+    });
+    expect(
+      auditSink.records().some(
+        (record) => record.action === "relay.peer.disconnect" && record.actor.id.endsWith(":viewer-1")
+      )
+    ).toBe(false);
+    expect(logger.warns).toContain("[winbridge-relay] Disconnect audit failed after close cleanup");
+
+    const serialized = JSON.stringify([auditSink.records(), logger.warns]);
+    expect(serialized).not.toContain("private-viewer-close");
+    expect(serialized).not.toContain("raw-token");
+    expect(serialized).not.toContain("Disconnect audit unavailable");
+    expect(serialized).not.toContain("private-disconnect-audit-marker");
+    expect(serialized).not.toContain("123-456");
+  });
+
+  it("contains disconnect audit warning logger failure after close cleanup", async () => {
+    const auditSink = new DisconnectAuditFailureSink();
+    const logger = {
+      log: () => undefined,
+      warn: (message: string) => {
+        if (message === "[winbridge-relay] Disconnect audit failed after close cleanup") {
+          throw new Error("private-disconnect-logger-marker");
+        }
+      }
+    };
+    const runtime = await startRuntime({ auditSink, logger });
+    const { host, viewer } = await joinPairedSession(runtime);
+
+    const viewerDisconnectNotice = waitForProtocolMessage(
+      viewer,
+      (message) => message.type === "peer-disconnected"
+    );
+    const viewerClosed = waitForClose(viewer);
+
+    host.close(1000, "private-close-reason raw-token");
+
+    expect(await viewerDisconnectNotice).toMatchObject({
+      type: "peer-disconnected",
+      sessionId: "session-demo",
+      peerId: "host-1",
+      role: "host",
+      reasonCode: "peer-closed"
+    });
+    expect(await viewerClosed).toEqual({ code: 1000, reason: "Host disconnected" });
+
+    const replacementHost = await openSocket(runtime.url());
+    replacementHost.send(joinMessage("session-demo", "host-1", "host", "999-000"));
+    expect(
+      await waitForProtocolMessage(replacementHost, (message) => message.type === "relay-ready")
+    ).toMatchObject({
+      type: "relay-ready",
+      peerId: "host-1",
+      roomSize: 1
+    });
+
+    const serialized = JSON.stringify(auditSink.records());
+    expect(serialized).not.toContain("private-close-reason");
+    expect(serialized).not.toContain("raw-token");
+    expect(serialized).not.toContain("Disconnect audit unavailable");
+    expect(serialized).not.toContain("private-disconnect-audit-marker");
+    expect(serialized).not.toContain("private-disconnect-logger-marker");
+    expect(serialized).not.toContain("123-456");
+    expect(serialized).not.toContain("999-000");
   });
 
   it("audits a disconnect without notifying when no peer remains", async () => {

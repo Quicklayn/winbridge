@@ -245,7 +245,7 @@ Disconnect notices:
 - Do not include raw WebSocket close reasons.
 - Do not grant permissions, approve sessions, start capture, send input, reconnect peers, suppress host visibility, or bypass consent workflows.
 
-Disconnect audit details may include the peer role, bounded reason code, notification target count, notification sent count, and notification failure count. They must not include raw shared tokens, raw pairing codes, credentials, raw payload secrets, keystrokes, screenshots, screen contents, or full secrets.
+Disconnect audit details may include the peer role, bounded reason code, notification target count, notification sent count, and notification failure count. They must not include raw shared tokens, raw pairing codes, credentials, raw payload secrets, keystrokes, screenshots, screen contents, or full secrets. Disconnect cleanup remains authoritative when post-cleanup `relay.peer.disconnect` audit persistence or warning logging fails: the relay must not undo stale membership removal, withhold applicable bounded disconnect notices, skip orphaned peer closure, or expose raw audit sink, logger, close reason, pairing, token, payload, credential, or remote-content text.
 
 ## Development Audit Files
 
