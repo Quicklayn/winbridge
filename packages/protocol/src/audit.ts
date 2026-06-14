@@ -6,6 +6,18 @@ import { ProtocolIdentifierSchema, SessionIdSchema } from "./session.js";
 export const AuditOutcomeSchema = z.enum(["accepted", "denied", "failed"]);
 export type AuditOutcome = z.infer<typeof AuditOutcomeSchema>;
 
+const AuditIdentifierSchema = ProtocolIdentifierSchema.refine(
+  (identifier) => !hasSecretBearingProtocolIdentifierMetadata(identifier),
+  "Audit identifier must not contain sensitive metadata"
+);
+const AuditEventIdSchema = ProtocolIdentifierSchema.min(8).refine(
+  (identifier) => !hasSecretBearingProtocolIdentifierMetadata(identifier),
+  "Audit identifier must not contain sensitive metadata"
+);
+const AuditSessionIdSchema = SessionIdSchema.refine(
+  (identifier) => !hasSecretBearingProtocolIdentifierMetadata(identifier),
+  "Audit identifier must not contain sensitive metadata"
+);
 const AuditActorDeviceIdSchema = ProtocolIdentifierSchema.min(8).refine(
   (deviceId) => !hasSecretBearingAuditActorDeviceIdMetadata(deviceId),
   "Audit actor deviceId must not contain sensitive metadata"
@@ -13,7 +25,7 @@ const AuditActorDeviceIdSchema = ProtocolIdentifierSchema.min(8).refine(
 
 export const AuditActorSchema = z.object({
   type: z.enum(["system", "relay", "host", "viewer"]),
-  id: ProtocolIdentifierSchema,
+  id: AuditIdentifierSchema,
   deviceId: AuditActorDeviceIdSchema.optional()
 }).strict().superRefine((actor, context) => {
   if ((actor.type === "system" || actor.type === "relay") && actor.deviceId !== undefined) {
@@ -96,16 +108,16 @@ export const AuditDetailSchema = createJsonObjectSchema(
 });
 
 export const AuditRecordSchema = z.object({
-  eventId: ProtocolIdentifierSchema.min(8),
+  eventId: AuditEventIdSchema,
   timestamp: z.string().datetime(),
   actor: AuditActorSchema,
   action: AuditActionSchema,
   outcome: AuditOutcomeSchema,
-  sessionId: SessionIdSchema.optional(),
+  sessionId: AuditSessionIdSchema.optional(),
   target: z
     .object({
       type: AuditTargetTypeSchema,
-      id: ProtocolIdentifierSchema
+      id: AuditIdentifierSchema
     })
     .strict()
     .optional(),

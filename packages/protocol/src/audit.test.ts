@@ -226,6 +226,84 @@ describe("audit records", () => {
     }
   });
 
+  it("rejects secret-bearing fixed audit identifiers without exposing raw text", () => {
+    const secretBearingFixedIdentifiers = [
+      "token-raw-fixed",
+      "credential-raw-fixed",
+      "password-raw-fixed",
+      "passphrase-raw-fixed",
+      "secret-raw-fixed",
+      "pairing-code-raw-fixed",
+      "api-key-raw-fixed",
+      "access-key-raw-fixed",
+      "cookie-raw-fixed",
+      "private-key-raw-fixed",
+      "ssh-key-raw-fixed",
+      "authorization-raw-fixed",
+      "authorization-header-raw-fixed",
+      "auth-header-raw-fixed",
+      "proxy-authorization-raw-fixed"
+    ] as const;
+    const cases = [
+      {
+        name: "eventId",
+        buildRecord: (value: string) => ({
+          eventId: value,
+          actor: { type: "relay", id: "relay-dev" },
+          action: "relay.peer.join.accepted",
+          outcome: "accepted" as const
+        })
+      },
+      {
+        name: "actor.id",
+        buildRecord: (value: string) => ({
+          actor: { type: "host", id: value },
+          action: "agent-shell.authorization.active",
+          outcome: "accepted" as const,
+          sessionId: "session-demo"
+        })
+      },
+      {
+        name: "sessionId",
+        buildRecord: (value: string) => ({
+          actor: { type: "relay", id: "relay-dev" },
+          action: "relay.peer.join.accepted",
+          outcome: "accepted" as const,
+          sessionId: value
+        })
+      },
+      {
+        name: "target.id",
+        buildRecord: (value: string) => ({
+          actor: { type: "relay", id: "relay-dev" },
+          action: "relay.message.forwarded",
+          outcome: "accepted" as const,
+          target: { type: "peer", id: value }
+        })
+      }
+    ] as const;
+
+    for (const { buildRecord, name } of cases) {
+      for (const unsafeValue of secretBearingFixedIdentifiers) {
+        let thrown: unknown;
+
+        try {
+          createAuditRecord(buildRecord(unsafeValue));
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown, `${name}:${unsafeValue}`).toBeInstanceOf(Error);
+        expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain("Audit identifier");
+        expect((thrown as Error).message, `${name}:${unsafeValue}`).toContain(
+          "sensitive metadata"
+        );
+        expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain(unsafeValue);
+        expect((thrown as Error).message, `${name}:${unsafeValue}`).not.toContain("raw-fixed");
+      }
+    }
+  });
+
   it("accepts JSON-compatible audit detail values", () => {
     const record = createAuditRecord({
       actor: { type: "relay", id: "relay-dev" },
