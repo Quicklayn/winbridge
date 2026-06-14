@@ -2573,6 +2573,61 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("contains decoded unsafe inbound raw event callback failures without runtime error", async () => {
+    const crossSessionServer = await startCrossSessionAuthorizationRequestServer();
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    const rawCallbackMarker = "unsafe inbound raw callback failed with raw-unsafe-callback-token";
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: crossSessionServer.url,
+        hostDecision: "approve",
+        visibleToHost: true,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => {
+          hostEvents.push(event);
+          if (event.direction === "raw") {
+            throw new Error(rawCallbackMarker);
+          }
+        }
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBeGreaterThan(0);
+      expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "received")).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+      expect(hostEvents.some(isInboundUnsafeForbiddenSentEvent)).toBe(false);
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("ignored unsafe inbound protocol message bytes=");
+      for (const rawValue of [
+        "session-authorization-request",
+        "other-session",
+        "private cross-session reason",
+        rawCallbackMarker,
+        "raw-unsafe-callback-token"
+      ]) {
+        expect(logOutput).not.toContain(rawValue);
+        expect(serializedEvents).not.toContain(rawValue);
+      }
+    } finally {
+      await host?.stop();
+      await crossSessionServer.stop();
+    }
+  });
+
   it("ignores authorization requests that identify the local host as viewer", async () => {
     const selfRequestServer = await startSelfReferentialAuthorizationRequestServer();
     const hostEvents: AgentShellEvent[] = [];
@@ -14137,6 +14192,60 @@ describe("agent shell consent workflow", () => {
       expect(serializedEvents).not.toContain("raw-inbound-token");
       expect(serializedEvents).not.toContain(rawLoggerMarker);
       expect(serializedEvents).not.toContain("raw-non-protocol-logger-token");
+    } finally {
+      await host?.stop();
+      await nonProtocolServer.stop();
+    }
+  });
+
+  it("contains non-protocol inbound raw event callback failures without runtime error", async () => {
+    const privateMessage = "relay-error do-not-log raw-inbound-token";
+    const nonProtocolServer = await startNonProtocolMessageServer(privateMessage);
+    const hostLogs: string[] = [];
+    const hostEvents: AgentShellEvent[] = [];
+    const rawCallbackMarker = "non-protocol raw callback failed with raw-non-protocol-callback-token";
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: nonProtocolServer.url,
+        logger: captureLogger(hostLogs),
+        onEvent: (event) => {
+          hostEvents.push(event);
+          if (event.direction === "raw") {
+            throw new Error(rawCallbackMarker);
+          }
+        }
+      }));
+      await host.start();
+
+      const rawEvent = await waitForRawEvent(hostEvents);
+      await delay(100);
+
+      expect(rawEvent).toMatchObject({
+        direction: "raw",
+        text: "[REDACTED]",
+        byteLength: expect.any(Number)
+      });
+      expect(rawEvent.byteLength).toBe(Buffer.byteLength(privateMessage));
+      expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "received")).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+      expect(hostEvents.some(isInboundUnsafeForbiddenSentEvent)).toBe(false);
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const logOutput = hostLogs.join("\n");
+      expect(logOutput).toContain("received non-protocol message bytes=");
+      for (const rawValue of [
+        "relay-error",
+        "do-not-log",
+        "raw-inbound-token",
+        rawCallbackMarker,
+        "raw-non-protocol-callback-token"
+      ]) {
+        expect(logOutput).not.toContain(rawValue);
+        expect(serializedEvents).not.toContain(rawValue);
+      }
     } finally {
       await host?.stop();
       await nonProtocolServer.stop();
