@@ -56,9 +56,13 @@ const SENSITIVE_SIGNAL_PAYLOAD_KEY_INDICATORS = [
 const SENSITIVE_SIGNAL_PAYLOAD_KEY_EXACT_MATCHES = new Set(["authorization"]);
 const SAFE_SIGNAL_PAYLOAD_KEY_EXACT_MATCHES = new Set(["authorizationid"]);
 
+const ProtocolMessageIdSchema = ProtocolIdentifierSchema.refine(
+  (identifier) => !hasSecretBearingProtocolIdentifierMetadata(identifier),
+  "Protocol message identifier must not contain sensitive metadata"
+);
 const BaseMessageSchema = z.object({
   protocolVersion: z.literal(PROTOCOL_VERSION),
-  messageId: ProtocolIdentifierSchema,
+  messageId: ProtocolMessageIdSchema,
   sessionId: SessionIdSchema,
   createdAt: z.string().datetime()
 }).strict();
@@ -463,7 +467,7 @@ export const AuditEventMessageSchema = BaseMessageSchema.extend({
   outcome: AuditOutcomeSchema,
   detail: AuditDetailSchema.default({}).transform(redactAuditDetail)
 }).superRefine((message, context) => {
-  for (const field of ["messageId", "sessionId"] as const) {
+  for (const field of ["sessionId"] as const) {
     if (!hasSecretBearingProtocolIdentifierMetadata(message[field])) {
       continue;
     }

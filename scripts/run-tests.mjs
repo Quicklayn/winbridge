@@ -6,7 +6,7 @@ const roots = ["apps", "packages"];
 const vitestBin = join(process.cwd(), "node_modules", "vitest", "vitest.mjs");
 const vitestCommand = process.execPath;
 const vitestBaseArgs = [vitestBin];
-const testFiles = roots.flatMap((root) => findTestFiles(root)).sort();
+const testFiles = prioritizeTestFiles(roots.flatMap((root) => findTestFiles(root)).sort());
 
 if (testFiles.length === 0) {
   console.error("No test files found.");
@@ -63,4 +63,10 @@ function findTestFiles(root) {
   }
 
   return files;
+}
+
+function prioritizeTestFiles(files) {
+  const first = new Set(["apps/agent-shell/src/runtime.integration.test.ts"]);
+
+  return [...files.filter((file) => first.has(file)), ...files.filter((file) => !first.has(file))];
 }

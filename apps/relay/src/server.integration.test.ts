@@ -1278,6 +1278,57 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(forwarded)).not.toContain("agent-shell:test");
   });
 
+  it("rejects secret-bearing forwarded message ids before forwarding or accepted-forward audit", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const auditStart = auditSink.records().length;
+    const unsafeMessageId = "token-raw-forwarded-message-id";
+    const hello = {
+      ...createMessageBase("session-demo"),
+      messageId: unsafeMessageId,
+      type: "hello",
+      peerId: "host-1",
+      role: "host",
+      displayName: "Host",
+      capabilities: ["session:visible"]
+    } as const;
+
+    host.send(JSON.stringify(hello));
+
+    const relayError = await waitForJsonMessage(host, (message) => message.type === "relay-error");
+    expect(relayError).toEqual({
+      type: "relay-error",
+      reason: "Invalid relay message"
+    });
+    await expectNoProtocolMessage(viewer, (forwarded) => forwarded.type === "hello");
+
+    const rejected = await waitForAuditRecord(
+      auditSink,
+      (record) => record.action === "relay.message.rejected" && record.reason === "Invalid relay message"
+    );
+    expect(rejected).toMatchObject({
+      action: "relay.message.rejected",
+      outcome: "failed",
+      sessionId: "session-demo",
+      reason: "Invalid relay message",
+      detail: {
+        registered: true
+      }
+    });
+    const newAuditRecords = auditSink.records().slice(auditStart);
+    expect(
+      newAuditRecords.some(
+        (record) =>
+          record.action === "relay.message.forwarded" &&
+          record.detail?.messageType === "hello" &&
+          record.detail?.messageId === unsafeMessageId
+      )
+    ).toBe(false);
+    expect(JSON.stringify([relayError, rejected, newAuditRecords])).not.toContain(unsafeMessageId);
+    expect(JSON.stringify([relayError, rejected, newAuditRecords])).not.toContain("raw-forwarded-message-id");
+  });
+
   it("audits forwarded audit-event messages without raw audit details", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });

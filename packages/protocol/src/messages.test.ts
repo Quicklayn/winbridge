@@ -1186,6 +1186,78 @@ describe("protocol envelopes", () => {
     });
   });
 
+  it("rejects secret-bearing protocol message identifiers without exposing raw text", () => {
+    const unsafeMessageIds = [
+      "token-raw-message-id",
+      "credential-raw-message-id",
+      "pairing-code-raw-message-id",
+      "authorization-header-raw-message-id",
+      "ssh-key-raw-message-id"
+    ] as const;
+    const buildMessages = [
+      (messageId: string) => ({
+        ...createMessageBase("session-demo"),
+        messageId,
+        type: "hello",
+        peerId: "host-1",
+        role: "host",
+        displayName: "Host",
+        capabilities: ["session:visible"]
+      }),
+      (messageId: string) => ({
+        ...createMessageBase("session-demo"),
+        messageId,
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"]
+      }),
+      (messageId: string) => ({
+        ...createMessageBase("session-demo"),
+        messageId,
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: { authorizationId: "authz-demo" }
+      }),
+      (messageId: string) => ({
+        ...createMessageBase("session-demo"),
+        messageId,
+        type: "audit-event",
+        eventId: "audit-demo",
+        actorPeerId: "host-1",
+        action: "agent-shell.test",
+        outcome: "accepted" as const
+      })
+    ] as const;
+
+    for (const unsafeMessageId of unsafeMessageIds) {
+      for (const buildMessage of buildMessages) {
+        const message = buildMessage(unsafeMessageId);
+
+        for (const operation of [
+          () => parseProtocolEnvelope(message),
+          () => encodeProtocolEnvelope(message as Parameters<typeof encodeProtocolEnvelope>[0])
+        ]) {
+          let thrown: unknown;
+
+          try {
+            operation();
+          } catch (error) {
+            thrown = error;
+          }
+
+          expect(thrown, unsafeMessageId).toBeInstanceOf(Error);
+          expect((thrown as Error).message, unsafeMessageId).toContain(
+            "Protocol message identifier"
+          );
+          expect((thrown as Error).message, unsafeMessageId).toContain("sensitive metadata");
+          expect((thrown as Error).message, unsafeMessageId).not.toContain(unsafeMessageId);
+          expect((thrown as Error).message, unsafeMessageId).not.toContain("raw-message-id");
+        }
+      }
+    }
+  });
+
   it("rejects oversized protocol identifiers", () => {
     expect(() =>
       parseProtocolEnvelope({
@@ -3190,18 +3262,6 @@ describe("protocol envelopes", () => {
       "proxy-authorization-raw-fixed"
     ] as const;
     const cases = [
-      {
-        name: "messageId",
-        buildMessage: (value: string) => ({
-          ...createMessageBase("session-demo"),
-          messageId: value,
-          type: "audit-event",
-          eventId: "audit-demo",
-          actorPeerId: "host-1",
-          action: "agent-shell.test",
-          outcome: "accepted" as const
-        })
-      },
       {
         name: "sessionId",
         buildMessage: (value: string) => ({
