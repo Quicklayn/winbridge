@@ -20,11 +20,12 @@ describe("viewer status print", () => {
         state: "active",
         authorizationStatus: "active",
         authorizationId: "authz_viewer_status_1",
+        expiresAt: "2026-06-14T12:00:00.000Z",
         visibleToHost: true,
         permissionCount: 2
       })
     ).toBe(
-      "[winbridge-agent] viewer status state=active visibleToHost=true permissionCount=2 authorizationStatus=active authorizationId=authz_viewer_status_1\n"
+      "[winbridge-agent] viewer status state=active visibleToHost=true permissionCount=2 authorizationStatus=active authorizationId=authz_viewer_status_1 expiresAt=2026-06-14T12:00:00.000Z\n"
     );
   });
 
@@ -90,6 +91,7 @@ describe("viewer status print", () => {
         state: "active",
         authorizationStatus: "active",
         authorizationId: "authz_viewer_status_1",
+        expiresAt: "2026-06-14T12:00:00.000Z",
         visibleToHost: true,
         permissionCount: 1
       });
@@ -117,6 +119,7 @@ describe("viewer status print", () => {
       expect(output.text()).toContain("permissionCount=1");
       expect(output.text()).toContain("authorizationStatus=active");
       expect(output.text()).toContain("authorizationId=authz_viewer_status_1");
+      expect(output.text()).toContain("expiresAt=2026-06-14T12:00:00.000Z");
       expect(output.text()).not.toContain("screen:view");
       expect(output.text()).not.toContain("Viewer Support");
       expect(output.text()).not.toContain("raw-token");

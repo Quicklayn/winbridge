@@ -28,6 +28,10 @@ export function formatViewerStatus(status: AgentShellViewerStatusSnapshot): stri
     parts.push(`authorizationId=${status.authorizationId}`);
   }
 
+  if (status.expiresAt) {
+    parts.push(`expiresAt=${status.expiresAt}`);
+  }
+
   if (status.remoteDisconnectReasonCode) {
     parts.push(`remoteDisconnectReasonCode=${status.remoteDisconnectReasonCode}`);
   }

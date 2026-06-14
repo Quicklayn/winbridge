@@ -98,6 +98,7 @@ export type AgentShellHostIndicatorEvent = {
   state: "active" | "paused" | "inactive";
   authorizationId: string;
   authorizationStatus: SessionAuthorizationStatus;
+  expiresAt?: string;
   visibleToHost: boolean;
   permissionCount: number;
   cause:
@@ -171,6 +172,7 @@ export type AgentShellHostStatusSnapshot = {
   permissionCount: number;
   authorizationId?: string;
   authorizationStatus?: SessionAuthorizationStatus;
+  expiresAt?: string;
   inactiveCause?: AgentShellHostIndicatorEvent["cause"];
 };
 
@@ -187,6 +189,7 @@ export type AgentShellViewerStatusSnapshot = {
   permissionCount: number;
   authorizationId?: string;
   authorizationStatus?: SessionAuthorizationStatus;
+  expiresAt?: string;
   remoteDisconnectReasonCode?: AgentShellRemoteDisconnectReasonCode;
   localInactiveCause?: AgentShellViewerLocalInactiveCause;
 };
@@ -1891,6 +1894,7 @@ function emitHostIndicatorFromAuthorization(
     state,
     authorizationId: snapshot.authorizationId,
     authorizationStatus: snapshot.status,
+    ...(hostIndicatorHasActiveGrant(state) && snapshot.expiresAt ? { expiresAt: snapshot.expiresAt } : {}),
     visibleToHost: state !== "inactive",
     permissionCount: state === "inactive" ? 0 : snapshot.permissions.length,
     cause
@@ -1930,6 +1934,7 @@ function getHostStatusSnapshot(
     state,
     authorizationId: snapshot.authorizationId,
     authorizationStatus: snapshot.status,
+    ...(hostIndicatorHasActiveGrant(state) && snapshot.expiresAt ? { expiresAt: snapshot.expiresAt } : {}),
     visibleToHost: state === "inactive" ? false : snapshot.visibleToHost,
     permissionCount: state === "inactive" ? 0 : snapshot.permissions.length
   };
@@ -1972,6 +1977,7 @@ function getViewerStatusSnapshot(
     state,
     authorizationId: snapshot.authorizationId,
     authorizationStatus: snapshot.status,
+    ...(hostIndicatorHasActiveGrant(state) && snapshot.expiresAt ? { expiresAt: snapshot.expiresAt } : {}),
     visibleToHost: state === "inactive" ? false : snapshot.visibleToHost,
     permissionCount: state === "inactive" ? 0 : snapshot.permissions.length
   };
@@ -2010,11 +2016,21 @@ function emitHostIndicator(
 
   sessionState.hostIndicator = event;
   options.onEvent?.(event);
-  options.logger?.log(
-    `[winbridge-agent] host indicator state=${event.state} authorizationStatus=${event.authorizationStatus} ` +
-      `authorizationId=${event.authorizationId} visibleToHost=${event.visibleToHost} ` +
-      `permissionCount=${event.permissionCount} cause=${event.cause}`
-  );
+  const parts = [
+    "[winbridge-agent] host indicator",
+    `state=${event.state}`,
+    `authorizationStatus=${event.authorizationStatus}`,
+    `authorizationId=${event.authorizationId}`,
+    ...(event.expiresAt ? [`expiresAt=${event.expiresAt}`] : []),
+    `visibleToHost=${event.visibleToHost}`,
+    `permissionCount=${event.permissionCount}`,
+    `cause=${event.cause}`
+  ];
+  options.logger?.log(parts.join(" "));
+}
+
+function hostIndicatorHasActiveGrant(state: AgentShellHostIndicatorEvent["state"]): boolean {
+  return state === "active" || state === "paused";
 }
 
 function isSameHostIndicator(

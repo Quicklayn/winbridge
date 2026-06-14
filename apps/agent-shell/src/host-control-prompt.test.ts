@@ -76,6 +76,7 @@ describe("interactive host control prompt", () => {
       state: "active",
       authorizationStatus: "active",
       authorizationId: "authz_status_1",
+      expiresAt: "2026-06-14T12:00:00.000Z",
       visibleToHost: true,
       permissionCount: 1
     });
@@ -98,6 +99,7 @@ describe("interactive host control prompt", () => {
     expect(output.text()).toContain("state=active");
     expect(output.text()).toContain("authorizationStatus=active");
     expect(output.text()).toContain("authorizationId=authz_status_1");
+    expect(output.text()).toContain("expiresAt=2026-06-14T12:00:00.000Z");
     expect(output.text()).toContain("visibleToHost=true");
     expect(output.text()).toContain("permissionCount=1");
     expect(output.text()).not.toContain("screen:view");
@@ -324,6 +326,21 @@ describe("interactive host control prompt", () => {
       })
     ).toBe(
       "[winbridge-agent] host status state=inactive visibleToHost=false permissionCount=0 authorizationStatus=active authorizationId=authz_status_1 inactiveCause=peer-disconnected\n"
+    );
+  });
+
+  it("formats active host status with bounded expiration metadata", () => {
+    expect(
+      formatHostControlStatus({
+        state: "active",
+        authorizationStatus: "active",
+        authorizationId: "authz_status_1",
+        expiresAt: "2026-06-14T12:00:00.000Z",
+        visibleToHost: true,
+        permissionCount: 1
+      })
+    ).toBe(
+      "[winbridge-agent] host status state=active visibleToHost=true permissionCount=1 authorizationStatus=active authorizationId=authz_status_1 expiresAt=2026-06-14T12:00:00.000Z\n"
     );
   });
 

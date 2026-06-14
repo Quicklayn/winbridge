@@ -3229,6 +3229,10 @@ describe("agent shell consent workflow", () => {
       viewerEvents,
       (message) => message.type === "session-authorization-state" && message.status === "active"
     );
+    if (activeState.type !== "session-authorization-state") {
+      throw new Error("Expected active authorization state");
+    }
+    expect(activeState.expiresAt).toEqual(expect.any(String));
     const indicator = await waitForIndicatorEvent(
       hostEvents,
       (event) => event.state === "active" && event.cause === "activated"
@@ -3238,8 +3242,9 @@ describe("agent shell consent workflow", () => {
       direction: "indicator",
       role: "host",
       state: "active",
-      authorizationId: activeState.type === "session-authorization-state" ? activeState.authorizationId : "",
+      authorizationId: activeState.authorizationId,
       authorizationStatus: "active",
+      expiresAt: activeState.expiresAt,
       visibleToHost: true,
       permissionCount: 1,
       cause: "activated"
@@ -3249,6 +3254,7 @@ describe("agent shell consent workflow", () => {
     const serializedIndicator = JSON.stringify(indicator);
     const logOutput = hostLogs.join("\n");
     expect(logOutput).toContain("host indicator state=active");
+    expect(logOutput).toContain(`expiresAt=${activeState.expiresAt}`);
     expect(logOutput).toContain("permissionCount=1");
     expect(serializedIndicator).not.toContain("raw-token");
     expect(serializedIndicator).not.toContain("123-456");
@@ -3283,12 +3289,14 @@ describe("agent shell consent workflow", () => {
     if (activeState.type !== "session-authorization-state") {
       throw new Error("Expected active authorization state");
     }
+    expect(activeState.expiresAt).toEqual(expect.any(String));
 
     const sentCountBeforeStatus = hostEvents.filter((event) => event.direction === "sent").length;
     expect(host.getHostStatus()).toEqual({
       state: "active",
       authorizationId: activeState.authorizationId,
       authorizationStatus: "active",
+      expiresAt: activeState.expiresAt,
       visibleToHost: true,
       permissionCount: 1
     });
@@ -3303,6 +3311,7 @@ describe("agent shell consent workflow", () => {
       state: "paused",
       authorizationId: activeState.authorizationId,
       authorizationStatus: "paused",
+      expiresAt: activeState.expiresAt,
       visibleToHost: true,
       permissionCount: 1
     });
@@ -3363,12 +3372,14 @@ describe("agent shell consent workflow", () => {
     if (activeState.type !== "session-authorization-state") {
       throw new Error("Expected active authorization state");
     }
+    expect(activeState.expiresAt).toEqual(expect.any(String));
 
     const sentCountBeforeActiveStatus = viewerEvents.filter((event) => event.direction === "sent").length;
     expect(viewer.getViewerStatus()).toEqual({
       state: "active",
       authorizationId: activeState.authorizationId,
       authorizationStatus: "active",
+      expiresAt: activeState.expiresAt,
       visibleToHost: true,
       permissionCount: 1
     });
@@ -3386,6 +3397,7 @@ describe("agent shell consent workflow", () => {
       state: "paused",
       authorizationId: activeState.authorizationId,
       authorizationStatus: "paused",
+      expiresAt: activeState.expiresAt,
       visibleToHost: true,
       permissionCount: 1
     });
@@ -3790,6 +3802,7 @@ describe("agent shell consent workflow", () => {
       state: "active" as const,
       authorizationId: activeState.authorizationId,
       authorizationStatus: "active" as const,
+      expiresAt: activeState.expiresAt,
       visibleToHost: true,
       permissionCount: 1
     };
