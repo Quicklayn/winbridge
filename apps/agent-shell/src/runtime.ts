@@ -430,9 +430,18 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
 
       await new Promise<void>((resolve, reject) => {
         runtimeSocket.once("open", () => {
-          logger.log(`[winbridge-agent] ${options.role} connected to ${relayUrl.origin}`);
-          logger.log("[winbridge-agent] Native screen capture and remote input are not implemented.");
-          logger.log("[winbridge-agent] This shell only exercises the consent/session protocol.");
+          logRuntimeLoggerMessageBestEffort(
+            logger,
+            `[winbridge-agent] ${options.role} connected to ${relayUrl.origin}`
+          );
+          logRuntimeLoggerMessageBestEffort(
+            logger,
+            "[winbridge-agent] Native screen capture and remote input are not implemented."
+          );
+          logRuntimeLoggerMessageBestEffort(
+            logger,
+            "[winbridge-agent] This shell only exercises the consent/session protocol."
+          );
 
           const deviceIdentity = createDeviceIdentity({
             displayName: options.displayName,

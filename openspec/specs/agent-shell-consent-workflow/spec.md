@@ -729,7 +729,7 @@ The managed agent shell SHALL record local peer disconnected state when its WebS
 - **AND** public sends remain subject to the normal recipient, authority, authorization, and socket-open gates for the new connection
 
 ### Requirement: Runtime error diagnostics are secret-safe
-The agent shell SHALL surface runtime and socket failures without exposing raw exception messages, raw diagnostic logger error text, tokens, pairing codes, credentials, protocol payload fragments, private reason text, file paths, keystrokes, screenshots, screen contents, or input contents in local runtime events or logs. Runtime and socket diagnostic logger failures MUST be best-effort observability failures only and MUST NOT grant permissions, activate host visibility, start capture, send input, reconnect peers, send protocol messages, hide the session from the host, or bypass consent workflows.
+The agent shell SHALL surface runtime, startup, and socket failures without exposing raw exception messages, raw diagnostic logger error text, tokens, pairing codes, credentials, protocol payload fragments, private reason text, file paths, keystrokes, screenshots, screen contents, or input contents in local runtime events or logs. Runtime, startup, and socket diagnostic logger failures MUST be best-effort observability failures only and MUST NOT grant permissions, activate host visibility, start capture, send input, reconnect peers, send protocol messages other than the normal startup join message that would have been sent without the logger failure, hide the session from the host, or bypass consent workflows.
 
 #### Scenario: Audit sink failure event is redacted
 - **WHEN** the configured host workflow audit sink throws an error while writing a record
@@ -749,6 +749,13 @@ The agent shell SHALL surface runtime and socket failures without exposing raw e
 - **THEN** the logger failure MUST NOT escape the socket error callback
 - **AND** local runtime events and logs MUST NOT expose raw socket error text, raw logger error text, tokens, pairing codes, protocol payloads, credentials, file paths, private reasons, keystrokes, screenshots, screen contents, or input contents
 - **AND** the logger failure MUST NOT grant permissions, activate host visibility, start capture, send input, reconnect peers, send protocol messages, hide the session from the host, or bypass consent workflows
+
+#### Scenario: Startup logger failure is contained
+- **WHEN** the agent shell WebSocket opens during runtime startup
+- **AND** the diagnostic logger fails while reporting startup informational log lines
+- **THEN** the logger failure MUST NOT escape the WebSocket open callback or prevent the normal startup `join-session` message from being sent
+- **AND** local runtime events and logs MUST NOT expose raw logger error text, tokens, pairing codes, protocol payloads, credentials, file paths, private reasons, keystrokes, screenshots, screen contents, or input contents
+- **AND** the logger failure MUST NOT grant permissions, activate host visibility, start capture, send input, reconnect peers, send consent decisions, send lifecycle messages, send control messages, send signal messages, hide the session from the host, or bypass consent workflows
 
 ### Requirement: Agent shell CLI unexpected errors are secret-safe
 The agent shell CLI SHALL report unexpected startup and shutdown failures without exposing raw exception messages, stack traces, local file paths, relay tokens, pairing codes, credentials, protocol payload fragments, private workflow reason text, keystrokes, screenshots, screen contents, or input contents.

@@ -152,6 +152,38 @@ describe("agent shell consent workflow", () => {
     ).not.toThrow();
   });
 
+  it("contains startup diagnostic logger failure before join", async () => {
+    const logs: string[] = [];
+    const rawLoggerMarker = "startup diagnostic logger failed with raw-startup-logger-token";
+    const { hostEvents } = await startRelayAndHost({
+      hostLogger: {
+        log: (message) => {
+          logs.push(message);
+          throw new Error(rawLoggerMarker);
+        },
+        warn: () => undefined,
+        error: () => undefined
+      }
+    });
+
+    const sentMessages = hostEvents
+      .filter((event): event is Extract<AgentShellEvent, { direction: "sent" }> => event.direction === "sent")
+      .map((event) => event.message);
+
+    expect(sentMessages.map((message) => message.type)).toEqual(["join-session"]);
+    expect(sentMessages[0]).toMatchObject({
+      type: "join-session",
+      peerId: "host-1",
+      role: "host",
+      pairingCode: "[REDACTED]"
+    });
+    expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+    expect(JSON.stringify(hostEvents)).not.toContain(rawLoggerMarker);
+    expect(JSON.stringify(hostEvents)).not.toContain("raw-startup-logger-token");
+    expect(logs.join("\n")).not.toContain(rawLoggerMarker);
+    expect(logs.join("\n")).not.toContain("raw-startup-logger-token");
+  });
+
   it("rejects malformed runtime host decisions before relay startup", () => {
     expect(() =>
       createAgentShellRuntime(createRuntimeOptions({
