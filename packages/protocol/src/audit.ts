@@ -6,6 +6,7 @@ import {
 } from "./identifier-metadata.js";
 import { createJsonObjectSchema, type JsonObject, type JsonValue } from "./json.js";
 import { ProtocolIdentifierSchema, SessionIdSchema } from "./session.js";
+import { hasAsciiControlCharacter, hasUnsafeTextFormatControl } from "./text-safety.js";
 
 export { hasSecretBearingProtocolIdentifierMetadata } from "./identifier-metadata.js";
 
@@ -57,7 +58,7 @@ const AuditActionSchema = z
     "Audit action must not contain ASCII control characters"
   )
   .refine(
-    (action) => !hasUnsafeFormatCharacter(action),
+    (action) => !hasUnsafeTextFormatControl(action),
     "Audit action must not contain Unicode bidi or zero-width formatting controls"
   )
   .refine(
@@ -75,7 +76,7 @@ const AuditReasonSchema = z
     "Audit reason must not contain ASCII control characters"
   )
   .refine(
-    (reason) => !hasUnsafeFormatCharacter(reason),
+    (reason) => !hasUnsafeTextFormatControl(reason),
     "Audit reason must not contain Unicode bidi or zero-width formatting controls"
   );
 const AuditTargetTypeSchema = z
@@ -89,7 +90,7 @@ const AuditTargetTypeSchema = z
     "Audit target type must not contain ASCII control characters"
   )
   .refine(
-    (type) => !hasUnsafeFormatCharacter(type),
+    (type) => !hasUnsafeTextFormatControl(type),
     "Audit target type must not contain Unicode bidi or zero-width formatting controls"
   );
 
@@ -351,40 +352,6 @@ function hasSensitiveAuditMetadataAssignment(value: string): boolean {
   return false;
 }
 
-function hasAsciiControlCharacter(value: string): boolean {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code < 32 || code === 127) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function hasUnsafeFormatCharacter(value: string): boolean {
-  for (const character of value) {
-    const codePoint = character.codePointAt(0);
-
-    if (
-      codePoint === 0x061c ||
-      codePoint === 0x200b ||
-      codePoint === 0x200c ||
-      codePoint === 0x200d ||
-      codePoint === 0x200e ||
-      codePoint === 0x200f ||
-      codePoint === 0x2060 ||
-      codePoint === 0xfeff ||
-      (codePoint !== undefined && codePoint >= 0x202a && codePoint <= 0x202e) ||
-      (codePoint !== undefined && codePoint >= 0x2066 && codePoint <= 0x2069)
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 function findUnsafeAuditDetailKeyKind(value: JsonValue): "ascii-control" | "format-control" | undefined {
   if (Array.isArray(value)) {
     for (let index = 0; index < value.length; index += 1) {
@@ -408,7 +375,7 @@ function findUnsafeAuditDetailKeyKind(value: JsonValue): "ascii-control" | "form
         return "ascii-control";
       }
 
-      if (hasUnsafeFormatCharacter(key)) {
+      if (hasUnsafeTextFormatControl(key)) {
         return "format-control";
       }
 
