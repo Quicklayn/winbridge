@@ -61,6 +61,11 @@ Or run the full local gate:
 npm run verify
 ```
 
+`npm test` runs Vitest serially per test file with the forks worker pool. If a
+Windows Vitest worker exits with the recognized transient IPC channel-closed
+failure, the runner retries that test file once; ordinary test failures are not
+retried.
+
 Run the development relay:
 
 ```powershell
