@@ -173,7 +173,7 @@ describe("relay audit", () => {
           WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
         })
       ).toThrow(
-        "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, and contain no Windows alternate data stream path segments"
+        "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, contain no Windows alternate data stream path segments, and not use a Windows device namespace prefix"
       );
     }
   });
@@ -190,6 +190,21 @@ describe("relay audit", () => {
           WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
         })
       ).toThrow("Windows reserved device path segments");
+    }
+  });
+
+  it("rejects Windows device namespace WINBRIDGE_RELAY_AUDIT_LOG_PATH values", () => {
+    for (const auditLogPath of [
+      String.raw`\\.\pipe\relay-audit`,
+      String.raw`\\?\C:\logs\relay-audit.jsonl`,
+      "//./pipe/relay-audit",
+      "//?/C:/logs/relay-audit.jsonl"
+    ]) {
+      expect(() =>
+        createRelayAuditSink({
+          WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
+        })
+      ).toThrow("Windows device namespace prefix");
     }
   });
 
@@ -232,6 +247,7 @@ describe("relay audit", () => {
       "logs/relay-audit-private-marker\u202e.jsonl",
       "logs/relay-audit-private-marker\u200b.jsonl",
       "logs/relay-audit-private-marker\ufeff.jsonl",
+      String.raw`\\.\pipe\relay-audit-private-marker`,
       "logs/relay-audit-private-marker.jsonl:hidden",
       `logs/${"relay-audit-private-marker".repeat(43)}.jsonl`
     ]) {

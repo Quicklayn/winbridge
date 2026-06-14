@@ -1043,6 +1043,22 @@ describe("agent shell arguments", () => {
     }
   });
 
+  it("rejects Windows device namespace audit log paths", () => {
+    for (const auditLogPath of [
+      String.raw`\\.\pipe\agent-audit`,
+      String.raw`\\?\C:\logs\agent-audit.jsonl`,
+      "//./pipe/agent-audit",
+      "//?/C:/logs/agent-audit.jsonl"
+    ]) {
+      expect(() => parseArgs(["host", "--audit-log", auditLogPath], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+      expect(() =>
+        parseArgs(["host"], { WINBRIDGE_AGENT_AUDIT_LOG_PATH: auditLogPath }, 42)
+      ).toThrow(AgentShellUsageError);
+    }
+  });
+
   it("rejects Windows alternate data stream audit log paths", () => {
     for (const auditLogPath of [
       "logs/agent-audit.jsonl:hidden",
@@ -1067,6 +1083,7 @@ describe("agent shell arguments", () => {
       "logs/agent-audit-private-marker\u202e.jsonl",
       "logs/agent-audit-private-marker\u200b.jsonl",
       "logs/agent-audit-private-marker\ufeff.jsonl",
+      String.raw`\\.\pipe\agent-audit-private-marker`,
       "logs/agent-audit-private-marker.jsonl:hidden",
       `logs/${"agent-audit-private-marker".repeat(43)}.jsonl`
     ]) {

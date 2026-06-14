@@ -13,7 +13,8 @@ export type AuditSink = {
 
 export const MAX_AUDIT_LOG_PATH_BYTES = 1024;
 const AUDIT_LOG_PATH_ERROR_MESSAGE =
-  "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, and contain no Windows alternate data stream path segments";
+  "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, contain no Windows alternate data stream path segments, and not use a Windows device namespace prefix";
+const WINDOWS_DEVICE_NAMESPACE_PREFIX = /^[\\/]{2}[.?](?:[\\/]|$)/;
 const WINDOWS_RESERVED_DEVICE_NAMES = new Set([
   "AUX",
   "COM1",
@@ -119,11 +120,16 @@ export function assertAuditLogPath(
     Buffer.byteLength(value, "utf8") > MAX_AUDIT_LOG_PATH_BYTES ||
     hasAsciiControlCharacter(value) ||
     hasUnsafePathFormatCharacter(value) ||
+    hasWindowsDeviceNamespacePrefix(value) ||
     hasWindowsReservedDevicePathSegment(value) ||
     hasWindowsAlternateDataStreamPathSegment(value)
   ) {
     throw new Error(message);
   }
+}
+
+function hasWindowsDeviceNamespacePrefix(path: string): boolean {
+  return WINDOWS_DEVICE_NAMESPACE_PREFIX.test(path);
 }
 
 function hasWindowsAlternateDataStreamPathSegment(path: string): boolean {

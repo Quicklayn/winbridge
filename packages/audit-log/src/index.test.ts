@@ -266,7 +266,7 @@ describe("FileAuditSink", () => {
       "x".repeat(1025)
     ]) {
       expect(() => new FileAuditSink(path)).toThrow(
-        "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, and contain no Windows alternate data stream path segments"
+        "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, contain no Windows alternate data stream path segments, and not use a Windows device namespace prefix"
       );
     }
   });
@@ -285,8 +285,19 @@ describe("FileAuditSink", () => {
       "logs/AUX .jsonl"
     ]) {
       expect(() => new FileAuditSink(path)).toThrow(
-        "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, and contain no Windows alternate data stream path segments"
+        "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, contain no Windows reserved device path segments, contain no Windows alternate data stream path segments, and not use a Windows device namespace prefix"
       );
+    }
+  });
+
+  it("rejects Windows device namespace paths before writing records", () => {
+    for (const path of [
+      String.raw`\\.\pipe\audit`,
+      String.raw`\\?\C:\logs\audit.jsonl`,
+      "//./pipe/audit",
+      "//?/C:/logs/audit.jsonl"
+    ]) {
+      expect(() => new FileAuditSink(path)).toThrow("Windows device namespace prefix");
     }
   });
 
@@ -334,6 +345,22 @@ describe("FileAuditSink", () => {
     }
   });
 
+  it("rejects device namespace paths without exposing raw path text", () => {
+    for (const path of [
+      String.raw`\\.\pipe\audit-private-marker`,
+      String.raw`\\?\C:\audit-private-marker\events.jsonl`
+    ]) {
+      try {
+        new FileAuditSink(path);
+        throw new Error("Expected audit log path to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain("audit-private-marker");
+        expect((error as Error).message).not.toContain(path);
+      }
+    }
+  });
+
   it("accepts safe lookalike audit log paths", () => {
     for (const path of [
       "logs/null-audit.jsonl",
@@ -342,7 +369,8 @@ describe("FileAuditSink", () => {
       "logs/conference.jsonl",
       "logs/prn-safe.jsonl",
       String.raw`C:\logs\audit.jsonl`,
-      "D:/logs/audit.jsonl"
+      "D:/logs/audit.jsonl",
+      String.raw`\\server\share\audit.jsonl`
     ]) {
       expect(() => new FileAuditSink(path)).not.toThrow();
     }
