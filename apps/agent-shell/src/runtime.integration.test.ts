@@ -3109,6 +3109,87 @@ describe("agent shell consent workflow", () => {
     ).toBe(false);
   });
 
+  it("contains out-of-grant scheduled revoke diagnostic logger failures without runtime error", async () => {
+    const rawLoggerMarker = "revoke ineligible logger failed with raw-revoke-logger-token";
+    const hostLogs: string[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostGrantPermissions: ["screen:view"],
+      hostLogger: createThrowingRevokeIneligibleDiagnosticLogger(hostLogs, rawLoggerMarker),
+      hostRevokeAfterMs: 10,
+      hostRevokePermission: "input:pointer",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view", "input:pointer"], viewerEvents);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active" &&
+        message.permissions.length === 1 &&
+        message.permissions[0] === "screen:view"
+    );
+    if (activeState.type !== "session-authorization-state") {
+      throw new Error("Expected active authorization state");
+    }
+    const activeAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" &&
+        message.action === "agent-shell.authorization.active"
+    );
+    const activeIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "active" && event.authorizationId === activeState.authorizationId
+    );
+    await delay(100);
+
+    expect(activeState).toMatchObject({
+      type: "session-authorization-state",
+      status: "active",
+      permissions: ["screen:view"],
+      visibleToHost: true
+    });
+    expect(activeAudit).toMatchObject({
+      type: "audit-event",
+      outcome: "accepted",
+      detail: {
+        grantedPermissionCount: 1,
+        visibleToHost: true
+      }
+    });
+    expect(activeIndicator).toMatchObject({
+      state: "active",
+      authorizationId: activeState.authorizationId,
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          event.direction !== "indicator" &&
+          "message" in event &&
+          (event.message.type === "session-control" ||
+            event.message.type === "permission-revoked" ||
+            (event.message.type === "session-authorization-state" &&
+              event.message.status === "revoked") ||
+            (event.message.type === "audit-event" &&
+              event.message.action === "agent-shell.permission.revoked"))
+      )
+    ).toBe(false);
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    expect(logOutput).toContain("revoke permission was not granted in the active grant");
+    for (const rawValue of [rawLoggerMarker, "raw-revoke-logger-token"]) {
+      expect(logOutput).not.toContain(rawValue);
+      expect(serializedEvents).not.toContain(rawValue);
+    }
+  });
+
   it("rejects invalid host decision provider configuration before relay startup", () => {
     const provider: HostDecisionProvider = () => "approve";
 
@@ -14083,6 +14164,25 @@ function createThrowingGrantScopeDiagnosticLogger(
     log: (message) => {
       logs.push(message);
       if (message.includes("configured grant scope is not requested")) {
+        throw new Error(thrownMessage);
+      }
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => logs.push(message)
+  };
+}
+
+function createThrowingRevokeIneligibleDiagnosticLogger(
+  logs: string[],
+  thrownMessage: string
+): TestLogger {
+  return {
+    log: (message) => {
+      logs.push(message);
+      if (
+        message.includes("revoke delay configured without revoke permission") ||
+        message.includes("revoke permission was not granted in the active grant")
+      ) {
         throw new Error(thrownMessage);
       }
     },

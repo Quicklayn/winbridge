@@ -2584,12 +2584,18 @@ function scheduleHostRevoke(
   }
 
   if (!options.hostRevokePermission) {
-    options.logger?.log("[winbridge-agent] revoke delay configured without revoke permission");
+    logRuntimeMessageBestEffort(
+      options,
+      "[winbridge-agent] revoke delay configured without revoke permission"
+    );
     return;
   }
 
   if (!workflowState.permissions.includes(options.hostRevokePermission)) {
-    options.logger?.log("[winbridge-agent] revoke permission was not granted in the active grant");
+    logRuntimeMessageBestEffort(
+      options,
+      "[winbridge-agent] revoke permission was not granted in the active grant"
+    );
     return;
   }
 
