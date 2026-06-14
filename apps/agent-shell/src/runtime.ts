@@ -3612,7 +3612,7 @@ function sendProtocol(
 
   const normalizedMessage = parseProtocolEnvelope(message);
   socket.send(encodeProtocolEnvelope(normalizedMessage));
-  options.onEvent?.({ direction: "sent", message: redactSentEventMessage(normalizedMessage) });
+  emitRuntimeEventBestEffort(options, { direction: "sent", message: redactSentEventMessage(normalizedMessage) });
 }
 
 function redactSentEventMessage(message: ProtocolEnvelope): AgentShellSentProtocolEnvelope {

@@ -7978,6 +7978,242 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(receivedSignal)).not.toContain("active-reentrant-host-signal-payload");
   });
 
+  it("contains workflow sent event callback failures without runtime error", async () => {
+    const hostLogs: string[] = [];
+    const rawCallbackMarker = "workflow sent callback failed with raw-workflow-sent-token";
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostLogger: captureLogger(hostLogs),
+      visibleToHost: true,
+      hostOnEvent: (event) => {
+        if (
+          event.direction === "sent" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "active"
+        ) {
+          throw new Error(rawCallbackMarker);
+        }
+      }
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active"
+    );
+    const activeAudit = await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "audit-event" && message.action === "agent-shell.authorization.active"
+    );
+    const activeIndicator = await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "active" && event.cause === "activated"
+    );
+    await delay(100);
+
+    expect(activeState).toMatchObject({
+      type: "session-authorization-state",
+      status: "active",
+      visibleToHost: true,
+      permissions: ["screen:view"]
+    });
+    expect(activeAudit).toMatchObject({
+      type: "audit-event",
+      action: "agent-shell.authorization.active",
+      outcome: "accepted"
+    });
+    expect(activeIndicator).toMatchObject({
+      direction: "indicator",
+      state: "active",
+      authorizationStatus: "active",
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    expect(
+      hostEvents.some(
+        (event) =>
+          event.direction === "sent" &&
+          event.message.type === "session-authorization-state" &&
+          event.message.status === "active"
+      )
+    ).toBe(true);
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = hostLogs.join("\n");
+    for (const rawValue of [
+      rawCallbackMarker,
+      "raw-workflow-sent-token",
+      "Viewer requested support"
+    ]) {
+      expect(serializedEvents).not.toContain(rawValue);
+      expect(logOutput).not.toContain(rawValue);
+    }
+  });
+
+  it("contains public signal sent event callback failures without throwing", async () => {
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    const rawCallbackMarker = "public signal sent callback failed with raw-public-sent-token";
+    const signalPayload = {
+      kind: "viewer-offer",
+      authorizationId: "",
+      safeMarker: "public-signal-sent-callback-payload"
+    };
+    const { relay, hostEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    const viewer = createAgentShellRuntime({
+      role: "viewer",
+      relayUrl: relay.url(),
+      sessionId: "session-demo",
+      pairingCode: "123-456",
+      peerId: "viewer-1",
+      displayName: "Viewer",
+      deviceId: "dev_viewer_1",
+      requestedPermissions: ["screen:view"],
+      logger: captureLogger(viewerLogs),
+      onEvent: (event) => {
+        viewerEvents.push(event);
+        if (event.direction === "sent" && event.message.type === "signal") {
+          throw new Error(rawCallbackMarker);
+        }
+      }
+    });
+    await viewer.start();
+    agentRuntimes.push(viewer);
+
+    const activeState = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active"
+    );
+    if (activeState.type !== "session-authorization-state") {
+      throw new Error("Expected active authorization state");
+    }
+    signalPayload.authorizationId = activeState.authorizationId;
+
+    expect(() =>
+      viewer.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: signalPayload
+      })
+    ).not.toThrow();
+
+    const sentSignal = await waitForSentMessage(
+      viewerEvents,
+      (message) => message.type === "signal" && message.fromPeerId === "viewer-1"
+    );
+    const receivedSignal = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "signal" && message.fromPeerId === "viewer-1"
+    );
+    await delay(100);
+
+    expect(sentSignal).toMatchObject({
+      type: "signal",
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      payload: {
+        redacted: "[REDACTED]",
+        byteLength: Buffer.byteLength(JSON.stringify(signalPayload))
+      }
+    });
+    expect(receivedSignal).toMatchObject({
+      type: "signal",
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      payload: {
+        redacted: "[REDACTED]",
+        byteLength: Buffer.byteLength(JSON.stringify(signalPayload))
+      }
+    });
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+
+    const serializedEvents = JSON.stringify([...hostEvents, ...viewerEvents]);
+    const logOutput = viewerLogs.join("\n");
+    for (const rawValue of [
+      rawCallbackMarker,
+      "raw-public-sent-token",
+      "public-signal-sent-callback-payload"
+    ]) {
+      expect(serializedEvents).not.toContain(rawValue);
+      expect(logOutput).not.toContain(rawValue);
+    }
+  });
+
+  it("keeps blocked public sends before sent event callback diagnostics", async () => {
+    const viewerEvents: AgentShellEvent[] = [];
+    const viewerLogs: string[] = [];
+    const rawCallbackMarker = "blocked signal sent callback failed with raw-blocked-sent-token";
+    const blockedPayloadMarker = "blocked-public-signal-sent-callback-payload";
+    const { relay } = await startRelayAndHost({
+      hostDecision: "deny",
+      visibleToHost: true
+    });
+    const viewer = createAgentShellRuntime({
+      role: "viewer",
+      relayUrl: relay.url(),
+      sessionId: "session-demo",
+      pairingCode: "123-456",
+      peerId: "viewer-1",
+      displayName: "Viewer",
+      deviceId: "dev_viewer_1",
+      requestedPermissions: ["screen:view"],
+      logger: captureLogger(viewerLogs),
+      onEvent: (event) => {
+        viewerEvents.push(event);
+        if (event.direction === "sent" && event.message.type === "signal") {
+          throw new Error(rawCallbackMarker);
+        }
+      }
+    });
+    await viewer.start();
+    agentRuntimes.push(viewer);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-decision" && !message.approved
+    );
+
+    const sentSignalCountBefore = viewerEvents.filter(
+      (event) => event.direction === "sent" && event.message.type === "signal"
+    ).length;
+    expect(() =>
+      viewer.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        payload: {
+          kind: "viewer-offer",
+          safeMarker: blockedPayloadMarker
+        }
+      })
+    ).toThrow("Agent shell signal requires active visible screen authorization");
+    await delay(100);
+
+    expect(
+      viewerEvents.filter((event) => event.direction === "sent" && event.message.type === "signal")
+    ).toHaveLength(sentSignalCountBefore);
+    expect(viewerEvents.some((event) => event.direction === "error")).toBe(false);
+
+    const serializedEvents = JSON.stringify(viewerEvents);
+    const logOutput = viewerLogs.join("\n");
+    for (const rawValue of [
+      rawCallbackMarker,
+      "raw-blocked-sent-token",
+      blockedPayloadMarker
+    ]) {
+      expect(serializedEvents).not.toContain(rawValue);
+      expect(logOutput).not.toContain(rawValue);
+    }
+  });
+
   it("ignores unbound viewer authorization state before authorizing signal sends", async () => {
     const unboundServer = await startViewerAuthorizationLifecycleServer(() => [
       {
