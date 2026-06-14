@@ -66,6 +66,7 @@ function formatHostConsentPrompt(request: HostDecisionProviderRequest): string {
     `[winbridge-agent] Viewer peer: ${request.viewerPeerId}`,
     `[winbridge-agent] Viewer display name: ${request.viewerDisplayName ?? "unavailable"}`,
     `[winbridge-agent] Requested permissions (${request.requestedPermissionCount}): ${permissions}`,
+    `[winbridge-agent] Request reason: ${request.requestReason ?? "unavailable"}`,
     "[winbridge-agent] Type approve or deny: "
   ].join("\n");
 }

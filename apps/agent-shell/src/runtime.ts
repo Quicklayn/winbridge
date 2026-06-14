@@ -34,6 +34,7 @@ export type HostDecisionProviderRequest = {
   viewerDisplayName?: string;
   requestedPermissions: Permission[];
   requestedPermissionCount: number;
+  requestReason?: string;
 };
 
 type DevelopmentAuditInput = {
@@ -54,6 +55,7 @@ export type AgentShellRuntimeOptions = {
   token?: string;
   deviceId: string;
   requestedPermissions?: Permission[];
+  requestReason?: string;
   hostGrantPermissions?: Permission[];
   hostDecision?: HostDecision;
   hostDecisionProvider?: HostDecisionProvider;
@@ -1586,7 +1588,7 @@ function sendViewerAuthorizationRequest(
     type: "session-authorization-request",
     viewerPeerId: options.peerId,
     requestedPermissions,
-    reason: "Development agent-shell request"
+    ...(options.requestReason === undefined ? {} : { reason: options.requestReason })
   });
 }
 
@@ -1834,7 +1836,8 @@ async function resolveHostDecisionProvider(
               ? sessionState.observedPeerDisplayName
               : undefined,
           requestedPermissions: [...request.requestedPermissions],
-          requestedPermissionCount: request.requestedPermissions.length
+          requestedPermissionCount: request.requestedPermissions.length,
+          ...(request.reason === undefined ? {} : { requestReason: request.reason })
         })
       ),
       new Promise<typeof timeoutResult>((resolve) => {
@@ -2123,6 +2126,7 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
   assertRuntimeToken(options.token);
   assertRuntimeRequestedPermissions(options.requestedPermissions);
   assertRuntimeHostHasNoViewerRequestOptions(options);
+  assertRuntimeViewerRequestReason(options);
   assertRuntimeRevokePermission(options.hostRevokePermission);
   assertRuntimeVisibleToHost(options.visibleToHost);
   assertValidHostDecision(options.hostDecision);
@@ -2142,6 +2146,7 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
   assertRuntimeHostSignalProbeAck(options);
   assertRuntimeWorkflowReasons([
     options.decisionReason,
+    options.requestReason,
     options.hostRevokeReason,
     options.hostPauseReason,
     options.hostResumeReason,
@@ -2323,7 +2328,20 @@ function assertRuntimeHostHasNoViewerRequestOptions(options: AgentShellRuntimeOp
     return;
   }
 
-  if (options.requestedPermissions !== undefined && options.requestedPermissions.length > 0) {
+  if (
+    (options.requestedPermissions !== undefined && options.requestedPermissions.length > 0) ||
+    options.requestReason !== undefined
+  ) {
+    throw new Error(RUNTIME_VIEWER_REQUEST_OPTIONS_ERROR_MESSAGE);
+  }
+}
+
+function assertRuntimeViewerRequestReason(options: AgentShellRuntimeOptions): void {
+  if (options.requestReason === undefined) {
+    return;
+  }
+
+  if (options.role !== "viewer" || (options.requestedPermissions ?? []).length === 0) {
     throw new Error(RUNTIME_VIEWER_REQUEST_OPTIONS_ERROR_MESSAGE);
   }
 }

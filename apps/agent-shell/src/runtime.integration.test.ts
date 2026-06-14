@@ -278,6 +278,22 @@ describe("agent shell consent workflow", () => {
         "Runtime requested permissions are only valid for viewer runtimes"
       ],
       [
+        "host request reason",
+        { requestReason: "Need support" },
+        "Runtime requested permissions are only valid for viewer runtimes"
+      ],
+      [
+        "viewer request reason without requested permissions",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestReason: "Need support"
+        },
+        "Runtime requested permissions are only valid for viewer runtimes"
+      ],
+      [
         "non-array host grant scope",
         { hostDecision: "approve", hostGrantPermissions: "screen:view" as unknown as Permission[] },
         "Runtime host grant scope"
@@ -499,6 +515,78 @@ describe("agent shell consent workflow", () => {
       ["bidi-control decision reason", { decisionReason: "Host\u202edenied" }, "Runtime workflow reasons"],
       ["zero-width decision reason", { decisionReason: "Host\u200bdenied" }, "Runtime workflow reasons"],
       ["feff decision reason", { decisionReason: "Host\ufeffdenied" }, "Runtime workflow reasons"],
+      [
+        "blank request reason",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          requestReason: "   "
+        },
+        "Runtime workflow reasons"
+      ],
+      [
+        "untrimmed request reason",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          requestReason: " Viewer request"
+        },
+        "Runtime workflow reasons"
+      ],
+      [
+        "control-character request reason",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          requestReason: "Viewer\nrequest"
+        },
+        "Runtime workflow reasons"
+      ],
+      [
+        "bidi-control request reason",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          requestReason: "Viewer\u202erequest"
+        },
+        "Runtime workflow reasons"
+      ],
+      [
+        "zero-width request reason",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          requestReason: "Viewer\u200brequest"
+        },
+        "Runtime workflow reasons"
+      ],
+      [
+        "feff request reason",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          requestReason: "Viewer\ufeffrequest"
+        },
+        "Runtime workflow reasons"
+      ],
       ["untrimmed revoke reason", { hostRevokeReason: "Host revoked " }, "Runtime workflow reasons"],
       ["control-character revoke reason", { hostRevokeReason: "Host\nrevoked" }, "Runtime workflow reasons"],
       ["untrimmed pause reason", { hostPauseReason: " Host paused" }, "Runtime workflow reasons"],
@@ -528,6 +616,18 @@ describe("agent shell consent workflow", () => {
       [
         "secret-bearing decision reason",
         { decisionReason: "Authorization: Bearer raw-runtime-token" },
+        "Runtime workflow reasons"
+      ],
+      [
+        "secret-bearing request reason",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          requestReason: "Authorization: Bearer raw-runtime-request-token"
+        },
         "Runtime workflow reasons"
       ],
       [
@@ -647,6 +747,28 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("rejects secret-bearing runtime request reasons without exposing raw reason text", () => {
+    for (const requestReason of SECRET_BEARING_REASON_CASES) {
+      try {
+        createAgentShellRuntime(createRuntimeOptions({
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          requestReason,
+          logger: silentLogger
+        }));
+        throw new Error("Expected secret-bearing runtime request reason to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("Runtime workflow reasons");
+        expect((error as Error).message).not.toContain("raw-runtime");
+        expect((error as Error).message).not.toContain(requestReason);
+      }
+    }
+  });
+
   it("accepts safe non-secret runtime workflow reasons before relay startup", async () => {
     const runtime = createAgentShellRuntime(createRuntimeOptions({
       decisionReason: "Host denied support request",
@@ -655,6 +777,19 @@ describe("agent shell consent workflow", () => {
       hostResumeReason: "Host resumed session",
       hostTerminateReason: "Host terminated session",
       hostDisconnectReason: "Host closed session"
+    }));
+
+    await runtime.stop();
+  });
+
+  it("accepts safe runtime request reasons before relay startup", async () => {
+    const runtime = createAgentShellRuntime(createRuntimeOptions({
+      role: "viewer",
+      peerId: "viewer-1",
+      displayName: "Viewer",
+      deviceId: "dev_viewer_1",
+      requestedPermissions: ["screen:view"],
+      requestReason: "Troubleshoot display settings"
     }));
 
     await runtime.stop();
@@ -701,6 +836,33 @@ describe("agent shell consent workflow", () => {
           expect((error as Error).message).not.toContain("runtime-private-reason-marker");
           expect((error as Error).message).not.toContain(reason);
         }
+      }
+    }
+  });
+
+  it("rejects unsafe runtime request reasons without exposing raw reason text", () => {
+    for (const requestReason of [
+      "runtime-private-request-reason-marker\n",
+      "runtime-private-request-reason-marker\u202e",
+      "runtime-private-request-reason-marker\u200b",
+      "runtime-private-request-reason-marker\ufeff"
+    ]) {
+      try {
+        createAgentShellRuntime(createRuntimeOptions({
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          requestReason,
+          logger: silentLogger
+        }));
+        throw new Error("Expected unsafe runtime request reason to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("Runtime workflow reasons");
+        expect((error as Error).message).not.toContain("runtime-private-request-reason-marker");
+        expect((error as Error).message).not.toContain(requestReason);
       }
     }
   });
@@ -2035,6 +2197,46 @@ describe("agent shell consent workflow", () => {
       viewerPeerId: "viewer-1",
       requestedPermissions: ["screen:view"]
     });
+    expect(request).not.toHaveProperty("reason");
+  });
+
+  it("delivers explicit viewer request reasons to host consent providers while redacting local events", async () => {
+    const requestReason = "Troubleshoot display settings";
+    const providerRequests: unknown[] = [];
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecisionProvider: (request) => {
+        providerRequests.push(request);
+        return "deny";
+      }
+    });
+    await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      silentLogger,
+      undefined,
+      "Viewer",
+      { requestReason }
+    );
+
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-decision"
+    );
+
+    expect(providerRequests).toEqual([
+      {
+        viewerPeerId: "viewer-1",
+        viewerDisplayName: "Viewer",
+        requestedPermissions: ["screen:view"],
+        requestedPermissionCount: 1,
+        requestReason
+      }
+    ]);
+    expect(JSON.stringify(hostEvents)).not.toContain(requestReason);
+    expect(JSON.stringify(viewerEvents)).not.toContain(requestReason);
+    expect(JSON.stringify(hostEvents)).toContain("[REDACTED]");
+    expect(JSON.stringify(viewerEvents)).toContain("[REDACTED]");
   });
 
   it("does not send viewer authorization requests before the room is paired", async () => {
@@ -2043,7 +2245,16 @@ describe("agent shell consent workflow", () => {
     let viewer: AgentShellRuntime | undefined;
 
     try {
-      viewer = await startViewer(onePeerServer.url, ["screen:view"], viewerEvents);
+      const requestReason = "private-unpaired-request-reason";
+      viewer = await startViewer(
+        onePeerServer.url,
+        ["screen:view"],
+        viewerEvents,
+        silentLogger,
+        undefined,
+        "Viewer",
+        { requestReason }
+      );
 
       await waitForMessage(
         viewerEvents,
@@ -2059,6 +2270,7 @@ describe("agent shell consent workflow", () => {
           (event) => event.direction === "sent" && event.message.type === "session-authorization-request"
         )
       ).toHaveLength(0);
+      expect(JSON.stringify(viewerEvents)).not.toContain(requestReason);
     } finally {
       await viewer?.stop();
       await onePeerServer.stop();
@@ -12322,7 +12534,7 @@ async function startViewer(
   logger: TestLogger = silentLogger,
   auditSink?: AuditSink,
   displayName = "Viewer",
-  options: Pick<AgentShellRuntimeOptions, "viewerSignalProbeAfterMs"> = {}
+  options: Pick<AgentShellRuntimeOptions, "requestReason" | "viewerSignalProbeAfterMs"> = {}
 ): Promise<AgentShellRuntime> {
   const viewer = createAgentShellRuntime({
     role: "viewer",
@@ -12333,6 +12545,7 @@ async function startViewer(
     displayName,
     deviceId: "dev_viewer_1",
     requestedPermissions,
+    requestReason: options.requestReason,
     viewerSignalProbeAfterMs: options.viewerSignalProbeAfterMs,
     auditSink,
     logger,

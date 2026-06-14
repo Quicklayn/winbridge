@@ -243,10 +243,14 @@ describe("agent shell arguments", () => {
     expect(() => parseArgs(["host", "--request", "screen:view,input:pointer"], {}, 42)).toThrow(
       AgentShellUsageError
     );
+    expect(() => parseArgs(["host", "--request-reason", "Need support"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
   });
 
   it("rejects host viewer-request options without exposing raw request text", () => {
     const rawRequest = "screen:view,Authorization:Bearer-raw-host-request-token";
+    const rawReason = "Authorization: Bearer raw-host-request-reason-token";
 
     try {
       parseArgs(["host", "--request", rawRequest], {}, 42);
@@ -256,17 +260,35 @@ describe("agent shell arguments", () => {
       expect((error as Error).message).not.toContain(rawRequest);
       expect((error as Error).message).not.toContain("raw-host-request-token");
     }
+
+    try {
+      parseArgs(["host", "--request-reason", rawReason], {}, 42);
+      throw new Error("Expected host viewer-request reason option to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentShellUsageError);
+      expect((error as Error).message).not.toContain(rawReason);
+      expect((error as Error).message).not.toContain("raw-host-request-reason-token");
+    }
   });
 
   it("keeps viewer-only workflow options available for viewer runtimes", () => {
     expect(
       parseArgs(
-        ["viewer", "--request", "screen:view", "--viewer-signal-probe-after-ms", "0"],
+        [
+          "viewer",
+          "--request",
+          "screen:view",
+          "--request-reason",
+          "Troubleshoot display settings",
+          "--viewer-signal-probe-after-ms",
+          "0"
+        ],
         {},
         42
       )
     ).toMatchObject({
       requestedPermissions: ["screen:view"],
+      requestReason: "Troubleshoot display settings",
       viewerSignalProbeAfterMs: 0
     });
     expect(parseArgs(["viewer", "--viewer-status-after-ms", "0"], {}, 42).viewerStatusAfterMs).toBe(
@@ -276,6 +298,18 @@ describe("agent shell arguments", () => {
       0
     );
     expect(parseArgs(["viewer", "--viewer-control-prompt", "true"], {}, 42).viewerControlPrompt).toBe(true);
+  });
+
+  it("rejects viewer request reasons without requested permissions", () => {
+    const rawReason = "raw-viewer-unused-request-reason";
+
+    try {
+      parseArgs(["viewer", "--request-reason", rawReason], {}, 42);
+      throw new Error("Expected viewer request reason without requested permissions to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentShellUsageError);
+      expect((error as Error).message).not.toContain(rawReason);
+    }
   });
 
   it("parses host disconnect reason for host runtimes", () => {
@@ -808,6 +842,23 @@ describe("agent shell arguments", () => {
     ).toThrow(AgentShellUsageError);
   });
 
+  it("rejects malformed request reason values", () => {
+    for (const requestReason of [
+      "   ",
+      " Viewer request",
+      "Viewer request ",
+      "Viewer\nrequest",
+      "Viewer\u202erequest",
+      "Viewer\u200brequest",
+      "Viewer\ufeffrequest",
+      "x".repeat(241)
+    ]) {
+      expect(() =>
+        parseArgs(["viewer", "--request", "screen:view", "--request-reason", requestReason], {}, 42)
+      ).toThrow(AgentShellUsageError);
+    }
+  });
+
   it("rejects unsafe lifecycle reason values without exposing raw reason text", () => {
     const reasonOptions = ["terminate-reason", "disconnect-reason"];
     for (const reason of [
@@ -848,6 +899,26 @@ describe("agent shell arguments", () => {
           expect((error as Error).message).not.toContain("raw-cli");
           expect((error as Error).message).not.toContain(reason);
         }
+      }
+    }
+  });
+
+  it("rejects unsafe request reason values without exposing raw reason text", () => {
+    for (const requestReason of [
+      "private-cli-request-reason-marker\n",
+      "private-cli-request-reason-marker\u202e",
+      "private-cli-request-reason-marker\u200b",
+      "private-cli-request-reason-marker\ufeff",
+      ...secretBearingReasons
+    ]) {
+      try {
+        parseArgs(["viewer", "--request", "screen:view", "--request-reason", requestReason], {}, 42);
+        throw new Error("Expected unsafe CLI request reason to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(AgentShellUsageError);
+        expect((error as Error).message).not.toContain("private-cli-request-reason-marker");
+        expect((error as Error).message).not.toContain("raw-cli");
+        expect((error as Error).message).not.toContain(requestReason);
       }
     }
   });
