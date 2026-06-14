@@ -3625,6 +3625,76 @@ describe("agent shell consent workflow", () => {
     expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
   });
 
+  it("contains viewer-not-connected authorization decision skip logger failure without runtime error", async () => {
+    const rebindingServer = await startViewerRebindingAuthorizationRequestServer();
+    const hostEvents: AgentShellEvent[] = [];
+    const hostLogs: string[] = [];
+    const rawLoggerMarker = "decision skip logger failed with raw-viewer-rebind-token";
+    let host: AgentShellRuntime | undefined;
+    let resolveDecision: (decision: HostDecision) => void = () => undefined;
+    let resolveProviderStarted: () => void = () => undefined;
+    const providerStarted = new Promise<void>((resolve) => {
+      resolveProviderStarted = resolve;
+    });
+    const pendingDecision = new Promise<HostDecision>((resolve) => {
+      resolveDecision = resolve;
+    });
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: rebindingServer.url,
+        hostDecisionProvider: () => {
+          resolveProviderStarted();
+          return pendingDecision;
+        },
+        logger: createThrowingDelayedWorkflowSkipLogger(
+          hostLogs,
+          rawLoggerMarker,
+          "authorization decision skipped because viewer is not connected"
+        ),
+        visibleToHost: true,
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      await providerStarted;
+      rebindingServer.sendReplacementViewerHello();
+      await waitForMessage(
+        hostEvents,
+        (message) => message.type === "hello" && message.peerId === "viewer-2"
+      );
+
+      resolveDecision("approve");
+      await delay(100);
+
+      expect(hostLogs.join("\n")).toContain("authorization decision skipped because viewer is not connected");
+      expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+      expect(hostEvents.some((event) => event.direction === "indicator")).toBe(false);
+      expect(
+        hostEvents.some(
+          (event) =>
+            event.direction === "sent" &&
+            (event.message.type === "session-authorization-decision" ||
+              event.message.type === "session-authorization-state" ||
+              event.message.type === "session-control" ||
+              event.message.type === "permission-revoked" ||
+              event.message.type === "signal" ||
+              event.message.type === "audit-event")
+        )
+      ).toBe(false);
+
+      const serializedEvents = JSON.stringify(hostEvents);
+      const logOutput = hostLogs.join("\n");
+      for (const rawValue of [rawLoggerMarker, "raw-viewer-rebind-token"]) {
+        expect(logOutput).not.toContain(rawValue);
+        expect(serializedEvents).not.toContain(rawValue);
+      }
+    } finally {
+      await host?.stop();
+      await rebindingServer.stop();
+    }
+  });
+
   it("emits a secret-safe host indicator after visible activation", async () => {
     const hostLogs: string[] = [];
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -15802,6 +15872,76 @@ async function startMismatchedHostAuthorizationRequestServer(): Promise<{
 
   return {
     url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startViewerRebindingAuthorizationRequestServer(): Promise<{
+  url: string;
+  sendReplacementViewerHello(): void;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  let connectedSocket: WebSocket | undefined;
+  wss.on("connection", (socket) => {
+    connectedSocket = socket;
+    socket.once("message", () => {
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "relay-ready",
+        peerId: "host-1",
+        roomSize: 2
+      }));
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Viewer",
+        capabilities: ["session:visible", "consent:required"]
+      }));
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        reason: "Viewer requested support"
+      }));
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Viewer rebinding request test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    sendReplacementViewerHello: () => {
+      if (!connectedSocket || connectedSocket.readyState !== WebSocket.OPEN) {
+        throw new Error("Viewer rebinding request test server has no open socket");
+      }
+
+      connectedSocket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-2",
+        role: "viewer",
+        displayName: "Replacement Viewer",
+        capabilities: ["session:visible", "consent:required"]
+      }));
+    },
     stop: () =>
       new Promise<void>((resolve, reject) => {
         wss.close((error) => {

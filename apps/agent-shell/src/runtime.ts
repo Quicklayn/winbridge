@@ -1808,7 +1808,7 @@ function canSendHostAuthorizationDecision(
     sessionState.observedPeerRole !== "viewer" ||
     sessionState.observedPeerId !== request.viewerPeerId
   ) {
-    options.logger?.log("[winbridge-agent] authorization decision skipped because viewer is not connected");
+    logRuntimeMessageBestEffort(options, "[winbridge-agent] authorization decision skipped because viewer is not connected");
     return false;
   }
 
