@@ -45,6 +45,7 @@ describe("interactive viewer control prompt", () => {
       state: "active",
       authorizationStatus: "active",
       authorizationId: "authz_viewer_control_1",
+      expiresAt: "2026-06-14T12:00:00.000Z",
       visibleToHost: true,
       permissionCount: 1
     });
@@ -69,6 +70,7 @@ describe("interactive viewer control prompt", () => {
     expect(output.text()).toContain("state=active");
     expect(output.text()).toContain("authorizationStatus=active");
     expect(output.text()).toContain("authorizationId=authz_viewer_control_1");
+    expect(output.text()).toContain("expiresAt=2026-06-14T12:00:00.000Z");
     expect(output.text()).toContain("visibleToHost=true");
     expect(output.text()).toContain("permissionCount=1");
     expect(output.text()).not.toContain("screen:view");
@@ -100,6 +102,7 @@ describe("interactive viewer control prompt", () => {
     expect(output.text()).toContain("state=inactive");
     expect(output.text()).toContain("visibleToHost=false");
     expect(output.text()).toContain("permissionCount=0");
+    expect(output.text()).not.toContain("expiresAt=");
     expect(output.text()).not.toContain("host-1");
     expect(output.text()).not.toContain("Host closed session");
     expect(output.text()).not.toContain("raw-token");
@@ -136,6 +139,7 @@ describe("interactive viewer control prompt", () => {
     expect(output.text()).toContain("permissionCount=0");
     expect(output.text()).not.toContain("authorizationId=");
     expect(output.text()).not.toContain("authorizationStatus=");
+    expect(output.text()).not.toContain("expiresAt=");
     expect(output.text()).not.toContain("remoteDisconnectReasonCode=");
     expect(output.text()).not.toContain("host-1");
     expect(output.text()).not.toContain("raw-token");

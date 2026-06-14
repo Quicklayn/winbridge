@@ -1964,11 +1964,11 @@ The agent shell SHALL support an opt-in `--viewer-control-prompt true|false` CLI
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
 ### Requirement: Viewer control prompt local commands
-The interactive viewer control prompt SHALL accept only exact `status` and `disconnect` command lines. The `status` command MUST print the existing bounded viewer status snapshot and MUST NOT invoke lifecycle controls or public sends. The `disconnect` command MUST stop only the local viewer runtime and MUST NOT construct or send `peer-disconnected`, lifecycle, signal, control, or workflow audit messages. Malformed commands MUST be rejected without echoing raw command text.
+The interactive viewer control prompt SHALL accept only exact `status` and `disconnect` command lines. The `status` command MUST print the existing bounded viewer status snapshot, including optional authorization expiration metadata while active or paused, and MUST NOT invoke lifecycle controls or public sends. The `disconnect` command MUST stop only the local viewer runtime and MUST NOT construct or send `peer-disconnected`, lifecycle, signal, control, or workflow audit messages. Malformed commands MUST be rejected without echoing raw command text.
 
 #### Scenario: Viewer control prompt prints status
 - **WHEN** viewer control prompt mode receives exact command `status`
-- **THEN** it prints bounded local viewer status metadata with state, visible flag, permission count, optional authorization id/status, optional relay-defined remote disconnect reason code after trusted remote host disconnect, and optional local inactive cause after explicit viewer local leave or local viewer socket close
+- **THEN** it prints bounded local viewer status metadata with state, visible flag, permission count, optional authorization id/status, optional authorization expiration timestamp for active or paused authorization, optional relay-defined remote disconnect reason code after trusted remote host disconnect, and optional local inactive cause after explicit viewer local leave or local viewer socket close
 - **AND** it does not invoke host lifecycle controls, viewer local disconnect, or public runtime sends
 
 #### Scenario: Viewer control prompt disconnects locally
