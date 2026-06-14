@@ -10444,9 +10444,11 @@ describe("agent shell consent workflow", () => {
   });
 
   it("closes the host connection through direct local disconnect control after visible pause", async () => {
+    const hostAuditSink = new MemoryAuditSink();
     const hostLogs: string[] = [];
     const privateDisconnectReason = "Direct host disconnect private marker";
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
       hostDecision: "approve",
       hostDisconnectReason: privateDisconnectReason,
       hostLogger: captureLogger(hostLogs),
@@ -10497,6 +10499,17 @@ describe("agent shell consent workflow", () => {
     expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "peer-disconnected")).toBe(
       false
     );
+    expect(hostAuditSink.records().at(-1)).toEqual(expect.objectContaining({
+      action: "agent-shell.session.disconnected",
+      detail: expect.objectContaining({
+        authorizationStatus: "paused",
+        cause: "local-disconnect",
+        visibleToHost: true,
+        permissionCount: 1,
+        reasonConfigured: true
+      })
+    }));
+    expect(JSON.stringify(hostAuditSink.records())).not.toContain(privateDisconnectReason);
     expect(hostLogs.join("\n")).toContain("disconnect control closing local relay connection");
     expect(hostLogs.join("\n")).not.toContain(privateDisconnectReason);
     expect(JSON.stringify(hostEvents)).not.toContain(privateDisconnectReason);
@@ -10675,7 +10688,8 @@ describe("agent shell consent workflow", () => {
         authorizationStatus: "active",
         cause: "local-disconnect",
         visibleToHost: true,
-        permissionCount: 1
+        permissionCount: 1,
+        reasonConfigured: true
       })
     }));
     expect(hostEvents.some(
@@ -11404,9 +11418,11 @@ describe("agent shell consent workflow", () => {
   });
 
   it("suppresses delayed host workflow messages after direct local disconnect control", async () => {
+    const hostAuditSink = new MemoryAuditSink();
     const hostLogs: string[] = [];
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       authorizationTtlMs: 90,
+      hostAuditSink,
       hostDecision: "approve",
       hostLogger: captureLogger(hostLogs),
       hostPauseAfterMs: 50,
@@ -11433,6 +11449,13 @@ describe("agent shell consent workflow", () => {
       .filter((event) => event.direction === "sent");
 
     expect(sentAfterDisconnect).toHaveLength(0);
+    expect(hostAuditSink.records().at(-1)).toEqual(expect.objectContaining({
+      action: "agent-shell.session.disconnected",
+      detail: expect.objectContaining({
+        cause: "local-disconnect",
+        reasonConfigured: false
+      })
+    }));
     expect(hostLogs.join("\n")).toContain("skipped because local peer disconnected");
     expect(
       [...hostEvents, ...viewerEvents].some(

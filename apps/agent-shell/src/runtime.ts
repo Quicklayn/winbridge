@@ -3279,7 +3279,7 @@ function closeLocalHostConnection(
   closeReason: string,
   logMessage: string
 ): void {
-  persistLocalHostDisconnectAudit(options, authorization);
+  persistLocalHostDisconnectAudit(options, authorization, options.hostDisconnectReason !== undefined);
   sessionState.localPeerDisconnected = true;
   deactivateHostIndicatorBestEffort(options, sessionState, "local-disconnect");
   logRuntimeMessageBestEffort(options, `[winbridge-agent] ${logMessage}`);
@@ -3288,7 +3288,8 @@ function closeLocalHostConnection(
 
 function persistLocalHostDisconnectAudit(
   options: AgentShellRuntimeOptions,
-  snapshot: RuntimeAuthorizationSnapshot
+  snapshot: RuntimeAuthorizationSnapshot,
+  reasonConfigured: boolean
 ): void {
   try {
     writeDevelopmentAuditRecord(options, {
@@ -3299,7 +3300,8 @@ function persistLocalHostDisconnectAudit(
         authorizationStatus: snapshot.status,
         cause: "local-disconnect",
         visibleToHost: snapshot.visibleToHost,
-        permissionCount: snapshot.permissions.length
+        permissionCount: snapshot.permissions.length,
+        reasonConfigured
       }
     });
   } catch (error) {
