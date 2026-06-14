@@ -12818,6 +12818,55 @@ describe("agent shell consent workflow", () => {
     expect(logLine).not.toContain("C:\\Users\\Nur");
   });
 
+  it("contains socket error diagnostic logger failure", async () => {
+    const closedPort = await allocateClosedWebSocketPort();
+    const events: AgentShellEvent[] = [];
+    const logs: string[] = [];
+    const rawLoggerMarker = "socket diagnostic logger failed with raw-logger-token";
+    const runtime = createAgentShellRuntime(createRuntimeOptions({
+      relayUrl: `ws://127.0.0.1:${closedPort}/raw-socket-token`,
+      logger: {
+        log: (message) => logs.push(message),
+        warn: (message) => logs.push(message),
+        error: (message) => {
+          logs.push(message);
+          throw new Error(rawLoggerMarker);
+        }
+      },
+      onEvent: (event) => events.push(event)
+    }));
+
+    let startError: unknown;
+    try {
+      await runtime.start();
+    } catch (error) {
+      startError = error;
+    }
+    await delay(50);
+
+    expect(startError).toBeInstanceOf(Error);
+    expect((startError as Error).message).not.toContain(rawLoggerMarker);
+    expect((startError as Error).message).not.toContain("raw-logger-token");
+    const socketErrorLogs = logs.filter((message) =>
+      /^\[winbridge-agent\] socket error messageBytes=\d+$/.test(message)
+    );
+    expect(socketErrorLogs).toHaveLength(1);
+    expect(logs.join("\n")).not.toContain("raw-socket-token");
+    expect(logs.join("\n")).not.toContain(rawLoggerMarker);
+    expect(logs.join("\n")).not.toContain("raw-logger-token");
+    expect(JSON.stringify(events)).not.toContain("raw-socket-token");
+    expect(JSON.stringify(events)).not.toContain(rawLoggerMarker);
+    expect(JSON.stringify(events)).not.toContain("raw-logger-token");
+    expect(
+      events.some(
+        (event) =>
+          event.direction === "sent" ||
+          event.direction === "received" ||
+          event.direction === "indicator"
+      )
+    ).toBe(false);
+  });
+
   it("summarizes hostile error message access without raw error text", () => {
     const rawGetterErrorMessage = "message getter failed with raw-token";
     const diagnostic = createAgentShellErrorDiagnostic(
@@ -13739,6 +13788,29 @@ async function startCloseReasonServer(closeReason: string): Promise<{
         });
       })
   };
+}
+
+async function allocateClosedWebSocketPort(): Promise<number> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Closed-port test server did not expose a TCP port");
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    wss.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+
+  return address.port;
 }
 
 async function startHostSocketCloseAfterActiveServer(): Promise<{

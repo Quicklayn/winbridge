@@ -425,7 +425,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       });
 
       runtimeSocket.on("error", (error) => {
-        logger.error(formatAgentShellErrorLog("socket", error));
+        logRuntimeLoggerErrorBestEffort(logger, formatAgentShellErrorLog("socket", error));
       });
 
       await new Promise<void>((resolve, reject) => {
@@ -3523,6 +3523,17 @@ function logRuntimeLoggerMessageBestEffort(
     logger.log(message);
   } catch {
     // Best-effort runtime logging must not block local close cleanup.
+  }
+}
+
+function logRuntimeLoggerErrorBestEffort(
+  logger: NonNullable<AgentShellRuntimeOptions["logger"]>,
+  message: string
+): void {
+  try {
+    logger.error(message);
+  } catch {
+    // Best-effort runtime logging must not block socket error cleanup.
   }
 }
 
