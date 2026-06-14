@@ -8,7 +8,7 @@ import type { AuditDetail } from "./audit.js";
 import type { JsonObject } from "./json.js";
 import type { ProtocolEnvelope } from "./messages.js";
 import { assertConsentBoundGrant } from "./session.js";
-import type { SessionGrant } from "./session.js";
+import type { Permission, SessionGrant } from "./session.js";
 
 const unsafePermissionShapes = [
   "remote-shell",
@@ -34,6 +34,14 @@ const secretBearingReasons = [
 function expectImmutableSessionGrantSnapshot(grant: SessionGrant): void {
   expect(Object.isFrozen(grant)).toBe(true);
   expect(Object.isFrozen(grant.permissions)).toBe(true);
+}
+
+type MutableSessionGrant = {
+  -readonly [K in keyof SessionGrant]: K extends "permissions" ? Permission[] : SessionGrant[K];
+};
+
+function mutableSessionGrant(grant: SessionGrant): MutableSessionGrant {
+  return grant as MutableSessionGrant;
 }
 
 function expectImmutableProtocolEnvelope(envelope: ProtocolEnvelope): void {
@@ -3705,14 +3713,12 @@ describe("session grants", () => {
     });
 
     expectImmutableSessionGrantSnapshot(grant);
-    expect(() => grant.permissions.push("input:pointer")).toThrow(TypeError);
+    expect(() => mutableSessionGrant(grant).permissions.push("input:pointer")).toThrow(TypeError);
     expect(() => {
-      // @ts-expect-error Runtime guard matters for external mutation.
-      grant.requiresHostApproval = false;
+      mutableSessionGrant(grant).requiresHostApproval = false;
     }).toThrow(TypeError);
     expect(() => {
-      // @ts-expect-error Runtime guard matters for external mutation.
-      grant.visibleSessionRequired = false;
+      mutableSessionGrant(grant).visibleSessionRequired = false;
     }).toThrow(TypeError);
     expect(grant).toMatchObject({
       permissions: ["screen:view"],

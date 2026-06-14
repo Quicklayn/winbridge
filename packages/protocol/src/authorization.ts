@@ -223,10 +223,15 @@ export const SessionAuthorizationSchema = SessionAuthorizationBaseSchema.superRe
     });
   }
 });
-export type SessionAuthorization = z.infer<typeof SessionAuthorizationSchema>;
+type SessionAuthorizationFields = z.infer<typeof SessionAuthorizationSchema>;
+export type SessionAuthorization = Readonly<
+  Omit<SessionAuthorizationFields, "permissions"> & {
+    permissions: readonly Permission[];
+  }
+>;
 
 function parseImmutableSessionAuthorization(input: unknown): SessionAuthorization {
-  return deepFreeze(SessionAuthorizationSchema.parse(input));
+  return deepFreeze(SessionAuthorizationSchema.parse(input)) as SessionAuthorization;
 }
 
 export function createPendingSessionAuthorization(input: {
@@ -473,11 +478,11 @@ export function expireSessionAuthorization(
   const parsed = SessionAuthorizationSchema.parse(authorization);
 
   if (terminalStatuses.has(parsed.status)) {
-    return deepFreeze(parsed);
+    return deepFreeze(parsed) as SessionAuthorization;
   }
 
   if (!isSessionAuthorizationExpired(parsed, now)) {
-    return deepFreeze(parsed);
+    return deepFreeze(parsed) as SessionAuthorization;
   }
 
   return parseImmutableSessionAuthorization({
@@ -523,7 +528,10 @@ export function assertSessionActionAuthorized(input: {
   return authorization;
 }
 
-function assertMutablePending(authorization: SessionAuthorization, now = new Date()): SessionAuthorization {
+function assertMutablePending(
+  authorization: SessionAuthorization,
+  now = new Date()
+): SessionAuthorizationFields {
   const parsed = SessionAuthorizationSchema.parse(authorization);
 
   if (parsed.status !== "pending") {

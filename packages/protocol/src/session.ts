@@ -129,7 +129,12 @@ export const SessionGrantSchema = z.object({
   expiresAt: z.string().datetime(),
   auditId: SessionGrantIdentifierSchema
 }).strict();
-export type SessionGrant = z.infer<typeof SessionGrantSchema>;
+type SessionGrantFields = z.infer<typeof SessionGrantSchema>;
+export type SessionGrant = Readonly<
+  Omit<SessionGrantFields, "permissions"> & {
+    permissions: readonly Permission[];
+  }
+>;
 
 export const PairingCodeSchema = z.string().regex(/^\d{3}-\d{3}$/);
 
@@ -154,5 +159,5 @@ export function assertConsentBoundGrant(grant: SessionGrant, now = new Date()): 
     throw new Error("Session grant is expired");
   }
 
-  return deepFreeze(parsed);
+  return deepFreeze(parsed) as SessionGrant;
 }

@@ -14,7 +14,7 @@ import {
 } from "./authorization.js";
 import type { SessionAuthorization } from "./authorization.js";
 import { createPairingTicket, createPairedDevice } from "./identity.js";
-import { assertConsentBoundGrant } from "./session.js";
+import { assertConsentBoundGrant, type Permission } from "./session.js";
 
 const baseTime = new Date("2026-06-11T00:00:00.000Z");
 const unsafePermissionShapes = [
@@ -88,6 +88,18 @@ function withoutField(value: object, field: string): unknown {
   return next;
 }
 
+type MutableAuthorizationSnapshot = {
+  -readonly [K in keyof SessionAuthorization]: K extends "permissions"
+    ? Permission[]
+    : SessionAuthorization[K];
+};
+
+function mutableAuthorization(
+  authorization: SessionAuthorization
+): MutableAuthorizationSnapshot {
+  return authorization as MutableAuthorizationSnapshot;
+}
+
 function expectImmutableAuthorizationSnapshot(authorization: SessionAuthorization): void {
   expect(Object.isFrozen(authorization)).toBe(true);
   expect(Object.isFrozen(authorization.permissions)).toBe(true);
@@ -98,7 +110,9 @@ describe("session authorization state machine", () => {
     const pendingAuthorization = pending();
 
     expectImmutableAuthorizationSnapshot(pendingAuthorization);
-    expect(() => pendingAuthorization.permissions.push("input:keyboard")).toThrow(TypeError);
+    expect(() =>
+      mutableAuthorization(pendingAuthorization).permissions.push("input:keyboard")
+    ).toThrow(TypeError);
     expect(pendingAuthorization.permissions).toEqual(["screen:view", "input:pointer"]);
 
     const active = activateSessionAuthorization(
@@ -111,10 +125,10 @@ describe("session authorization state machine", () => {
 
     expectImmutableAuthorizationSnapshot(active);
     expect(() => {
-      active.status = "terminated";
+      mutableAuthorization(active).status = "terminated";
     }).toThrow(TypeError);
     expect(() => {
-      active.visibleToHost = false;
+      mutableAuthorization(active).visibleToHost = false;
     }).toThrow(TypeError);
     expect(active).toMatchObject({
       status: "active",
@@ -137,9 +151,11 @@ describe("session authorization state machine", () => {
     expectImmutableAuthorizationSnapshot(expired);
     expectImmutableAuthorizationSnapshot(checked);
     expect(checked).toEqual(expired);
-    expect(() => expired.permissions.push("screen:view")).toThrow(TypeError);
+    expect(() => mutableAuthorization(expired).permissions.push("screen:view")).toThrow(
+      TypeError
+    );
     expect(() => {
-      checked.permissions = ["screen:view"];
+      mutableAuthorization(checked).permissions = ["screen:view"];
     }).toThrow(TypeError);
     expect(checked.permissions).toEqual([]);
     expect(() =>
