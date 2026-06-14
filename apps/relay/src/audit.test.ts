@@ -173,8 +173,33 @@ describe("relay audit", () => {
           WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
         })
       ).toThrow(
-        "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls"
+        "WINBRIDGE_RELAY_AUDIT_LOG_PATH must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, and contain no Windows reserved device path segments"
       );
+    }
+  });
+
+  it("rejects Windows reserved device WINBRIDGE_RELAY_AUDIT_LOG_PATH values", () => {
+    for (const auditLogPath of [
+      "NUL",
+      "logs/NUL.jsonl",
+      String.raw`logs\COM1.log`,
+      String.raw`C:\audit\LPT1`
+    ]) {
+      expect(() =>
+        createRelayAuditSink({
+          WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
+        })
+      ).toThrow("Windows reserved device path segments");
+    }
+  });
+
+  it("accepts safe lookalike WINBRIDGE_RELAY_AUDIT_LOG_PATH values", () => {
+    for (const auditLogPath of ["logs/null-audit.jsonl", "logs/com10.jsonl", "logs/lpt10.jsonl"]) {
+      expect(() =>
+        createRelayAuditSink({
+          WINBRIDGE_RELAY_AUDIT_LOG_PATH: auditLogPath
+        })
+      ).not.toThrow();
     }
   });
 

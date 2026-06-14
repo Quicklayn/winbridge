@@ -985,10 +985,17 @@ describe("agent shell arguments", () => {
     expect(parseArgs(["host", "--audit-log", "logs/agent-audit.jsonl"], {}, 42).auditLogPath).toBe(
       "logs/agent-audit.jsonl"
     );
+    expect(parseArgs(["host", "--audit-log", "logs/null-audit.jsonl"], {}, 42).auditLogPath).toBe(
+      "logs/null-audit.jsonl"
+    );
     expect(
       parseArgs(["host"], { WINBRIDGE_AGENT_AUDIT_LOG_PATH: "logs/env-audit.jsonl" }, 42)
         .auditLogPath
     ).toBe("logs/env-audit.jsonl");
+    expect(
+      parseArgs(["host"], { WINBRIDGE_AGENT_AUDIT_LOG_PATH: "logs/com10.jsonl" }, 42)
+        .auditLogPath
+    ).toBe("logs/com10.jsonl");
   });
 
   it("rejects malformed audit log paths", () => {
@@ -1002,6 +1009,22 @@ describe("agent shell arguments", () => {
       "logs/agent-audit\u200bpath.jsonl",
       "logs/agent-audit\ufeffpath.jsonl",
       "x".repeat(1025)
+    ]) {
+      expect(() => parseArgs(["host", "--audit-log", auditLogPath], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+      expect(() =>
+        parseArgs(["host"], { WINBRIDGE_AGENT_AUDIT_LOG_PATH: auditLogPath }, 42)
+      ).toThrow(AgentShellUsageError);
+    }
+  });
+
+  it("rejects Windows reserved device audit log paths", () => {
+    for (const auditLogPath of [
+      "NUL",
+      "logs/NUL.jsonl",
+      String.raw`logs\COM1.log`,
+      String.raw`C:\audit\LPT1`
     ]) {
       expect(() => parseArgs(["host", "--audit-log", auditLogPath], {}, 42)).toThrow(
         AgentShellUsageError

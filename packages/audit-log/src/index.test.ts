@@ -266,8 +266,55 @@ describe("FileAuditSink", () => {
       "x".repeat(1025)
     ]) {
       expect(() => new FileAuditSink(path)).toThrow(
-        "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls"
+        "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, and contain no Windows reserved device path segments"
       );
+    }
+  });
+
+  it("rejects Windows reserved device paths before writing records", () => {
+    for (const path of [
+      "NUL",
+      "nul",
+      "CON.txt",
+      "logs/NUL.jsonl",
+      String.raw`logs\COM1.log`,
+      String.raw`C:\audit\LPT1`,
+      String.raw`\\.\NUL`,
+      String.raw`\\?\C:\audit\CONOUT$.jsonl`,
+      "logs/PRN..jsonl",
+      "logs/AUX .jsonl"
+    ]) {
+      expect(() => new FileAuditSink(path)).toThrow(
+        "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, and contain no Windows reserved device path segments"
+      );
+    }
+  });
+
+  it("rejects reserved device paths without exposing raw path text", () => {
+    for (const path of [
+      "logs/audit-private-marker/NUL.jsonl",
+      String.raw`C:\audit-private-marker\COM1.log`
+    ]) {
+      try {
+        new FileAuditSink(path);
+        throw new Error("Expected audit log path to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).not.toContain("audit-private-marker");
+        expect((error as Error).message).not.toContain(path);
+      }
+    }
+  });
+
+  it("accepts safe lookalike audit log paths", () => {
+    for (const path of [
+      "logs/null-audit.jsonl",
+      "logs/com10.jsonl",
+      "logs/lpt10.jsonl",
+      "logs/conference.jsonl",
+      "logs/prn-safe.jsonl"
+    ]) {
+      expect(() => new FileAuditSink(path)).not.toThrow();
     }
   });
 

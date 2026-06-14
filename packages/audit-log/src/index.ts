@@ -13,7 +13,33 @@ export type AuditSink = {
 
 export const MAX_AUDIT_LOG_PATH_BYTES = 1024;
 const AUDIT_LOG_PATH_ERROR_MESSAGE =
-  "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
+  "Audit log path must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, and contain no Windows reserved device path segments";
+const WINDOWS_RESERVED_DEVICE_NAMES = new Set([
+  "AUX",
+  "COM1",
+  "COM2",
+  "COM3",
+  "COM4",
+  "COM5",
+  "COM6",
+  "COM7",
+  "COM8",
+  "COM9",
+  "CON",
+  "CONIN$",
+  "CONOUT$",
+  "LPT1",
+  "LPT2",
+  "LPT3",
+  "LPT4",
+  "LPT5",
+  "LPT6",
+  "LPT7",
+  "LPT8",
+  "LPT9",
+  "NUL",
+  "PRN"
+]);
 
 export class MemoryAuditSink implements AuditSink {
   private readonly entries: AuditRecord[] = [];
@@ -92,10 +118,26 @@ export function assertAuditLogPath(
     value !== value.trim() ||
     Buffer.byteLength(value, "utf8") > MAX_AUDIT_LOG_PATH_BYTES ||
     hasAsciiControlCharacter(value) ||
-    hasUnsafePathFormatCharacter(value)
+    hasUnsafePathFormatCharacter(value) ||
+    hasWindowsReservedDevicePathSegment(value)
   ) {
     throw new Error(message);
   }
+}
+
+function hasWindowsReservedDevicePathSegment(path: string): boolean {
+  return path.split(/[\\/]+/).some((segment) => {
+    const deviceName = windowsDeviceNameFromPathSegment(segment);
+    return deviceName !== "" && WINDOWS_RESERVED_DEVICE_NAMES.has(deviceName);
+  });
+}
+
+function windowsDeviceNameFromPathSegment(segment: string): string {
+  const withoutDrivePrefix = segment.replace(/^[A-Za-z]:/, "");
+  const withoutStreamName = withoutDrivePrefix.split(":")[0] ?? "";
+  const baseName = withoutStreamName.split(".")[0] ?? "";
+
+  return baseName.replace(/[ .]+$/g, "").toUpperCase();
 }
 
 function hasAsciiControlCharacter(value: string): boolean {
