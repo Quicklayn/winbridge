@@ -3393,17 +3393,17 @@ function canSendDelayedHostWorkflow(
   action: string
 ): boolean {
   if (sessionState.localPeerDisconnected) {
-    options.logger?.log(`[winbridge-agent] ${action} skipped because local peer disconnected`);
+    logRuntimeMessageBestEffort(options, `[winbridge-agent] ${action} skipped because local peer disconnected`);
     return false;
   }
 
   if (sessionState.remotePeerDisconnected) {
-    options.logger?.log(`[winbridge-agent] ${action} skipped because peer disconnected`);
+    logRuntimeMessageBestEffort(options, `[winbridge-agent] ${action} skipped because peer disconnected`);
     return false;
   }
 
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    options.logger?.log(`[winbridge-agent] ${action} skipped because socket is closed`);
+    logRuntimeMessageBestEffort(options, `[winbridge-agent] ${action} skipped because socket is closed`);
     return false;
   }
 

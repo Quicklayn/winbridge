@@ -11834,6 +11834,49 @@ describe("agent shell consent workflow", () => {
     expect(hostLogs.join("\n")).toContain("skipped because peer disconnected");
   });
 
+  it("contains delayed host workflow skip logger failure after viewer disconnect", async () => {
+    const hostLogs: string[] = [];
+    const rawLoggerMarker = "delayed workflow skip logger failed with raw-peer-disconnect-token";
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 200,
+      hostDecision: "approve",
+      hostLogger: createThrowingDelayedWorkflowSkipLogger(
+        hostLogs,
+        rawLoggerMarker,
+        "skipped because peer disconnected"
+      ),
+      hostPauseAfterMs: 50,
+      hostRevokeAfterMs: 40,
+      hostRevokePermission: "screen:view",
+      hostTerminateAfterMs: 60,
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    await viewer.stop();
+    await waitForMessage(hostEvents, (message) => message.type === "peer-disconnected");
+    const eventCountAtDisconnect = hostEvents.length;
+    await delay(260);
+
+    const sentAfterDisconnect = hostEvents
+      .slice(eventCountAtDisconnect)
+      .filter((event) => event.direction === "sent");
+
+    expect(sentAfterDisconnect).toHaveLength(0);
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(hostLogs.join("\n")).toContain("skipped because peer disconnected");
+    expect(JSON.stringify([...hostEvents, ...viewerEvents])).not.toContain(rawLoggerMarker);
+    expect(JSON.stringify([...hostEvents, ...viewerEvents])).not.toContain("raw-peer-disconnect-token");
+    expect(hostLogs.join("\n")).not.toContain(rawLoggerMarker);
+    expect(hostLogs.join("\n")).not.toContain("raw-peer-disconnect-token");
+  });
+
   it("suppresses delayed host workflow messages after local disconnect simulation", async () => {
     const hostLogs: string[] = [];
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -11871,6 +11914,68 @@ describe("agent shell consent workflow", () => {
           (event.direction === "sent" || event.direction === "received") &&
           (event.message.type === "permission-revoked" ||
             event.message.type === "session-control" ||
+            (event.message.type === "session-authorization-state" &&
+              event.message.status !== "active") ||
+            (event.message.type === "audit-event" &&
+              [
+                "agent-shell.permission.revoked",
+                "agent-shell.authorization.paused",
+                "agent-shell.authorization.terminated",
+                "agent-shell.authorization.expired"
+              ].includes(event.message.action)))
+      )
+    ).toBe(false);
+  });
+
+  it("contains delayed host workflow skip logger failure after local disconnect simulation", async () => {
+    const hostLogs: string[] = [];
+    const rawLoggerMarker = "delayed workflow skip logger failed with raw-local-disconnect-token";
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs: 80,
+      hostDecision: "approve",
+      hostDisconnectAfterMs: 10,
+      hostLogger: createThrowingDelayedWorkflowSkipLogger(
+        hostLogs,
+        rawLoggerMarker,
+        "skipped because local peer disconnected"
+      ),
+      hostPauseAfterMs: 50,
+      hostRevokeAfterMs: 40,
+      hostRevokePermission: "screen:view",
+      hostTerminateAfterMs: 60,
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    await waitForMessage(viewerEvents, (message) => message.type === "peer-disconnected");
+    const eventCountAtDisconnect = hostEvents.length;
+    await delay(120);
+
+    const sentAfterDisconnect = hostEvents
+      .slice(eventCountAtDisconnect)
+      .filter((event) => event.direction === "sent");
+
+    expect(sentAfterDisconnect).toHaveLength(0);
+    expect(hostEvents.some((event) => event.direction === "error")).toBe(false);
+    expect(hostLogs.join("\n")).toContain("skipped because local peer disconnected");
+    expect(JSON.stringify([...hostEvents, ...viewerEvents])).not.toContain(rawLoggerMarker);
+    expect(JSON.stringify([...hostEvents, ...viewerEvents])).not.toContain("raw-local-disconnect-token");
+    expect(hostLogs.join("\n")).not.toContain(rawLoggerMarker);
+    expect(hostLogs.join("\n")).not.toContain("raw-local-disconnect-token");
+    expect(
+      [...hostEvents, ...viewerEvents].some(
+        (event) =>
+          event.direction === "sent" &&
+          (event.message.type === "permission-revoked" ||
+            event.message.type === "session-control" ||
+            event.message.type === "signal" ||
+            event.message.type === "peer-disconnected" ||
             (event.message.type === "session-authorization-state" &&
               event.message.status !== "active") ||
             (event.message.type === "audit-event" &&
@@ -13561,6 +13666,23 @@ function createThrowingViewerCloseLogger(logs: string[], thrownMessage: string):
       }
 
       logs.push(message);
+    },
+    warn: (message) => logs.push(message),
+    error: (message) => logs.push(message)
+  };
+}
+
+function createThrowingDelayedWorkflowSkipLogger(
+  logs: string[],
+  thrownMessage: string,
+  skippedMessageFragment: string
+): TestLogger {
+  return {
+    log: (message) => {
+      logs.push(message);
+      if (message.includes(skippedMessageFragment)) {
+        throw new Error(thrownMessage);
+      }
     },
     warn: (message) => logs.push(message),
     error: (message) => logs.push(message)
