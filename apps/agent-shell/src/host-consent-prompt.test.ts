@@ -133,18 +133,25 @@ describe("interactive host consent prompt", () => {
       {
         viewerPeerId: "viewer-1",
         viewerDisplayName: "Viewer Support",
+        viewerDeviceId: "dev_viewer_1",
+        viewerDevicePlatform: "windows",
+        viewerDeviceTrustLevel: "verified",
         requestedPermissions: ["screen:view", "input:pointer"],
         requestedPermissionCount: 2,
         requestReason: "Troubleshoot display settings"
-      },
+      } as any,
       { input: Readable.from(["deny\n"]), output }
     );
 
     const renderedPrompt = output.text();
     expect(renderedPrompt).toContain("Viewer peer: viewer-1");
     expect(renderedPrompt).toContain("Viewer display name: Viewer Support");
+    expect(renderedPrompt).toContain("Viewer device id: dev_viewer_1");
+    expect(renderedPrompt).toContain("Viewer device platform: windows");
     expect(renderedPrompt).toContain("Requested permissions (2): screen:view,input:pointer");
     expect(renderedPrompt).toContain("Request reason: Troubleshoot display settings");
+    expect(renderedPrompt).not.toContain("Viewer device trust");
+    expect(renderedPrompt).not.toContain("verified");
     expect(renderedPrompt).not.toContain("123-456");
     expect(renderedPrompt).not.toContain("raw-token");
     expect(renderedPrompt).not.toContain("protocol-payload");
@@ -157,6 +164,9 @@ describe("interactive host consent prompt", () => {
       {
         viewerPeerId: "viewer-token-secret",
         viewerDisplayName: "Viewer token=raw-token",
+        viewerDeviceId: "token-raw-device-id",
+        viewerDevicePlatform: "windows\u202e",
+        viewerDeviceTrustLevel: "credential-raw-trust",
         requestedPermissions: ["screen:view", "credential:read", "raw-token"],
         requestedPermissionCount: "raw-token",
         requestReason: "token=raw-token"
@@ -167,10 +177,14 @@ describe("interactive host consent prompt", () => {
     const renderedPrompt = output.text();
     expect(renderedPrompt).toContain("Viewer peer: invalid");
     expect(renderedPrompt).toContain("Viewer display name: unavailable");
+    expect(renderedPrompt).toContain("Viewer device id: unavailable");
+    expect(renderedPrompt).toContain("Viewer device platform: unavailable");
     expect(renderedPrompt).toContain("Requested permissions (3): screen:view,invalid,invalid");
     expect(renderedPrompt).toContain("Request reason: unavailable");
     expect(renderedPrompt).not.toContain("viewer-token-secret");
     expect(renderedPrompt).not.toContain("Viewer token=raw-token");
+    expect(renderedPrompt).not.toContain("token-raw-device-id");
+    expect(renderedPrompt).not.toContain("credential-raw-trust");
     expect(renderedPrompt).not.toContain("credential:read");
     expect(renderedPrompt).not.toContain("raw-token");
     expect(renderedPrompt).not.toContain("token=raw-token");
@@ -191,6 +205,8 @@ describe("interactive host consent prompt", () => {
     const renderedPrompt = output.text();
     expect(renderedPrompt).toContain("Viewer peer: viewer-1");
     expect(renderedPrompt).toContain("Viewer display name: unavailable");
+    expect(renderedPrompt).toContain("Viewer device id: unavailable");
+    expect(renderedPrompt).toContain("Viewer device platform: unavailable");
     expect(renderedPrompt).toContain("Request reason: unavailable");
   });
 });

@@ -70,6 +70,34 @@ describe("protocol envelopes", () => {
     expect(parsed.type).toBe("hello");
   });
 
+  it("accepts a hello message with matching local device identity", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "hello",
+      peerId: "viewer-1",
+      role: "viewer",
+      displayName: "Viewer laptop",
+      capabilities: ["session:visible"],
+      deviceIdentity: {
+        deviceId: "dev_viewer_1",
+        displayName: "Viewer laptop",
+        platform: "windows",
+        trustLevel: "local-dev",
+        createdAt: "2026-06-14T12:00:00.000Z"
+      }
+    });
+
+    expect(parsed).toMatchObject({
+      type: "hello",
+      deviceIdentity: {
+        deviceId: "dev_viewer_1",
+        displayName: "Viewer laptop",
+        platform: "windows",
+        trustLevel: "local-dev"
+      }
+    });
+  });
+
   it("returns immutable parsed protocol envelope snapshots", () => {
     const parsed = parseProtocolEnvelope({
       ...createMessageBase("session-demo"),
@@ -90,6 +118,89 @@ describe("protocol envelopes", () => {
     expect(() => {
       parsed.peerId = "viewer-1";
     }).toThrow(TypeError);
+  });
+
+  it("returns immutable hello device identity snapshots", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "hello",
+      peerId: "viewer-1",
+      role: "viewer",
+      displayName: "Viewer laptop",
+      capabilities: ["session:visible"],
+      deviceIdentity: {
+        deviceId: "dev_viewer_1",
+        displayName: "Viewer laptop",
+        platform: "windows",
+        trustLevel: "local-dev",
+        createdAt: "2026-06-14T12:00:00.000Z"
+      }
+    });
+
+    if (parsed.type !== "hello" || !parsed.deviceIdentity) {
+      throw new Error("Expected hello device identity");
+    }
+
+    expect(Object.isFrozen(parsed.deviceIdentity)).toBe(true);
+    expect(() => {
+      (parsed.deviceIdentity as { deviceId: string }).deviceId = "dev_viewer_2";
+    }).toThrow(TypeError);
+  });
+
+  it("rejects hello device identity display-name mismatch without exposing raw text", () => {
+    const mismatchedDisplayName = "Viewer private laptop";
+
+    try {
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Viewer public laptop",
+        capabilities: ["session:visible"],
+        deviceIdentity: {
+          deviceId: "dev_viewer_1",
+          displayName: mismatchedDisplayName,
+          platform: "windows",
+          trustLevel: "local-dev",
+          createdAt: "2026-06-14T12:00:00.000Z"
+        }
+      });
+      throw new Error("Expected mismatched hello device identity to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain("hello device identity displayName must match");
+      expect((error as Error).message).not.toContain(mismatchedDisplayName);
+      expect((error as Error).message).not.toContain("Viewer public laptop");
+    }
+  });
+
+  it("rejects unsafe hello device identity metadata without exposing raw text", () => {
+    const unsafeDeviceId = "token-raw-device-id";
+
+    try {
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Viewer laptop",
+        capabilities: ["session:visible"],
+        deviceIdentity: {
+          deviceId: unsafeDeviceId,
+          displayName: "Viewer laptop",
+          platform: "windows",
+          trustLevel: "local-dev",
+          createdAt: "2026-06-14T12:00:00.000Z"
+        }
+      });
+      throw new Error("Expected unsafe hello device identity to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain("sensitive metadata");
+      expect((error as Error).message).not.toContain(unsafeDeviceId);
+      expect((error as Error).message).not.toContain("raw-device-id");
+    }
   });
 
   it("rejects unknown protocol messages", () => {

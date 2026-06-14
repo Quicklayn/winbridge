@@ -2,6 +2,7 @@ import { createInterface } from "node:readline/promises";
 import type { Readable, Writable } from "node:stream";
 import {
   DeviceDisplayNameSchema,
+  DeviceIdentitySchema,
   hasSecretBearingAuditMetadata,
   hasSecretBearingProtocolIdentifierMetadata,
   MAX_PERMISSION_COUNT,
@@ -83,6 +84,8 @@ function formatHostConsentPrompt(request: HostDecisionProviderRequest): string {
     "[winbridge-agent] Host consent request",
     `[winbridge-agent] Viewer peer: ${formatRequiredPeerId(request.viewerPeerId)}`,
     `[winbridge-agent] Viewer display name: ${formatOptionalDisplayName(request.viewerDisplayName)}`,
+    `[winbridge-agent] Viewer device id: ${formatOptionalDeviceId(request.viewerDeviceId)}`,
+    `[winbridge-agent] Viewer device platform: ${formatOptionalDevicePlatform(request.viewerDevicePlatform)}`,
     `[winbridge-agent] Requested permissions (${permissions.count}): ${permissions.text}`,
     `[winbridge-agent] Request reason: ${formatOptionalRequestReason(request.requestReason)}`,
     "[winbridge-agent] Type approve or deny: "
@@ -108,6 +111,24 @@ function formatOptionalDisplayName(value: unknown): string {
   }
 
   const parsed = DeviceDisplayNameSchema.safeParse(value);
+  return parsed.success ? parsed.data : UNAVAILABLE_PROMPT_METADATA;
+}
+
+function formatOptionalDeviceId(value: unknown): string {
+  if (value === undefined) {
+    return UNAVAILABLE_PROMPT_METADATA;
+  }
+
+  const parsed = DeviceIdentitySchema.shape.deviceId.safeParse(value);
+  return parsed.success ? parsed.data : UNAVAILABLE_PROMPT_METADATA;
+}
+
+function formatOptionalDevicePlatform(value: unknown): string {
+  if (value === undefined) {
+    return UNAVAILABLE_PROMPT_METADATA;
+  }
+
+  const parsed = DeviceIdentitySchema.shape.platform.safeParse(value);
   return parsed.success ? parsed.data : UNAVAILABLE_PROMPT_METADATA;
 }
 

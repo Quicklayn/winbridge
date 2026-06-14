@@ -49,6 +49,14 @@ const silentLogger: TestLogger = {
 
 const relayRuntimes: RelayRuntime[] = [];
 const agentRuntimes: AgentShellRuntime[] = [];
+const EXPECTED_RUNTIME_PLATFORM =
+  process.platform === "win32"
+    ? "windows"
+    : process.platform === "darwin"
+      ? "macos"
+      : process.platform === "linux"
+        ? "linux"
+        : "unknown";
 const KEY_MATERIAL_SIGNAL_PAYLOAD_CASES = [
   {
     name: "accessKey",
@@ -1068,11 +1076,49 @@ describe("agent shell consent workflow", () => {
       hostEvents,
       (message) => message.type === "session-authorization-request"
     );
+    const viewerJoin = await waitForSentMessage(
+      viewerEvents,
+      (message) => message.type === "join-session"
+    );
+    const hostJoin = await waitForSentMessage(
+      hostEvents,
+      (message) => message.type === "join-session"
+    );
 
-    expect(viewerHello).toMatchObject({ type: "hello", peerId: "viewer-1", role: "viewer" });
-    expect(hostReceivedViewerHello).toMatchObject({ type: "hello", peerId: "viewer-1", role: "viewer" });
-    expect(hostHello).toMatchObject({ type: "hello", peerId: "host-1", role: "host" });
-    expect(viewerReceivedHostHello).toMatchObject({ type: "hello", peerId: "host-1", role: "host" });
+    expect(viewerHello).toMatchObject({
+      type: "hello",
+      peerId: "viewer-1",
+      role: "viewer",
+      deviceIdentity: {
+        deviceId: "dev_viewer_1",
+        displayName: "Viewer",
+        platform: EXPECTED_RUNTIME_PLATFORM,
+        trustLevel: "local-dev"
+      }
+    });
+    expect(hostReceivedViewerHello).toEqual(viewerHello);
+    expect(hostHello).toMatchObject({
+      type: "hello",
+      peerId: "host-1",
+      role: "host",
+      deviceIdentity: {
+        deviceId: "dev_host_1",
+        displayName: "Host",
+        platform: EXPECTED_RUNTIME_PLATFORM,
+        trustLevel: "local-dev"
+      }
+    });
+    expect(viewerReceivedHostHello).toEqual(hostHello);
+    expect(
+      viewerJoin.type === "join-session" && viewerHello.type === "hello"
+        ? viewerHello.deviceIdentity
+        : undefined
+    ).toEqual(viewerJoin.type === "join-session" ? viewerJoin.deviceIdentity : undefined);
+    expect(
+      hostJoin.type === "join-session" && hostHello.type === "hello"
+        ? hostHello.deviceIdentity
+        : undefined
+    ).toEqual(hostJoin.type === "join-session" ? hostJoin.deviceIdentity : undefined);
     expect(request).toMatchObject({
       type: "session-authorization-request",
       viewerPeerId: "viewer-1",
@@ -2357,6 +2403,8 @@ describe("agent shell consent workflow", () => {
       {
         viewerPeerId: "viewer-1",
         viewerDisplayName: "Viewer",
+        viewerDeviceId: "dev_viewer_1",
+        viewerDevicePlatform: EXPECTED_RUNTIME_PLATFORM,
         requestedPermissions: ["screen:view"],
         requestedPermissionCount: 1,
         requestReason
@@ -3275,6 +3323,8 @@ describe("agent shell consent workflow", () => {
         expect(request).toEqual({
           viewerPeerId: "viewer-1",
           viewerDisplayName: "Viewer Support",
+          viewerDeviceId: "dev_viewer_1",
+          viewerDevicePlatform: EXPECTED_RUNTIME_PLATFORM,
           requestedPermissions: ["screen:view"],
           requestedPermissionCount: 1
         });
@@ -3354,13 +3404,173 @@ describe("agent shell consent workflow", () => {
       {
         viewerPeerId: "viewer-1",
         viewerDisplayName,
+        viewerDeviceId: "dev_viewer_1",
+        viewerDevicePlatform: EXPECTED_RUNTIME_PLATFORM,
         requestedPermissions: ["screen:view"],
         requestedPermissionCount: 1
       }
     ]);
     expect(JSON.stringify([decision, state])).not.toContain(viewerDisplayName);
+    expect(JSON.stringify([decision, state])).not.toContain("dev_viewer_1");
     expect(JSON.stringify(hostAuditSink.records())).not.toContain(viewerDisplayName);
+    expect(JSON.stringify(hostAuditSink.records())).not.toContain("dev_viewer_1");
     expect(hostLogs.join("\n")).not.toContain(viewerDisplayName);
+    expect(hostLogs.join("\n")).not.toContain("dev_viewer_1");
+  });
+
+  it("omits viewer device identity from interactive consent when hello has no device identity", async () => {
+    const providerRequests: unknown[] = [];
+    const { relay } = await startRelayAndHost({
+      hostDecisionProvider: (request) => {
+        providerRequests.push(request);
+        return "deny";
+      }
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
+      await waitForRawSocketProtocolMessage(
+        rawViewer,
+        (message) => message.type === "session-authorization-decision"
+      );
+
+      expect(providerRequests).toEqual([
+        {
+          viewerPeerId: "viewer-1",
+          viewerDisplayName: "Raw Viewer",
+          requestedPermissions: ["screen:view"],
+          requestedPermissionCount: 1,
+          requestReason: "Viewer requested support"
+        }
+      ]);
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("does not pass self-asserted verified trust level into interactive consent", async () => {
+    const providerRequests: unknown[] = [];
+    const { relay } = await startRelayAndHost({
+      hostDecisionProvider: (request) => {
+        providerRequests.push(request);
+        return "deny";
+      }
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      rawViewer.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Raw Viewer",
+        capabilities: ["session:visible", "consent:required", "audit:stdout"],
+        deviceIdentity: {
+          deviceId: "dev_viewer_1",
+          displayName: "Raw Viewer",
+          platform: "windows",
+          trustLevel: "verified",
+          createdAt: "2026-06-14T12:00:00.000Z"
+        }
+      }));
+      rawViewer.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"]
+      }));
+      await waitForRawSocketProtocolMessage(
+        rawViewer,
+        (message) => message.type === "session-authorization-decision"
+      );
+
+      expect(providerRequests).toEqual([
+        {
+          viewerPeerId: "viewer-1",
+          viewerDisplayName: "Raw Viewer",
+          viewerDeviceId: "dev_viewer_1",
+          viewerDevicePlatform: "windows",
+          requestedPermissions: ["screen:view"],
+          requestedPermissionCount: 1
+        }
+      ]);
+      expect(JSON.stringify(providerRequests)).not.toContain("verified");
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("does not reuse viewer device identity after trusted viewer disconnect", async () => {
+    const providerRequests: unknown[] = [];
+    const lifecycleServer = await startViewerAuthorizationLifecycleServer(() => [
+      {
+        ...createMessageBase("session-demo"),
+        type: "relay-ready",
+        peerId: "host-1",
+        roomSize: 2
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Viewer",
+        capabilities: ["session:visible", "consent:required", "audit:stdout"],
+        deviceIdentity: {
+          deviceId: "dev_viewer_1",
+          displayName: "Viewer",
+          platform: EXPECTED_RUNTIME_PLATFORM,
+          trustLevel: "local-dev",
+          createdAt: "2026-06-14T12:00:00.000Z"
+        }
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "peer-disconnected",
+        peerId: "viewer-1",
+        role: "viewer",
+        reasonCode: "peer-closed"
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"]
+      }
+    ]);
+    const hostEvents: AgentShellEvent[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        relayUrl: lifecycleServer.url,
+        hostDecisionProvider: (request) => {
+          providerRequests.push(request);
+          return "approve";
+        },
+        logger: silentLogger,
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+      await waitForMessage(
+        hostEvents,
+        (message) => message.type === "peer-disconnected" && message.peerId === "viewer-1"
+      );
+      await delay(100);
+
+      expect(providerRequests).toEqual([]);
+      expect(
+        hostEvents.some(
+          (event) =>
+            event.direction === "sent" && event.message.type === "session-authorization-decision"
+        )
+      ).toBe(false);
+    } finally {
+      await host?.stop();
+      await lifecycleServer.stop();
+    }
   });
 
   it("sends denied decision when interactive host consent denies", async () => {

@@ -147,9 +147,11 @@ export const HelloMessageSchema = BaseMessageSchema.extend({
   peerId: PeerIdSchema,
   role: SessionRoleSchema,
   displayName: DeviceDisplayNameSchema,
-  capabilities: z.array(ProtocolCapabilitySchema).max(32)
+  capabilities: z.array(ProtocolCapabilitySchema).max(32),
+  deviceIdentity: DeviceIdentitySchema.optional()
 }).superRefine((message, context) => {
   rejectDuplicateCapabilities(message.capabilities, context);
+  rejectMismatchedHelloDeviceIdentityDisplayName(message, context);
 });
 
 export const JoinSessionMessageSchema = BaseMessageSchema.extend({
@@ -538,6 +540,21 @@ function rejectDuplicateCapabilities(capabilities: unknown[], context: z.Refinem
     code: z.ZodIssueCode.custom,
     message: "capabilities must be unique",
     path: ["capabilities"]
+  });
+}
+
+function rejectMismatchedHelloDeviceIdentityDisplayName(
+  message: z.infer<typeof HelloMessageSchema>,
+  context: z.RefinementCtx
+): void {
+  if (!message.deviceIdentity || message.deviceIdentity.displayName === message.displayName) {
+    return;
+  }
+
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "hello device identity displayName must match displayName",
+    path: ["deviceIdentity", "displayName"]
   });
 }
 

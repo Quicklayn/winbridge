@@ -18,6 +18,7 @@ import {
   stringifyJson,
   type AuditDetail,
   type AuditOutcome,
+  type DeviceIdentity,
   type Permission,
   type ProtocolEnvelope,
   type SessionAuthorizationStatus,
@@ -32,6 +33,8 @@ export type HostDecisionProvider = (
 export type HostDecisionProviderRequest = {
   viewerPeerId: string;
   viewerDisplayName?: string;
+  viewerDeviceId?: string;
+  viewerDevicePlatform?: DeviceIdentity["platform"];
   requestedPermissions: Permission[];
   requestedPermissionCount: number;
   requestReason?: string;
@@ -302,6 +305,8 @@ type AgentShellSessionState = {
   observedPeerId?: string;
   observedPeerRole?: SessionRole;
   observedPeerDisplayName?: string;
+  observedPeerDeviceIdentity?: DeviceIdentity;
+  localDeviceIdentity?: DeviceIdentity;
   helloSent: boolean;
   hostAuthorization?: RuntimeAuthorizationSnapshot;
   hostWorkflowState?: HostWorkflowState;
@@ -448,6 +453,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
             platform: currentPlatform(),
             deviceId: options.deviceId
           });
+          sessionState.localDeviceIdentity = deviceIdentity;
 
           sendProtocol(runtimeSocket, options, {
             ...createMessageBase(options.sessionId),
@@ -699,6 +705,8 @@ function resetConnectionScopedSessionState(sessionState: AgentShellSessionState)
   sessionState.observedPeerId = undefined;
   sessionState.observedPeerRole = undefined;
   sessionState.observedPeerDisplayName = undefined;
+  sessionState.observedPeerDeviceIdentity = undefined;
+  sessionState.localDeviceIdentity = undefined;
   sessionState.helloSent = false;
   sessionState.hostAuthorization = undefined;
   sessionState.hostWorkflowState = undefined;
@@ -827,6 +835,7 @@ async function handleMessage(
       sessionState.observedPeerId = undefined;
       sessionState.observedPeerRole = undefined;
       sessionState.observedPeerDisplayName = undefined;
+      sessionState.observedPeerDeviceIdentity = undefined;
       deactivateHostIndicator(options, sessionState, "peer-disconnected");
     }
 
@@ -848,6 +857,7 @@ async function handleMessage(
       sessionState.observedPeerId = envelope.peerId;
       sessionState.observedPeerRole = envelope.role;
       sessionState.observedPeerDisplayName = envelope.displayName;
+      sessionState.observedPeerDeviceIdentity = envelope.deviceIdentity;
       sendHelloOnce(socket, options, sessionState);
     }
 
@@ -1594,7 +1604,8 @@ function sendHelloOnce(
     peerId: options.peerId,
     role: options.role,
     displayName: options.displayName,
-    capabilities: ["session:visible", "consent:required", "audit:stdout"]
+    capabilities: ["session:visible", "consent:required", "audit:stdout"],
+    ...(sessionState.localDeviceIdentity ? { deviceIdentity: sessionState.localDeviceIdentity } : {})
   });
   sessionState.helloSent = true;
 }
@@ -1889,19 +1900,24 @@ async function resolveHostDecisionProvider(
   let timeout: ReturnType<typeof setTimeout> | undefined;
 
   try {
+    const isObservedViewer =
+      sessionState.observedPeerRole === "viewer" && sessionState.observedPeerId === request.viewerPeerId;
+    const viewerDeviceIdentity = isObservedViewer ? sessionState.observedPeerDeviceIdentity : undefined;
+    const providerRequest: HostDecisionProviderRequest = {
+      viewerPeerId: request.viewerPeerId,
+      viewerDisplayName: isObservedViewer ? sessionState.observedPeerDisplayName : undefined,
+      ...(viewerDeviceIdentity
+        ? {
+            viewerDeviceId: viewerDeviceIdentity.deviceId,
+            viewerDevicePlatform: viewerDeviceIdentity.platform
+          }
+        : {}),
+      requestedPermissions: [...request.requestedPermissions],
+      requestedPermissionCount: request.requestedPermissions.length,
+      ...(request.reason === undefined ? {} : { requestReason: request.reason })
+    };
     const decision = await Promise.race([
-      Promise.resolve(
-        provider({
-          viewerPeerId: request.viewerPeerId,
-          viewerDisplayName:
-            sessionState.observedPeerId === request.viewerPeerId
-              ? sessionState.observedPeerDisplayName
-              : undefined,
-          requestedPermissions: [...request.requestedPermissions],
-          requestedPermissionCount: request.requestedPermissions.length,
-          ...(request.reason === undefined ? {} : { requestReason: request.reason })
-        })
-      ),
+      Promise.resolve(provider(providerRequest)),
       new Promise<typeof timeoutResult>((resolve) => {
         timeout = setTimeout(() => resolve(timeoutResult), timeoutMs);
       })
