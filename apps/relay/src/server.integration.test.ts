@@ -941,6 +941,94 @@ describe("relay runtime integration", () => {
     expect(JSON.stringify(delivery)).not.toContain("raw-forwarded-signal-candidate");
   });
 
+  it("forwards remote interaction messages with authorization audit metadata only", async () => {
+    const auditSink = new MemoryAuditSink();
+    const runtime = await startRuntime({ auditSink });
+    const { host, viewer } = await joinPairedSession(runtime);
+    const authorizationId = "authz-remote-interaction";
+    const screenFrame = {
+      ...createMessageBase("session-demo"),
+      type: "screen-frame",
+      authorizationId,
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      frameId: "frame-demo",
+      sequence: 1,
+      capturedAt: "2026-06-15T12:00:00.000Z",
+      format: "image/png",
+      width: 1280,
+      height: 720,
+      dataBase64: Buffer.from("raw-forwarded-frame-private-marker").toString("base64")
+    } as const;
+    const inputEvent = {
+      ...createMessageBase("session-demo"),
+      type: "input-event",
+      authorizationId,
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      eventId: "input-demo",
+      sequence: 2,
+      occurredAt: "2026-06-15T12:00:01.000Z",
+      event: {
+        kind: "key-down",
+        key: "KeyA",
+        modifiers: ["control"]
+      }
+    } as const;
+
+    host.send(encodeProtocolEnvelope(screenFrame));
+    expect(await waitForProtocolMessage(viewer, (message) => message.type === "screen-frame")).toMatchObject({
+      type: "screen-frame",
+      authorizationId,
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      frameId: "frame-demo"
+    });
+
+    viewer.send(encodeProtocolEnvelope(inputEvent));
+    expect(await waitForProtocolMessage(host, (message) => message.type === "input-event")).toMatchObject({
+      type: "input-event",
+      authorizationId,
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      eventId: "input-demo"
+    });
+
+    const forwardedFrame = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.forwarded" &&
+        record.detail?.messageType === "screen-frame" &&
+        record.detail?.authorizationId === authorizationId
+    );
+    const forwardedInput = await waitForAuditRecord(
+      auditSink,
+      (record) =>
+        record.action === "relay.message.forwarded" &&
+        record.detail?.messageType === "input-event" &&
+        record.detail?.authorizationId === authorizationId
+    );
+
+    expect(forwardedFrame.detail).toEqual({
+      messageType: "screen-frame",
+      messageId: screenFrame.messageId,
+      authorizationId,
+      recipientPeerId: "viewer-1",
+      recipientRole: "viewer"
+    });
+    expect(forwardedInput.detail).toEqual({
+      messageType: "input-event",
+      messageId: inputEvent.messageId,
+      authorizationId,
+      recipientPeerId: "host-1",
+      recipientRole: "host"
+    });
+    expect(JSON.stringify(forwardedFrame)).not.toContain("raw-forwarded-frame-private-marker");
+    expect(JSON.stringify(forwardedFrame)).not.toContain(screenFrame.dataBase64);
+    expect(JSON.stringify(forwardedInput)).not.toContain("KeyA");
+    expect(JSON.stringify(forwardedInput)).not.toContain("control");
+  });
+
   it("audits failed forwarded delivery without rejecting accepted sender message", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink, rooms: new FailingRecipientSendRoomRegistry() });
@@ -3817,6 +3905,87 @@ describe("relay runtime integration", () => {
     }
   });
 
+  it("rejects remote interaction messages from the wrong registered role", async () => {
+    const cases: Array<{
+      name: string;
+      sender: "host" | "viewer";
+      rejectedType: ProtocolEnvelope["type"];
+      buildMessage: () => ProtocolEnvelope;
+    }> = [
+      {
+        name: "viewer screen frame",
+        sender: "viewer",
+        rejectedType: "screen-frame",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "screen-frame",
+          authorizationId: "authz-demo",
+          fromPeerId: "viewer-1",
+          toPeerId: "host-1",
+          frameId: "frame-demo",
+          sequence: 1,
+          capturedAt: "2026-06-15T12:00:00.000Z",
+          format: "image/png",
+          width: 1280,
+          height: 720,
+          dataBase64: Buffer.from("wrong-role-frame-private-marker").toString("base64")
+        })
+      },
+      {
+        name: "host input event",
+        sender: "host",
+        rejectedType: "input-event",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "input-event",
+          authorizationId: "authz-demo",
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          eventId: "input-demo",
+          sequence: 1,
+          occurredAt: "2026-06-15T12:00:00.000Z",
+          event: {
+            kind: "pointer-move",
+            x: 0.5,
+            y: 0.5
+          }
+        })
+      }
+    ];
+
+    for (const { buildMessage, name, rejectedType, sender } of cases) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+      const senderSocket = sender === "host" ? host : viewer;
+      const recipientSocket = sender === "host" ? viewer : host;
+
+      senderSocket.send(encodeProtocolEnvelope(buildMessage()));
+
+      expect(await waitForJsonMessage(senderSocket, (message) => message.type === "relay-error"), name).toEqual({
+        type: "relay-error",
+        reason: "Message role does not match registered peer"
+      });
+      await expectNoProtocolMessage(recipientSocket, (message) => message.type === rejectedType);
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) =>
+          record.action === "relay.message.rejected" &&
+          record.reason === "Message role does not match registered peer"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain("wrong-role-frame-private-marker");
+    }
+  });
+
   it("forwards legacy host consent requests as viewer requests", async () => {
     const auditSink = new MemoryAuditSink();
     const runtime = await startRuntime({ auditSink });
@@ -4146,6 +4315,87 @@ describe("relay runtime integration", () => {
         }
       });
       expect(JSON.stringify(rejected), name).not.toContain(`wrong-target-private-marker-${toPeerId}`);
+    }
+  });
+
+  it("rejects misaddressed remote interaction targets before forwarding", async () => {
+    const cases: Array<{
+      name: string;
+      sender: "host" | "viewer";
+      rejectedType: ProtocolEnvelope["type"];
+      buildMessage: () => ProtocolEnvelope;
+    }> = [
+      {
+        name: "screen frame targets host",
+        sender: "host",
+        rejectedType: "screen-frame",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "screen-frame",
+          authorizationId: "authz-demo",
+          fromPeerId: "host-1",
+          toPeerId: "host-1",
+          frameId: "frame-demo",
+          sequence: 1,
+          capturedAt: "2026-06-15T12:00:00.000Z",
+          format: "image/png",
+          width: 1280,
+          height: 720,
+          dataBase64: Buffer.from("wrong-target-frame-private-marker").toString("base64")
+        })
+      },
+      {
+        name: "input event targets viewer",
+        sender: "viewer",
+        rejectedType: "input-event",
+        buildMessage: () => ({
+          ...createMessageBase("session-demo"),
+          type: "input-event",
+          authorizationId: "authz-demo",
+          fromPeerId: "viewer-1",
+          toPeerId: "viewer-1",
+          eventId: "input-demo",
+          sequence: 1,
+          occurredAt: "2026-06-15T12:00:00.000Z",
+          event: {
+            kind: "pointer-move",
+            x: 0.5,
+            y: 0.5
+          }
+        })
+      }
+    ];
+
+    for (const { buildMessage, name, rejectedType, sender } of cases) {
+      const auditSink = new MemoryAuditSink();
+      const runtime = await startRuntime({ auditSink });
+      const { host, viewer } = await joinPairedSession(runtime);
+      const senderSocket = sender === "host" ? host : viewer;
+      const recipientSocket = sender === "host" ? viewer : host;
+
+      senderSocket.send(encodeProtocolEnvelope(buildMessage()));
+
+      expect(await waitForJsonMessage(senderSocket, (message) => message.type === "relay-error"), name).toEqual({
+        type: "relay-error",
+        reason: "Message target does not match registered recipient"
+      });
+      await expectNoProtocolMessage(recipientSocket, (message) => message.type === rejectedType);
+
+      const rejected = await waitForAuditRecord(
+        auditSink,
+        (record) =>
+          record.action === "relay.message.rejected" &&
+          record.reason === "Message target does not match registered recipient"
+      );
+      expect(rejected, name).toMatchObject({
+        action: "relay.message.rejected",
+        outcome: "failed",
+        sessionId: "session-demo",
+        detail: {
+          registered: true
+        }
+      });
+      expect(JSON.stringify(rejected), name).not.toContain("wrong-target-frame-private-marker");
     }
   });
 

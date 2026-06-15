@@ -87,6 +87,13 @@ Protocol messages for session authorization lifecycle are explicit:
 
 Receiving one of these messages is not enough to perform a sensitive action. Components must still evaluate the shared authorization state and requested permission.
 
+MVP remote interaction protocol messages are explicit and non-authorizing:
+
+- `screen-frame`: host-originated frame data for a viewer that already has `screen:view`.
+- `input-event`: viewer-originated pointer or keyboard action data for a host that already granted `input:pointer` or `input:keyboard`.
+
+Every remote interaction message carries an `authorizationId`, but that identifier is correlation metadata, not a grant. Runtime and native adapters must deny each frame or input event unless the matching authorization is active, visible to the host, unexpired, not paused, not revoked, not terminated, and contains the required permission. Protocol acceptance must not start capture, inject input, reconnect peers, suppress host visibility, install services, configure startup persistence, elevate privileges, collect credentials, hide the session, or bypass Windows prompts.
+
 Authorization-related protocol reason fields must be non-blank when required, already trimmed, 240 characters or less, contain no ASCII control characters, contain no Unicode bidi or zero-width formatting controls, and contain no secret-bearing metadata such as raw tokens, credentials, pairing codes, authorization headers, cookies, private keys, screen contents, clipboard contents, file-transfer contents, or diagnostics dumps before relay forwarding or agent workflow processing.
 
 Permission revocation is a host-visible live-session transition. The shared authorization state machine accepts it only for visible, unexpired `active` or `paused` authorizations that currently include the permission. Revocation from pending, approved, denied, revoked, terminated, expired, invisible, or missing-permission states is rejected and must not create or restore access. Viewer runtimes additionally keep a local same-authorization revocation floor, so a stale `session-authorization-decision` or `session-authorization-state` for the same authorization id cannot restore a permission that the viewer already observed as revoked. The floor is scoped to the current authorization id and observed host authority; a different authorization id from that host starts a new consent scope.

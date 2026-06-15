@@ -25,8 +25,114 @@ import { hasAsciiControlCharacter, hasUnsafeTextFormatControl } from "./text-saf
 
 export const PROTOCOL_VERSION = 1;
 const MAX_SIGNAL_PAYLOAD_BYTES = 16 * 1024;
+const MAX_SCREEN_FRAME_DATA_BASE64_BYTES = 48 * 1024;
 const MAX_SIGNAL_PAYLOAD_KIND_LENGTH = 80;
 const SIGNAL_PAYLOAD_KIND_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const KEYBOARD_KEY_NAMES = [
+  "Backspace",
+  "Tab",
+  "Enter",
+  "Escape",
+  "Space",
+  "PageUp",
+  "PageDown",
+  "End",
+  "Home",
+  "ArrowLeft",
+  "ArrowUp",
+  "ArrowRight",
+  "ArrowDown",
+  "Insert",
+  "Delete",
+  "CapsLock",
+  "ShiftLeft",
+  "ShiftRight",
+  "ControlLeft",
+  "ControlRight",
+  "AltLeft",
+  "AltRight",
+  "MetaLeft",
+  "MetaRight",
+  "ContextMenu",
+  "Digit0",
+  "Digit1",
+  "Digit2",
+  "Digit3",
+  "Digit4",
+  "Digit5",
+  "Digit6",
+  "Digit7",
+  "Digit8",
+  "Digit9",
+  "KeyA",
+  "KeyB",
+  "KeyC",
+  "KeyD",
+  "KeyE",
+  "KeyF",
+  "KeyG",
+  "KeyH",
+  "KeyI",
+  "KeyJ",
+  "KeyK",
+  "KeyL",
+  "KeyM",
+  "KeyN",
+  "KeyO",
+  "KeyP",
+  "KeyQ",
+  "KeyR",
+  "KeyS",
+  "KeyT",
+  "KeyU",
+  "KeyV",
+  "KeyW",
+  "KeyX",
+  "KeyY",
+  "KeyZ",
+  "F1",
+  "F2",
+  "F3",
+  "F4",
+  "F5",
+  "F6",
+  "F7",
+  "F8",
+  "F9",
+  "F10",
+  "F11",
+  "F12",
+  "F13",
+  "F14",
+  "F15",
+  "F16",
+  "F17",
+  "F18",
+  "F19",
+  "F20",
+  "F21",
+  "F22",
+  "F23",
+  "F24",
+  "Numpad0",
+  "Numpad1",
+  "Numpad2",
+  "Numpad3",
+  "Numpad4",
+  "Numpad5",
+  "Numpad6",
+  "Numpad7",
+  "Numpad8",
+  "Numpad9",
+  "NumpadAdd",
+  "NumpadSubtract",
+  "NumpadMultiply",
+  "NumpadDivide",
+  "NumpadDecimal",
+  "NumpadEnter"
+] as const;
+const KEYBOARD_KEY_NAME_SET: ReadonlySet<string> = new Set(KEYBOARD_KEY_NAMES);
 const SENSITIVE_SIGNAL_PAYLOAD_KEY_INDICATORS = [
   "token",
   "credential",
@@ -141,6 +247,87 @@ const GrantedPermissionsSchema = createPermissionListSchema({
 const StatePermissionsSchema = createPermissionListSchema({
   duplicateMessage: "permissions must be unique"
 });
+const RemoteInteractionIdSchema = ProtocolIdentifierSchema.refine(
+  (identifier) => !hasSecretBearingProtocolIdentifierMetadata(identifier),
+  "Remote interaction identifier must not contain sensitive metadata"
+);
+const RemoteInteractionSequenceSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const ScreenFrameDataBase64Schema = z
+  .string()
+  .min(1)
+  .refine((data) => BASE64_PATTERN.test(data), "Screen frame data must be base64 encoded")
+  .refine(
+    (data) => Buffer.byteLength(data, "utf8") <= MAX_SCREEN_FRAME_DATA_BASE64_BYTES,
+    `Screen frame data must be ${MAX_SCREEN_FRAME_DATA_BASE64_BYTES} bytes or less`
+  );
+const ScreenDimensionSchema = z.number().int().min(1).max(16_384);
+const PointerCoordinateSchema = z.number().min(0).max(1);
+const PointerButtonSchema = z.enum(["primary", "secondary", "middle", "back", "forward"]);
+const PointerButtonsMaskSchema = z.number().int().min(0).max(31);
+const PointerDeltaSchema = z.number().int().min(-4096).max(4096);
+const KeyboardKeySchema = z.string().superRefine((key, context) => {
+  if (KEYBOARD_KEY_NAME_SET.has(key)) {
+    return;
+  }
+
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "Keyboard key must be a supported key name"
+  });
+}).transform((key): (typeof KEYBOARD_KEY_NAMES)[number] => key as (typeof KEYBOARD_KEY_NAMES)[number]);
+const KeyboardModifierSchema = z.enum(["alt", "control", "meta", "shift"]);
+const PointerMoveInputEventSchema = z.object({
+  kind: z.literal("pointer-move"),
+  x: PointerCoordinateSchema,
+  y: PointerCoordinateSchema,
+  buttons: PointerButtonsMaskSchema.optional()
+}).strict();
+const PointerButtonInputEventSchema = z.object({
+  kind: z.enum(["pointer-down", "pointer-up"]),
+  x: PointerCoordinateSchema,
+  y: PointerCoordinateSchema,
+  button: PointerButtonSchema,
+  buttons: PointerButtonsMaskSchema.optional()
+}).strict();
+const PointerWheelInputEventSchema = z.object({
+  kind: z.literal("pointer-wheel"),
+  x: PointerCoordinateSchema,
+  y: PointerCoordinateSchema,
+  deltaX: PointerDeltaSchema.default(0),
+  deltaY: PointerDeltaSchema.default(0)
+}).strict().superRefine((event, context) => {
+  if (event.deltaX !== 0 || event.deltaY !== 0) {
+    return;
+  }
+
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "Pointer wheel input requires non-zero delta",
+    path: ["deltaY"]
+  });
+});
+const KeyboardInputEventSchema = z.object({
+  kind: z.enum(["key-down", "key-up"]),
+  key: KeyboardKeySchema,
+  code: KeyboardKeySchema.optional(),
+  modifiers: z.array(KeyboardModifierSchema).max(4).default([])
+}).strict().superRefine((event, context) => {
+  if (new Set(event.modifiers).size === event.modifiers.length) {
+    return;
+  }
+
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message: "Keyboard input modifiers must be unique",
+    path: ["modifiers"]
+  });
+});
+const RemoteInputEventSchema = z.union([
+  PointerMoveInputEventSchema,
+  PointerButtonInputEventSchema,
+  PointerWheelInputEventSchema,
+  KeyboardInputEventSchema
+]);
 
 export const HelloMessageSchema = BaseMessageSchema.extend({
   type: z.literal("hello"),
@@ -426,6 +613,31 @@ export const SignalMessageSchema = BaseMessageSchema.extend({
   }
 });
 
+export const ScreenFrameMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("screen-frame"),
+  authorizationId: AuthorizationIdSchema,
+  fromPeerId: PeerIdSchema,
+  toPeerId: PeerIdSchema.optional(),
+  frameId: RemoteInteractionIdSchema,
+  sequence: RemoteInteractionSequenceSchema,
+  capturedAt: z.string().datetime(),
+  format: z.enum(["image/jpeg", "image/png"]),
+  width: ScreenDimensionSchema,
+  height: ScreenDimensionSchema,
+  dataBase64: ScreenFrameDataBase64Schema
+});
+
+export const InputEventMessageSchema = BaseMessageSchema.extend({
+  type: z.literal("input-event"),
+  authorizationId: AuthorizationIdSchema,
+  fromPeerId: PeerIdSchema,
+  toPeerId: PeerIdSchema.optional(),
+  eventId: RemoteInteractionIdSchema,
+  sequence: RemoteInteractionSequenceSchema,
+  occurredAt: z.string().datetime(),
+  event: RemoteInputEventSchema
+});
+
 export const SessionControlMessageSchema = BaseMessageSchema.extend({
   type: z.literal("session-control"),
   authorizationId: AuthorizationIdSchema,
@@ -501,6 +713,8 @@ export const ProtocolEnvelopeSchema = z.union([
   RelayReadyMessageSchema,
   PeerDisconnectedMessageSchema,
   SignalMessageSchema,
+  ScreenFrameMessageSchema,
+  InputEventMessageSchema,
   SessionControlMessageSchema,
   AuditEventMessageSchema
 ]);

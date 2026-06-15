@@ -304,6 +304,35 @@ describe("protocol envelopes", () => {
       },
       {
         ...createMessageBase("session-demo"),
+        type: "screen-frame",
+        authorizationId: "authz-demo",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        frameId: "frame-demo",
+        sequence: 1,
+        capturedAt: new Date().toISOString(),
+        format: "image/png",
+        width: 1280,
+        height: 720,
+        dataBase64: Buffer.from("frame").toString("base64")
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "input-event",
+        authorizationId: "authz-demo",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        eventId: "input-demo",
+        sequence: 1,
+        occurredAt: new Date().toISOString(),
+        event: {
+          kind: "pointer-move",
+          x: 0.25,
+          y: 0.75
+        }
+      },
+      {
+        ...createMessageBase("session-demo"),
         type: "session-control",
         authorizationId: "authz-demo",
         actorPeerId: "host-1",
@@ -631,6 +660,239 @@ describe("protocol envelopes", () => {
         }
       }
     });
+  });
+
+  it("accepts consent-bound screen frame envelopes", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "screen-frame",
+      authorizationId: "authz-demo",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      frameId: "frame-demo",
+      sequence: 7,
+      capturedAt: "2026-06-15T12:00:00.000Z",
+      format: "image/jpeg",
+      width: 1920,
+      height: 1080,
+      dataBase64: Buffer.from("jpeg-frame-bytes").toString("base64")
+    });
+
+    expect(parsed).toMatchObject({
+      type: "screen-frame",
+      authorizationId: "authz-demo",
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      frameId: "frame-demo",
+      sequence: 7,
+      format: "image/jpeg",
+      width: 1920,
+      height: 1080
+    });
+  });
+
+  it("accepts consent-bound pointer and keyboard input event envelopes", () => {
+    const pointer = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "input-event",
+      authorizationId: "authz-demo",
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      eventId: "pointer-demo",
+      sequence: 10,
+      occurredAt: "2026-06-15T12:00:00.000Z",
+      event: {
+        kind: "pointer-down",
+        x: 0.5,
+        y: 0.25,
+        button: "primary",
+        buttons: 1
+      }
+    });
+    const keyboard = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "input-event",
+      authorizationId: "authz-demo",
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      eventId: "keyboard-demo",
+      sequence: 11,
+      occurredAt: "2026-06-15T12:00:01.000Z",
+      event: {
+        kind: "key-down",
+        key: "KeyA",
+        code: "KeyA",
+        modifiers: ["control", "shift"]
+      }
+    });
+
+    expect(pointer).toMatchObject({
+      type: "input-event",
+      event: {
+        kind: "pointer-down",
+        button: "primary"
+      }
+    });
+    expect(keyboard).toMatchObject({
+      type: "input-event",
+      event: {
+        kind: "key-down",
+        key: "KeyA",
+        modifiers: ["control", "shift"]
+      }
+    });
+  });
+
+  it("returns immutable remote interaction snapshots", () => {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("session-demo"),
+      type: "input-event",
+      authorizationId: "authz-demo",
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      eventId: "keyboard-demo",
+      sequence: 12,
+      occurredAt: "2026-06-15T12:00:00.000Z",
+      event: {
+        kind: "key-up",
+        key: "Enter",
+        modifiers: ["alt"]
+      }
+    });
+
+    expectImmutableProtocolEnvelope(parsed);
+    if (parsed.type !== "input-event") {
+      throw new Error("Expected input-event message");
+    }
+    if (parsed.event.kind !== "key-up") {
+      throw new Error("Expected keyboard input event");
+    }
+
+    expect(Object.isFrozen(parsed.event)).toBe(true);
+    expect(Object.isFrozen(parsed.event.modifiers)).toBe(true);
+    expect(() => {
+      parsed.event.kind = "key-down";
+    }).toThrow(TypeError);
+    expect(() => {
+      parsed.event.modifiers.push("shift");
+    }).toThrow(TypeError);
+  });
+
+  it("rejects remote interaction envelopes with malformed authorization ids", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "screen-frame",
+        authorizationId: "token-raw-authz-secret",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        frameId: "frame-demo",
+        sequence: 1,
+        capturedAt: "2026-06-15T12:00:00.000Z",
+        format: "image/png",
+        width: 1280,
+        height: 720,
+        dataBase64: Buffer.from("frame").toString("base64")
+      })
+    ).toThrow("sensitive metadata");
+
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "input-event",
+        authorizationId: "authz demo",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        eventId: "input-demo",
+        sequence: 1,
+        occurredAt: "2026-06-15T12:00:00.000Z",
+        event: {
+          kind: "pointer-move",
+          x: 0.5,
+          y: 0.5
+        }
+      })
+    ).toThrow();
+  });
+
+  it("rejects oversized screen frame payloads before forwarding", () => {
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "screen-frame",
+        authorizationId: "authz-demo",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        frameId: "frame-demo",
+        sequence: 1,
+        capturedAt: "2026-06-15T12:00:00.000Z",
+        format: "image/png",
+        width: 1280,
+        height: 720,
+        dataBase64: "A".repeat(49 * 1024)
+      })
+    ).toThrow("Screen frame data must be 49152 bytes or less");
+  });
+
+  it("rejects unsafe input event metadata without exposing raw private text", () => {
+    const rawKey = "token-raw-key-secret";
+
+    try {
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "input-event",
+        authorizationId: "authz-demo",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        eventId: "keyboard-demo",
+        sequence: 1,
+        occurredAt: "2026-06-15T12:00:00.000Z",
+        event: {
+          kind: "key-down",
+          key: rawKey
+        }
+      });
+      throw new Error("Expected unsafe keyboard input to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).not.toContain(rawKey);
+      expect((error as Error).message).not.toContain("raw-key-secret");
+    }
+
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "input-event",
+        authorizationId: "authz-demo",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        eventId: "keyboard-demo",
+        sequence: 2,
+        occurredAt: "2026-06-15T12:00:00.000Z",
+        event: {
+          kind: "key-down",
+          key: "hello.world"
+        }
+      })
+    ).toThrow();
+
+    expect(() =>
+      parseProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "input-event",
+        authorizationId: "authz-demo",
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        eventId: "keyboard-demo",
+        sequence: 3,
+        occurredAt: "2026-06-15T12:00:00.000Z",
+        event: {
+          kind: "key-down",
+          key: "KeyA",
+          keylogBuffer: "raw-private-keys"
+        }
+      })
+    ).toThrow();
   });
 
   it("returns immutable signal payload snapshots without changing encoded wire shape", () => {

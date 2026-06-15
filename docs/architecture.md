@@ -27,6 +27,7 @@ Owns shared schemas for:
 - Permission grants.
 - Session authorization lifecycle.
 - Relay signaling.
+- MVP remote interaction envelopes for screen frames and input events.
 - Peer disconnect notices.
 - Session control.
 - Audit events.
@@ -45,6 +46,13 @@ Preferred future clients should use the session authorization protocol messages 
 
 These messages are wire contracts only. Sensitive actions still require the shared session authorization state-machine checks.
 Session controls are authorization-bound: pause, resume, terminate, and permission-revoke control intent carries the affected `authorizationId` and cannot stand in for an action grant by itself.
+
+MVP remote interaction messages are also wire contracts only:
+
+- `screen-frame` carries bounded host-to-viewer frame metadata and encoded frame bytes for an already authorized `screen:view` flow.
+- `input-event` carries bounded viewer-to-host pointer or keyboard actions for already authorized `input:pointer` or `input:keyboard` flows.
+
+Protocol validation for these messages does not approve sessions, activate visibility, start capture, inject input, reconnect peers, install services, configure startup persistence, elevate privileges, or bypass Windows prompts. Future runtime and native Windows adapters must check the active visible unexpired authorization before every frame render, capture side effect, and input side effect.
 
 ### packages/audit-log
 
@@ -105,6 +113,8 @@ Development invalid-token and invalid-message rate limits are bounded, and direc
 ### apps/agent-shell
 
 Provides a CLI exerciser for protocol and relay behavior. It intentionally does not capture screens, inject input, sync clipboard, transfer files, or install a service.
+
+The shell may parse the MVP `screen-frame` and `input-event` protocol envelopes as schema-valid messages once they pass the shared protocol package, but the current shell still does not perform native capture or input injection. That native behavior requires later OpenSpec changes for host UI, viewer UI, Windows capture, and Windows input adapters.
 
 Clipboard permissions `clipboard:read` and `clipboard:write` are intentionally rejected by shared protocol, authorization, CLI, and runtime validation until a dedicated OpenSpec change and security review define a consent-first clipboard capability.
 

@@ -791,6 +791,14 @@ function assertRegisteredPeerCanForward(envelope: ProtocolEnvelope, peer: RelayP
     case "signal":
       assertEnvelopePeer(envelope.fromPeerId, peer);
       return;
+    case "screen-frame":
+      assertEnvelopeRole("host", peer);
+      assertEnvelopePeer(envelope.fromPeerId, peer);
+      return;
+    case "input-event":
+      assertEnvelopeRole("viewer", peer);
+      assertEnvelopePeer(envelope.fromPeerId, peer);
+      return;
     case "session-authorization-state":
     case "permission-revoked":
     case "session-control":
@@ -954,6 +962,9 @@ function forwardAuditAuthorizationId(envelope: ProtocolEnvelope): string | undef
       const authorizationId = envelope.payload.authorizationId;
       return typeof authorizationId === "string" ? authorizationId : undefined;
     }
+    case "screen-frame":
+    case "input-event":
+      return envelope.authorizationId;
     default:
       return undefined;
   }
@@ -992,6 +1003,18 @@ function assertEnvelopeTargetsRecipient(envelope: ProtocolEnvelope, recipient: R
       assertTargetPeer(envelope.viewerPeerId, recipient);
       return;
     case "signal":
+      if (envelope.toPeerId) {
+        assertTargetPeer(envelope.toPeerId, recipient);
+      }
+      return;
+    case "screen-frame":
+      assertRecipientRole("viewer", recipient);
+      if (envelope.toPeerId) {
+        assertTargetPeer(envelope.toPeerId, recipient);
+      }
+      return;
+    case "input-event":
+      assertRecipientRole("host", recipient);
       if (envelope.toPeerId) {
         assertTargetPeer(envelope.toPeerId, recipient);
       }
