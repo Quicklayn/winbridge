@@ -1,6 +1,13 @@
 const DAILY_DEFAULT_LIMIT = 100_000_000;
+const CYCLE_DEFAULT_LIMIT = 2_000_000;
+const UTC_CUTOFF_DEFAULT_HOUR = 13;
 
 const allowUnknown = process.env.WINBRIDGE_TOKEN_GUARD_ALLOW_UNKNOWN === "1";
+const utcCutoffHour = readUtcCutoffHour(
+  "WINBRIDGE_WORK_CUTOFF_UTC_HOUR",
+  UTC_CUTOFF_DEFAULT_HOUR
+);
+const nowUtc = readNowUtc("WINBRIDGE_TOKEN_GUARD_NOW_UTC");
 
 const checks = [
   {
@@ -10,12 +17,36 @@ const checks = [
     defaultLimit: DAILY_DEFAULT_LIMIT,
     maxRatio: 1,
     hardLimitText: "100000000 tokens per day"
+  },
+  {
+    name: "cycle",
+    usageEnv: "WINBRIDGE_TOKEN_USAGE_CYCLE",
+    limitEnv: "WINBRIDGE_TOKEN_LIMIT_CYCLE",
+    defaultLimit: CYCLE_DEFAULT_LIMIT,
+    maxRatio: 1,
+    hardLimitText: "2000000 tokens per work cycle"
   }
 ];
 
 const failures = [];
 const warnings = [];
 const summaries = [];
+
+if (!utcCutoffHour.ok) {
+  failures.push(utcCutoffHour.message);
+} else if (!nowUtc.ok) {
+  failures.push(nowUtc.message);
+} else if (nowUtc.value.getUTCHours() >= utcCutoffHour.value) {
+  failures.push(
+    `utc-cutoff: current UTC time is at or after ${formatUtcHour(
+      utcCutoffHour.value
+    )}; stop WinBridge project work`
+  );
+} else {
+  summaries.push(
+    `utc-cutoff: before ${formatUtcHour(utcCutoffHour.value)} (${nowUtc.value.toISOString()})`
+  );
+}
 
 for (const check of checks) {
   const usage = readNonNegativeInteger(check.usageEnv);
@@ -104,4 +135,40 @@ function readPositiveInteger(name, fallback) {
   }
 
   return { ok: true, value };
+}
+
+function readUtcCutoffHour(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") {
+    return { ok: true, value: fallback };
+  }
+
+  if (!/^(0|[1-9]\d*)$/.test(raw)) {
+    return { ok: false, message: `${name} must be an integer from 0 through 23` };
+  }
+
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0 || value > 23) {
+    return { ok: false, message: `${name} must be an integer from 0 through 23` };
+  }
+
+  return { ok: true, value };
+}
+
+function readNowUtc(name) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") {
+    return { ok: true, value: new Date() };
+  }
+
+  const value = new Date(raw);
+  if (Number.isNaN(value.getTime())) {
+    return { ok: false, message: `${name} must be a valid date-time` };
+  }
+
+  return { ok: true, value };
+}
+
+function formatUtcHour(hour) {
+  return `${String(hour).padStart(2, "0")}:00 UTC`;
 }
