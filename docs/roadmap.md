@@ -22,6 +22,7 @@
 
 - WebRTC signaling.
 - Screen frame transport design after consent, authorization, visibility, revoke, and audit gates are specified.
+- Agent-shell development `screen-frame` CLI exerciser for one-shot metadata-redacted transport checks.
 - Bandwidth and quality controls.
 - Pause/resume.
 - Timeout and reconnect behavior.
@@ -39,6 +40,7 @@
 - Viewer UI.
 - Viewer local status surface.
 - Remote pointer/keyboard UX after a dedicated OpenSpec design and security review specify host-granted input permission, revocation, and audit gates.
+- Agent-shell development `input-event` CLI exerciser for one-shot metadata-redacted transport checks.
 - Permission request UX.
 - Session logs.
 

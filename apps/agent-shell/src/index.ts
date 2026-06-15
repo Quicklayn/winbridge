@@ -4,6 +4,11 @@ import { reportAgentShellCliError } from "./cli-diagnostics.js";
 import { createInteractiveHostDecisionProvider } from "./host-consent-prompt.js";
 import { startInteractiveHostControlPrompt, type HostControlPromptHandle } from "./host-control-prompt.js";
 import { scheduleHostStatusPrint, type HostStatusPrintHandle } from "./host-status.js";
+import {
+  scheduleDevelopmentInputEventSend,
+  scheduleDevelopmentScreenFrameSend,
+  type RemoteInteractionCliHandle
+} from "./remote-interaction-cli.js";
 import { createAgentShellRuntime } from "./runtime.js";
 import {
   startInteractiveViewerControlPrompt,
@@ -19,6 +24,8 @@ try {
   let viewerControlPrompt: ViewerControlPromptHandle | undefined;
   let viewerLocalDisconnect: ViewerLocalDisconnectHandle | undefined;
   let viewerStatusPrint: ViewerStatusPrintHandle | undefined;
+  let devScreenFrameSend: RemoteInteractionCliHandle | undefined;
+  let devInputEventSend: RemoteInteractionCliHandle | undefined;
   const runtime = createAgentShellRuntime({
     ...args,
     hostDecisionProvider: args.hostConsentPrompt
@@ -33,6 +40,8 @@ try {
     viewerControlPrompt?.stop();
     viewerLocalDisconnect?.stop();
     viewerStatusPrint?.stop();
+    devScreenFrameSend?.stop();
+    devInputEventSend?.stop();
     await runtime.stop();
   };
 
@@ -78,6 +87,14 @@ try {
           runtime,
           args.viewerDisconnectAfterMs
         );
+      }
+
+      if (args.devScreenFrame) {
+        devScreenFrameSend = scheduleDevelopmentScreenFrameSend(runtime, args.devScreenFrame);
+      }
+
+      if (args.devInputEvent) {
+        devInputEventSend = scheduleDevelopmentInputEventSend(runtime, args.devInputEvent);
       }
     })
     .catch((error) => {

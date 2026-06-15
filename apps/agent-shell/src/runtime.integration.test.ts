@@ -16,6 +16,10 @@ import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { createRelayRuntime, type RelayRuntime } from "../../relay/src/server.js";
 import { parseArgs } from "./args.js";
 import {
+  scheduleDevelopmentInputEventSend,
+  scheduleDevelopmentScreenFrameSend
+} from "./remote-interaction-cli.js";
+import {
   createAgentShellErrorDiagnostic,
   createAgentShellRuntime,
   formatAgentShellErrorLog,
@@ -1821,6 +1825,201 @@ describe("agent shell consent workflow", () => {
     expect(serialized).not.toContain("KeyA");
     expect(serialized).not.toContain("control");
     expect(serialized).not.toContain("shift");
+  });
+
+  it("schedules host CLI development screen frames through runtime gates", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    const frameData = Buffer.from("cli-raw-screen-content-private-marker").toString("base64");
+    const handle = scheduleDevelopmentScreenFrameSend(
+      host,
+      {
+        afterMs: 0,
+        frame: {
+          frameId: "frame_cli_scheduled_1",
+          sequence: 0,
+          format: "image/png",
+          width: 2,
+          height: 2,
+          dataBase64: frameData
+        }
+      },
+      { pollIntervalMs: 5 }
+    );
+
+    try {
+      const sentFrame = await waitForSentMessage(
+        hostEvents,
+        (message) => message.type === "screen-frame" && message.frameId === "frame_cli_scheduled_1"
+      );
+      const receivedFrame = await waitForMessage(
+        viewerEvents,
+        (message) => message.type === "screen-frame" && message.frameId === "frame_cli_scheduled_1"
+      );
+      const auditRecord = hostAuditSink.records().find(
+        (record) => record.action === "agent-shell.remote-interaction.screen-frame.sent"
+      );
+
+      expect(sentFrame).toMatchObject({
+        type: "screen-frame",
+        authorizationId,
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        frameId: "frame_cli_scheduled_1",
+        sequence: 0,
+        dataBase64: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(frameData, "utf8")
+        }
+      });
+      expect(receivedFrame).toMatchObject(sentFrame);
+      expect(auditRecord?.detail).toMatchObject({
+        authorizationId,
+        frameId: "frame_cli_scheduled_1",
+        sequence: 0,
+        frameDataByteLength: Buffer.byteLength(frameData, "utf8")
+      });
+      expect(JSON.stringify([sentFrame, receivedFrame, auditRecord])).not.toContain(frameData);
+      expect(JSON.stringify([sentFrame, receivedFrame, auditRecord])).not.toContain("cli-raw-screen-content");
+    } finally {
+      handle.stop();
+    }
+  });
+
+  it("schedules viewer CLI development input events through runtime gates", async () => {
+    const viewerAuditSink = new MemoryAuditSink();
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    const viewer = await startViewer(
+      relay.url(),
+      ["input:pointer", "input:keyboard"],
+      viewerEvents,
+      silentLogger,
+      viewerAuditSink
+    );
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    const pointerHandle = scheduleDevelopmentInputEventSend(
+      viewer,
+      {
+        afterMs: 0,
+        input: {
+          eventId: "input_cli_pointer_1",
+          sequence: 0,
+          event: {
+            kind: "pointer-move",
+            x: 0.5,
+            y: 0.25,
+            buttons: 1
+          }
+        }
+      },
+      { pollIntervalMs: 5 }
+    );
+    const keyboardHandle = scheduleDevelopmentInputEventSend(
+      viewer,
+      {
+        afterMs: 0,
+        input: {
+          eventId: "input_cli_keyboard_1",
+          sequence: 0,
+          event: {
+            kind: "key-down",
+            key: "KeyA",
+            code: "KeyA",
+            modifiers: ["shift"]
+          }
+        }
+      },
+      { pollIntervalMs: 5 }
+    );
+
+    try {
+      const sentPointer = await waitForSentMessage(
+        viewerEvents,
+        (message) => message.type === "input-event" && message.eventId === "input_cli_pointer_1"
+      );
+      const sentKeyboard = await waitForSentMessage(
+        viewerEvents,
+        (message) => message.type === "input-event" && message.eventId === "input_cli_keyboard_1"
+      );
+      const receivedPointer = await waitForMessage(
+        hostEvents,
+        (message) => message.type === "input-event" && message.eventId === "input_cli_pointer_1"
+      );
+      const receivedKeyboard = await waitForMessage(
+        hostEvents,
+        (message) => message.type === "input-event" && message.eventId === "input_cli_keyboard_1"
+      );
+      const auditActions = viewerAuditSink.records().filter(
+        (record) => record.action === "agent-shell.remote-interaction.input-event.sent"
+      );
+
+      expect(sentPointer).toMatchObject({
+        type: "input-event",
+        authorizationId,
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        eventId: "input_cli_pointer_1",
+        event: {
+          redacted: "[REDACTED]",
+          kind: "pointer-move",
+          byteLength: expect.any(Number)
+        }
+      });
+      expect(receivedPointer).toMatchObject(sentPointer);
+      expect(sentKeyboard).toMatchObject({
+        type: "input-event",
+        authorizationId,
+        fromPeerId: "viewer-1",
+        toPeerId: "host-1",
+        eventId: "input_cli_keyboard_1",
+        event: {
+          redacted: "[REDACTED]",
+          kind: "key-down",
+          byteLength: expect.any(Number)
+        }
+      });
+      expect(receivedKeyboard).toMatchObject(sentKeyboard);
+      expect(auditActions).toEqual([
+        expect.objectContaining({
+          detail: expect.objectContaining({
+            authorizationId,
+            eventId: "input_cli_pointer_1",
+            inputKind: "pointer-move"
+          })
+        }),
+        expect.objectContaining({
+          detail: expect.objectContaining({
+            authorizationId,
+            eventId: "input_cli_keyboard_1",
+            inputKind: "key-down"
+          })
+        })
+      ]);
+      const serialized = JSON.stringify([
+        sentPointer,
+        sentKeyboard,
+        receivedPointer,
+        receivedKeyboard,
+        auditActions
+      ]);
+      expect(serialized).not.toContain("0.25");
+      expect(serialized).not.toContain("KeyA");
+      expect(serialized).not.toContain("shift");
+    } finally {
+      pointerHandle.stop();
+      keyboardHandle.stop();
+    }
   });
 
   it("blocks remote interaction sends without active matching authorization", async () => {

@@ -1,14 +1,17 @@
 import { assertAuditLogPath } from "@winbridge/audit-log";
 import {
+  createMessageBase,
   DeviceIdentitySchema,
   hasSecretBearingAuditMetadata,
   hasSecretBearingProtocolIdentifierMetadata,
   PairingCodeSchema,
   PeerIdSchema,
   PermissionSchema,
+  parseProtocolEnvelope,
   ProtocolIdentifierSchema,
   SessionIdSchema,
   type Permission,
+  type ProtocolEnvelope,
   type SessionRole
 } from "@winbridge/protocol";
 import {
@@ -17,8 +20,20 @@ import {
   MAX_AGENT_SHELL_TOKEN_BYTES,
   MAX_AGENT_SHELL_TIMER_DELAY_MS,
   parsePermissions,
+  type AgentShellInputEventInput,
+  type AgentShellScreenFrameInput,
   type HostDecision
 } from "./runtime.js";
+
+export type AgentShellDevScreenFrameArgs = Readonly<{
+  afterMs: number;
+  frame: Omit<AgentShellScreenFrameInput, "authorizationId">;
+}>;
+
+export type AgentShellDevInputEventArgs = Readonly<{
+  afterMs: number;
+  input: Omit<AgentShellInputEventInput, "authorizationId">;
+}>;
 
 export type AgentShellArgs = {
   role: SessionRole;
@@ -56,10 +71,26 @@ export type AgentShellArgs = {
   viewerSignalProbeAfterMs?: number;
   viewerStatusAfterMs?: number;
   viewerDisconnectAfterMs?: number;
+  devScreenFrame?: AgentShellDevScreenFrameArgs;
+  devInputEvent?: AgentShellDevInputEventArgs;
 };
 
 export const AGENT_SHELL_USAGE =
-  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000]";
+  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000] [--dev-screen-frame-after-ms 1000] [--dev-screen-frame-id frame_cli_1] [--dev-screen-frame-format image/png] [--dev-screen-frame-width 1] [--dev-screen-frame-height 1] [--dev-screen-frame-data-base64 base64] [--dev-input-after-ms 1000] [--dev-input-kind pointer-move|pointer-down|pointer-up|pointer-wheel|key-down|key-up] [--dev-input-event-id input_cli_1] [--dev-pointer-x 0.5] [--dev-pointer-y 0.5] [--dev-pointer-button primary] [--dev-pointer-buttons 1] [--dev-pointer-delta-x 0] [--dev-pointer-delta-y 1] [--dev-key KeyA] [--dev-code KeyA] [--dev-modifiers shift,control]";
+
+const DEFAULT_DEV_SCREEN_FRAME_DATA_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+const DEFAULT_DEV_SCREEN_FRAME_ID = "frame_cli_1";
+const DEFAULT_DEV_INPUT_EVENT_ID = "input_cli_1";
+const DEV_CLI_VALIDATION_AUTHORIZATION_ID = "authz_cli_validation";
+const DEV_CLI_VALIDATION_FROM_PEER_ID = "peer-cli-validation";
+const REMOTE_INPUT_MODIFIERS = ["alt", "control", "meta", "shift"] as const;
+type RemoteInputModifier = (typeof REMOTE_INPUT_MODIFIERS)[number];
+type RemoteInputKind = Extract<ProtocolEnvelope, { type: "input-event" }>["event"]["kind"];
+type RemoteKeyboardKey = Extract<
+  AgentShellInputEventInput["event"],
+  { kind: "key-down" | "key-up" }
+>["key"];
 
 const knownOptions = new Set([
   "relay",
@@ -95,10 +126,43 @@ const knownOptions = new Set([
   "disconnect-reason",
   "viewer-signal-probe-after-ms",
   "viewer-status-after-ms",
-  "viewer-disconnect-after-ms"
+  "viewer-disconnect-after-ms",
+  "dev-screen-frame-after-ms",
+  "dev-screen-frame-id",
+  "dev-screen-frame-format",
+  "dev-screen-frame-width",
+  "dev-screen-frame-height",
+  "dev-screen-frame-data-base64",
+  "dev-input-after-ms",
+  "dev-input-kind",
+  "dev-input-event-id",
+  "dev-pointer-x",
+  "dev-pointer-y",
+  "dev-pointer-button",
+  "dev-pointer-buttons",
+  "dev-pointer-delta-x",
+  "dev-pointer-delta-y",
+  "dev-key",
+  "dev-code",
+  "dev-modifiers"
 ]);
 
-const hostRejectedViewerWorkflowOptions = ["request", "request-reason"] as const;
+const hostRejectedViewerWorkflowOptions = [
+  "request",
+  "request-reason",
+  "dev-input-after-ms",
+  "dev-input-kind",
+  "dev-input-event-id",
+  "dev-pointer-x",
+  "dev-pointer-y",
+  "dev-pointer-button",
+  "dev-pointer-buttons",
+  "dev-pointer-delta-x",
+  "dev-pointer-delta-y",
+  "dev-key",
+  "dev-code",
+  "dev-modifiers"
+] as const;
 
 const viewerRejectedHostWorkflowOptions = [
   "grant",
@@ -120,8 +184,49 @@ const viewerRejectedHostWorkflowOptions = [
   "terminate-after-ms",
   "terminate-reason",
   "disconnect-after-ms",
-  "disconnect-reason"
+  "disconnect-reason",
+  "dev-screen-frame-after-ms",
+  "dev-screen-frame-id",
+  "dev-screen-frame-format",
+  "dev-screen-frame-width",
+  "dev-screen-frame-height",
+  "dev-screen-frame-data-base64"
 ] as const;
+
+const devScreenFrameOptions = [
+  "dev-screen-frame-after-ms",
+  "dev-screen-frame-id",
+  "dev-screen-frame-format",
+  "dev-screen-frame-width",
+  "dev-screen-frame-height",
+  "dev-screen-frame-data-base64"
+] as const;
+
+const devInputEventOptions = [
+  "dev-input-after-ms",
+  "dev-input-kind",
+  "dev-input-event-id",
+  "dev-pointer-x",
+  "dev-pointer-y",
+  "dev-pointer-button",
+  "dev-pointer-buttons",
+  "dev-pointer-delta-x",
+  "dev-pointer-delta-y",
+  "dev-key",
+  "dev-code",
+  "dev-modifiers"
+] as const;
+
+const devPointerOptions = [
+  "dev-pointer-x",
+  "dev-pointer-y",
+  "dev-pointer-button",
+  "dev-pointer-buttons",
+  "dev-pointer-delta-x",
+  "dev-pointer-delta-y"
+] as const;
+
+const devKeyboardOptions = ["dev-key", "dev-code", "dev-modifiers"] as const;
 
 export class AgentShellUsageError extends Error {
   constructor() {
@@ -189,6 +294,8 @@ export function parseArgs(
     viewerDisconnectAfterMs,
     options.get("viewer-control-prompt")
   );
+  const devScreenFrame = parseDevScreenFrame(role, options);
+  const devInputEvent = parseDevInputEvent(role, requestedPermissions, options);
 
   return {
     role,
@@ -230,7 +337,9 @@ export function parseArgs(
     hostDisconnectReason: parseHostDisconnectReason(role, options.get("disconnect-reason")),
     viewerSignalProbeAfterMs,
     viewerStatusAfterMs,
-    viewerDisconnectAfterMs
+    viewerDisconnectAfterMs,
+    devScreenFrame,
+    devInputEvent
   };
 }
 
@@ -619,6 +728,319 @@ function parseViewerDisconnectAfterMs(
   }
 
   return delayMs;
+}
+
+function parseDevScreenFrame(
+  role: SessionRole,
+  options: Map<string, string>
+): AgentShellDevScreenFrameArgs | undefined {
+  if (!hasAnyOption(options, devScreenFrameOptions)) {
+    return undefined;
+  }
+
+  if (role !== "host") {
+    throw new AgentShellUsageError();
+  }
+
+  const afterMs = parseRequiredTimerDelayMs(options.get("dev-screen-frame-after-ms"));
+  const frame = validateDevScreenFrame({
+    frameId: parseRemoteInteractionId(options.get("dev-screen-frame-id") ?? DEFAULT_DEV_SCREEN_FRAME_ID),
+    sequence: 0,
+    format: parseDevScreenFrameFormat(options.get("dev-screen-frame-format") ?? "image/png"),
+    width: parseIntegerOption(options.get("dev-screen-frame-width") ?? "1", 1, 16_384),
+    height: parseIntegerOption(options.get("dev-screen-frame-height") ?? "1", 1, 16_384),
+    dataBase64: options.get("dev-screen-frame-data-base64") ?? DEFAULT_DEV_SCREEN_FRAME_DATA_BASE64
+  });
+
+  return { afterMs, frame };
+}
+
+function parseDevInputEvent(
+  role: SessionRole,
+  requestedPermissions: Permission[],
+  options: Map<string, string>
+): AgentShellDevInputEventArgs | undefined {
+  if (!hasAnyOption(options, devInputEventOptions)) {
+    return undefined;
+  }
+
+  if (role !== "viewer") {
+    throw new AgentShellUsageError();
+  }
+
+  const afterMs = parseRequiredTimerDelayMs(options.get("dev-input-after-ms"));
+  const kind = parseDevInputKind(options.get("dev-input-kind"));
+  const requiredPermission = devInputKindRequiredPermission(kind);
+  if (!requestedPermissions.includes(requiredPermission)) {
+    throw new AgentShellUsageError();
+  }
+
+  const input = validateDevInputEvent({
+    eventId: parseRemoteInteractionId(options.get("dev-input-event-id") ?? DEFAULT_DEV_INPUT_EVENT_ID),
+    sequence: 0,
+    event: parseDevInputEventPayload(kind, options)
+  });
+
+  return { afterMs, input };
+}
+
+function parseDevInputEventPayload(
+  kind: RemoteInputKind,
+  options: Map<string, string>
+): AgentShellInputEventInput["event"] {
+  switch (kind) {
+    case "pointer-move":
+      assertNoOptions(options, [
+        "dev-pointer-button",
+        "dev-pointer-delta-x",
+        "dev-pointer-delta-y",
+        ...devKeyboardOptions
+      ]);
+      return {
+        kind,
+        x: parseRequiredPointerCoordinate(options.get("dev-pointer-x")),
+        y: parseRequiredPointerCoordinate(options.get("dev-pointer-y")),
+        ...(options.has("dev-pointer-buttons")
+          ? { buttons: parseIntegerOption(options.get("dev-pointer-buttons") ?? "", 0, 31) }
+          : {})
+      };
+    case "pointer-down":
+    case "pointer-up":
+      assertNoOptions(options, [
+        "dev-pointer-delta-x",
+        "dev-pointer-delta-y",
+        ...devKeyboardOptions
+      ]);
+      return {
+        kind,
+        x: parseRequiredPointerCoordinate(options.get("dev-pointer-x")),
+        y: parseRequiredPointerCoordinate(options.get("dev-pointer-y")),
+        button: parsePointerButton(options.get("dev-pointer-button")),
+        ...(options.has("dev-pointer-buttons")
+          ? { buttons: parseIntegerOption(options.get("dev-pointer-buttons") ?? "", 0, 31) }
+          : {})
+      };
+    case "pointer-wheel":
+      assertNoOptions(options, ["dev-pointer-button", "dev-pointer-buttons", ...devKeyboardOptions]);
+      return {
+        kind,
+        x: parseRequiredPointerCoordinate(options.get("dev-pointer-x")),
+        y: parseRequiredPointerCoordinate(options.get("dev-pointer-y")),
+        deltaX: parseOptionalPointerDelta(options.get("dev-pointer-delta-x")),
+        deltaY: parseOptionalPointerDelta(options.get("dev-pointer-delta-y"))
+      };
+    case "key-down":
+    case "key-up":
+      assertNoOptions(options, devPointerOptions);
+      return {
+        kind,
+        key: parseRequiredKeyboardKey(options.get("dev-key")),
+        ...(options.has("dev-code") ? { code: parseRequiredKeyboardKey(options.get("dev-code")) } : {}),
+        modifiers: parseKeyboardModifiers(options.get("dev-modifiers"))
+      };
+  }
+}
+
+function validateDevScreenFrame(
+  frame: AgentShellDevScreenFrameArgs["frame"]
+): AgentShellDevScreenFrameArgs["frame"] {
+  try {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("demo"),
+      type: "screen-frame",
+      authorizationId: DEV_CLI_VALIDATION_AUTHORIZATION_ID,
+      fromPeerId: DEV_CLI_VALIDATION_FROM_PEER_ID,
+      capturedAt: new Date(0).toISOString(),
+      ...frame
+    });
+
+    if (parsed.type !== "screen-frame") {
+      throw new AgentShellUsageError();
+    }
+
+    return frame;
+  } catch {
+    throw new AgentShellUsageError();
+  }
+}
+
+function validateDevInputEvent(input: AgentShellDevInputEventArgs["input"]): AgentShellDevInputEventArgs["input"] {
+  try {
+    const parsed = parseProtocolEnvelope({
+      ...createMessageBase("demo"),
+      type: "input-event",
+      authorizationId: DEV_CLI_VALIDATION_AUTHORIZATION_ID,
+      fromPeerId: DEV_CLI_VALIDATION_FROM_PEER_ID,
+      occurredAt: new Date(0).toISOString(),
+      ...input
+    });
+
+    if (parsed.type !== "input-event") {
+      throw new AgentShellUsageError();
+    }
+
+    return input;
+  } catch {
+    throw new AgentShellUsageError();
+  }
+}
+
+function parseRequiredTimerDelayMs(raw: string | undefined): number {
+  const delayMs = parseOptionalTimerDelayMs(raw);
+  if (delayMs === undefined) {
+    throw new AgentShellUsageError();
+  }
+
+  return delayMs;
+}
+
+function parseRemoteInteractionId(raw: string): string {
+  try {
+    const interactionId = ProtocolIdentifierSchema.parse(raw);
+    assertNoSecretBearingProtocolIdentifierMetadata(interactionId);
+
+    return interactionId;
+  } catch {
+    throw new AgentShellUsageError();
+  }
+}
+
+function parseDevScreenFrameFormat(raw: string): AgentShellScreenFrameInput["format"] {
+  if (raw === "image/png" || raw === "image/jpeg") {
+    return raw;
+  }
+
+  throw new AgentShellUsageError();
+}
+
+function parseDevInputKind(raw: string | undefined): RemoteInputKind {
+  switch (raw) {
+    case "pointer-move":
+    case "pointer-down":
+    case "pointer-up":
+    case "pointer-wheel":
+    case "key-down":
+    case "key-up":
+      return raw;
+    default:
+      throw new AgentShellUsageError();
+  }
+}
+
+function devInputKindRequiredPermission(kind: RemoteInputKind): Permission {
+  switch (kind) {
+    case "pointer-move":
+    case "pointer-down":
+    case "pointer-up":
+    case "pointer-wheel":
+      return "input:pointer";
+    case "key-down":
+    case "key-up":
+      return "input:keyboard";
+  }
+}
+
+function parseRequiredPointerCoordinate(raw: string | undefined): number {
+  if (raw === undefined || isUnsafeCliScalar(raw)) {
+    throw new AgentShellUsageError();
+  }
+
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value > 1 || String(value) !== raw) {
+    throw new AgentShellUsageError();
+  }
+
+  return value;
+}
+
+function parsePointerButton(raw: string | undefined): AgentShellInputEventInput["event"] extends infer Event
+  ? Event extends { button: infer Button }
+    ? Button
+    : never
+  : never {
+  switch (raw) {
+    case "primary":
+    case "secondary":
+    case "middle":
+    case "back":
+    case "forward":
+      return raw;
+    default:
+      throw new AgentShellUsageError();
+  }
+}
+
+function parseOptionalPointerDelta(raw: string | undefined): number {
+  if (raw === undefined) {
+    return 0;
+  }
+
+  return parseIntegerOption(raw, -4096, 4096);
+}
+
+function parseRequiredKeyboardKey(raw: string | undefined): RemoteKeyboardKey {
+  if (raw === undefined || isUnsafeCliScalar(raw)) {
+    throw new AgentShellUsageError();
+  }
+
+  return raw as RemoteKeyboardKey;
+}
+
+function parseKeyboardModifiers(raw: string | undefined): RemoteInputModifier[] {
+  if (raw === undefined) {
+    return [];
+  }
+
+  if (isUnsafeCliScalar(raw)) {
+    throw new AgentShellUsageError();
+  }
+
+  const modifiers = raw.split(",");
+  if (modifiers.length === 0 || modifiers.length > 4 || new Set(modifiers).size !== modifiers.length) {
+    throw new AgentShellUsageError();
+  }
+
+  for (const modifier of modifiers) {
+    if (!REMOTE_INPUT_MODIFIERS.includes(modifier as RemoteInputModifier)) {
+      throw new AgentShellUsageError();
+    }
+  }
+
+  return modifiers as RemoteInputModifier[];
+}
+
+function parseIntegerOption(raw: string, min: number, max: number): number {
+  if (isUnsafeCliScalar(raw)) {
+    throw new AgentShellUsageError();
+  }
+
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value < min || value > max || String(value) !== raw) {
+    throw new AgentShellUsageError();
+  }
+
+  return value;
+}
+
+function isUnsafeCliScalar(raw: string): boolean {
+  return (
+    raw.trim().length === 0 ||
+    raw !== raw.trim() ||
+    hasAsciiControlCharacter(raw) ||
+    hasUnsafeFormatCharacter(raw)
+  );
+}
+
+function hasAnyOption(options: Map<string, string>, optionNames: readonly string[]): boolean {
+  return optionNames.some((optionName) => options.has(optionName));
+}
+
+function assertNoOptions(options: Map<string, string>, optionNames: readonly string[]): void {
+  for (const optionName of optionNames) {
+    if (options.has(optionName)) {
+      throw new AgentShellUsageError();
+    }
+  }
 }
 
 function parseHostDisconnectReason(role: SessionRole, raw: string | undefined): string | undefined {

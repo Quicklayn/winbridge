@@ -156,7 +156,7 @@ type AgentShellInputEventEnvelope = Extract<ProtocolEnvelope, { type: "input-eve
 export type AgentShellScreenFrameInput = Readonly<
   Omit<
     AgentShellScreenFrameEnvelope,
-    "type" | "sessionId" | "messageId" | "createdAt" | "fromPeerId" | "capturedAt"
+    "protocolVersion" | "type" | "sessionId" | "messageId" | "createdAt" | "fromPeerId" | "capturedAt"
   > & {
     capturedAt?: string;
   }
@@ -165,7 +165,7 @@ export type AgentShellScreenFrameInput = Readonly<
 export type AgentShellInputEventInput = Readonly<
   Omit<
     AgentShellInputEventEnvelope,
-    "type" | "sessionId" | "messageId" | "createdAt" | "fromPeerId" | "occurredAt"
+    "protocolVersion" | "type" | "sessionId" | "messageId" | "createdAt" | "fromPeerId" | "occurredAt"
   > & {
     occurredAt?: string;
   }

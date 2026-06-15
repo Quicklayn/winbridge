@@ -207,7 +207,13 @@ describe("agent shell arguments", () => {
       ["terminate-after-ms", "0"],
       ["terminate-reason", "Host terminated"],
       ["disconnect-after-ms", "0"],
-      ["disconnect-reason", "Host local close"]
+      ["disconnect-reason", "Host local close"],
+      ["dev-screen-frame-after-ms", "0"],
+      ["dev-screen-frame-id", "frame_cli_1"],
+      ["dev-screen-frame-format", "image/png"],
+      ["dev-screen-frame-width", "1"],
+      ["dev-screen-frame-height", "1"],
+      ["dev-screen-frame-data-base64", "eA=="]
     ] as const;
 
     for (const [option, value] of hostWorkflowOptions) {
@@ -246,6 +252,24 @@ describe("agent shell arguments", () => {
     expect(() => parseArgs(["host", "--request-reason", "Need support"], {}, 42)).toThrow(
       AgentShellUsageError
     );
+    for (const [option, value] of [
+      ["dev-input-after-ms", "0"],
+      ["dev-input-kind", "pointer-move"],
+      ["dev-input-event-id", "input_cli_1"],
+      ["dev-pointer-x", "0.5"],
+      ["dev-pointer-y", "0.5"],
+      ["dev-pointer-button", "primary"],
+      ["dev-pointer-buttons", "1"],
+      ["dev-pointer-delta-x", "1"],
+      ["dev-pointer-delta-y", "1"],
+      ["dev-key", "KeyA"],
+      ["dev-code", "KeyA"],
+      ["dev-modifiers", "shift"]
+    ] as const) {
+      expect(() => parseArgs(["host", `--${option}`, value], {}, 42), option).toThrow(
+        AgentShellUsageError
+      );
+    }
   });
 
   it("rejects host viewer-request options without exposing raw request text", () => {
@@ -298,6 +322,240 @@ describe("agent shell arguments", () => {
       0
     );
     expect(parseArgs(["viewer", "--viewer-control-prompt", "true"], {}, 42).viewerControlPrompt).toBe(true);
+  });
+
+  it("parses host development screen-frame CLI scheduling args", () => {
+    const args = parseArgs(
+      [
+        "host",
+        "--dev-screen-frame-after-ms",
+        "0",
+        "--dev-screen-frame-id",
+        "frame_cli_custom",
+        "--dev-screen-frame-format",
+        "image/jpeg",
+        "--dev-screen-frame-width",
+        "640",
+        "--dev-screen-frame-height",
+        "480",
+        "--dev-screen-frame-data-base64",
+        "eA=="
+      ],
+      {},
+      42
+    );
+
+    expect(args.devScreenFrame).toEqual({
+      afterMs: 0,
+      frame: {
+        frameId: "frame_cli_custom",
+        sequence: 0,
+        format: "image/jpeg",
+        width: 640,
+        height: 480,
+        dataBase64: "eA=="
+      }
+    });
+    expect(args.devInputEvent).toBeUndefined();
+  });
+
+  it("parses viewer development pointer and keyboard input CLI scheduling args", () => {
+    expect(
+      parseArgs(
+        [
+          "viewer",
+          "--request",
+          "input:pointer",
+          "--dev-input-after-ms",
+          "0",
+          "--dev-input-kind",
+          "pointer-down",
+          "--dev-input-event-id",
+          "input_cli_pointer",
+          "--dev-pointer-x",
+          "0.5",
+          "--dev-pointer-y",
+          "1",
+          "--dev-pointer-button",
+          "primary",
+          "--dev-pointer-buttons",
+          "1"
+        ],
+        {},
+        42
+      ).devInputEvent
+    ).toEqual({
+      afterMs: 0,
+      input: {
+        eventId: "input_cli_pointer",
+        sequence: 0,
+        event: {
+          kind: "pointer-down",
+          x: 0.5,
+          y: 1,
+          button: "primary",
+          buttons: 1
+        }
+      }
+    });
+
+    expect(
+      parseArgs(
+        [
+          "viewer",
+          "--request",
+          "input:keyboard",
+          "--dev-input-after-ms",
+          "10",
+          "--dev-input-kind",
+          "key-down",
+          "--dev-key",
+          "KeyA",
+          "--dev-code",
+          "KeyA",
+          "--dev-modifiers",
+          "shift,control"
+        ],
+        {},
+        42
+      ).devInputEvent
+    ).toEqual({
+      afterMs: 10,
+      input: {
+        eventId: "input_cli_1",
+        sequence: 0,
+        event: {
+          kind: "key-down",
+          key: "KeyA",
+          code: "KeyA",
+          modifiers: ["shift", "control"]
+        }
+      }
+    });
+  });
+
+  it("rejects unsafe or malformed development remote interaction CLI args", () => {
+    const malformedHostFrameCases = [
+      ["--dev-screen-frame-id", "token-raw-frame-secret"],
+      ["--dev-screen-frame-format", "raw"],
+      ["--dev-screen-frame-width", "0"],
+      ["--dev-screen-frame-height", "16385"],
+      ["--dev-screen-frame-data-base64", "not base64"]
+    ] as const;
+
+    expect(() => parseArgs(["host", "--dev-screen-frame-id", "frame_cli_custom"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+    for (const [option, value] of malformedHostFrameCases) {
+      expect(() =>
+        parseArgs(["host", "--dev-screen-frame-after-ms", "0", option, value], {}, 42)
+      ).toThrow(AgentShellUsageError);
+    }
+
+    const malformedViewerInputCases = [
+      [
+        "missing requested permission",
+        ["viewer", "--dev-input-after-ms", "0", "--dev-input-kind", "pointer-move", "--dev-pointer-x", "0.5", "--dev-pointer-y", "0.5"]
+      ],
+      [
+        "bad pointer coordinate",
+        [
+          "viewer",
+          "--request",
+          "input:pointer",
+          "--dev-input-after-ms",
+          "0",
+          "--dev-input-kind",
+          "pointer-move",
+          "--dev-pointer-x",
+          "1.5",
+          "--dev-pointer-y",
+          "0.5"
+        ]
+      ],
+      [
+        "zero wheel delta",
+        [
+          "viewer",
+          "--request",
+          "input:pointer",
+          "--dev-input-after-ms",
+          "0",
+          "--dev-input-kind",
+          "pointer-wheel",
+          "--dev-pointer-x",
+          "0.5",
+          "--dev-pointer-y",
+          "0.5"
+        ]
+      ],
+      [
+        "wrong option family",
+        [
+          "viewer",
+          "--request",
+          "input:keyboard",
+          "--dev-input-after-ms",
+          "0",
+          "--dev-input-kind",
+          "key-up",
+          "--dev-key",
+          "KeyA",
+          "--dev-pointer-x",
+          "0.5"
+        ]
+      ],
+      [
+        "unsupported key",
+        [
+          "viewer",
+          "--request",
+          "input:keyboard",
+          "--dev-input-after-ms",
+          "0",
+          "--dev-input-kind",
+          "key-up",
+          "--dev-key",
+          "Password"
+        ]
+      ],
+      [
+        "duplicate modifiers",
+        [
+          "viewer",
+          "--request",
+          "input:keyboard",
+          "--dev-input-after-ms",
+          "0",
+          "--dev-input-kind",
+          "key-up",
+          "--dev-key",
+          "KeyA",
+          "--dev-modifiers",
+          "shift,shift"
+        ]
+      ]
+    ] as const;
+
+    for (const [name, raw] of malformedViewerInputCases) {
+      expect(() => parseArgs([...raw], {}, 42), name).toThrow(AgentShellUsageError);
+    }
+  });
+
+  it("redacts development CLI usage errors", () => {
+    const rawSecretFrameId = "token-raw-frame-secret";
+    try {
+      parseArgs(
+        ["host", "--dev-screen-frame-after-ms", "0", "--dev-screen-frame-id", rawSecretFrameId],
+        {},
+        42
+      );
+      throw new Error("Expected unsafe frame id to be rejected");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AgentShellUsageError);
+      expect((error as Error).message).not.toContain(rawSecretFrameId);
+      expect((error as Error).message).not.toContain("raw-frame-secret");
+    }
   });
 
   it("rejects viewer request reasons without requested permissions", () => {

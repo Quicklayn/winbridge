@@ -199,6 +199,24 @@ The host acknowledgement is host-only and defaults to off. It sends at most one 
 
 After a trusted host acknowledgement for the current active authorization, bounded viewer status may include `signalProbeAckReceived=true`. This status metadata is local and part of an immutable read-only viewer status snapshot: it does not expose raw signal payload markers, kind metadata, or contents, and does not grant signaling, capture, input, clipboard, file-transfer, diagnostics, reconnect, or host-control capability. The flag is omitted after authorization loss or local/remote disconnect.
 
+Exercise the consent-bound development remote interaction message paths:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --dev-screen-frame-after-ms 1000
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+`--dev-screen-frame-after-ms` is host-only. It waits until the host runtime has an active visible authorization with `screen:view`, then sends exactly one development `screen-frame` message through `sendScreenFrame()`. By default it sends a tiny static PNG marker; optional `--dev-screen-frame-id`, `--dev-screen-frame-format`, `--dev-screen-frame-width`, `--dev-screen-frame-height`, and `--dev-screen-frame-data-base64` values are bounded and validated before runtime startup. This path does not read files, capture the real screen, start a native Windows capture adapter, or expose raw frame bytes in events, logs, or audit records.
+
+Exercise a consent-bound development input message:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request input:pointer --dev-input-after-ms 1000 --dev-input-kind pointer-move --dev-pointer-x 0.5 --dev-pointer-y 0.5
+```
+
+`--dev-input-after-ms` is viewer-only and requires a matching requested permission: pointer events require `input:pointer`, and keyboard events require `input:keyboard`. It waits until the viewer runtime observes an active visible authorization, then sends exactly one development `input-event` message through `sendInputEvent()`. Pointer options are bounded normalized coordinates/buttons/wheel deltas; keyboard options are protocol-supported key names plus unique modifiers. This path does not inject OS input, bypass Windows prompts, capture keystrokes, accept arbitrary JSON, or expose raw input payloads in events, logs, or audit records.
+
 Use the development host control prompt to invoke immediate local controls from the host terminal:
 
 ```powershell
