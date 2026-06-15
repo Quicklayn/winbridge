@@ -1639,6 +1639,685 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify(receivedSignal)).not.toContain("outbound-candidate");
   });
 
+  it("sends authorized development screen frames with metadata-only events and audit", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    const frameData = Buffer.from("raw-screen-content-private-marker").toString("base64");
+
+    host.sendScreenFrame({
+      authorizationId,
+      frameId: "frame_dev_1",
+      sequence: 1,
+      capturedAt: new Date().toISOString(),
+      format: "image/png",
+      width: 640,
+      height: 360,
+      dataBase64: frameData
+    });
+
+    const sentFrame = await waitForSentMessage(
+      hostEvents,
+      (message) => message.type === "screen-frame" && message.frameId === "frame_dev_1"
+    );
+    const receivedFrame = await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "screen-frame" && message.frameId === "frame_dev_1"
+    );
+    const auditRecord = hostAuditSink.records().find(
+      (record) => record.action === "agent-shell.remote-interaction.screen-frame.sent"
+    );
+
+    expect(sentFrame).toMatchObject({
+      type: "screen-frame",
+      authorizationId,
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      dataBase64: {
+        redacted: "[REDACTED]",
+        byteLength: Buffer.byteLength(frameData, "utf8")
+      }
+    });
+    expect(receivedFrame).toMatchObject({
+      type: "screen-frame",
+      authorizationId,
+      fromPeerId: "host-1",
+      toPeerId: "viewer-1",
+      dataBase64: {
+        redacted: "[REDACTED]",
+        byteLength: Buffer.byteLength(frameData, "utf8")
+      }
+    });
+    expect(auditRecord?.detail).toMatchObject({
+      authorizationId,
+      frameId: "frame_dev_1",
+      sequence: 1,
+      format: "image/png",
+      width: 640,
+      height: 360,
+      frameDataByteLength: Buffer.byteLength(frameData, "utf8")
+    });
+    expect(JSON.stringify([sentFrame, receivedFrame, auditRecord])).not.toContain(frameData);
+    expect(JSON.stringify([sentFrame, receivedFrame, auditRecord])).not.toContain("raw-screen-content");
+  });
+
+  it("sends authorized development pointer and keyboard input with metadata-only events and audit", async () => {
+    const viewerAuditSink = new MemoryAuditSink();
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    const viewer = await startViewer(
+      relay.url(),
+      ["input:pointer", "input:keyboard"],
+      viewerEvents,
+      silentLogger,
+      viewerAuditSink
+    );
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_dev_pointer_1",
+      sequence: 1,
+      occurredAt: new Date().toISOString(),
+      event: {
+        kind: "pointer-move",
+        x: 0.42,
+        y: 0.24,
+        buttons: 1
+      }
+    });
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_dev_keyboard_1",
+      sequence: 2,
+      occurredAt: new Date().toISOString(),
+      event: {
+        kind: "key-down",
+        key: "KeyA",
+        code: "KeyA",
+        modifiers: ["control", "shift"]
+      }
+    });
+
+    const sentPointer = await waitForSentMessage(
+      viewerEvents,
+      (message) => message.type === "input-event" && message.eventId === "input_dev_pointer_1"
+    );
+    const sentKeyboard = await waitForSentMessage(
+      viewerEvents,
+      (message) => message.type === "input-event" && message.eventId === "input_dev_keyboard_1"
+    );
+    const receivedPointer = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "input-event" && message.eventId === "input_dev_pointer_1"
+    );
+    const receivedKeyboard = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "input-event" && message.eventId === "input_dev_keyboard_1"
+    );
+    const auditActions = viewerAuditSink.records().filter(
+      (record) => record.action === "agent-shell.remote-interaction.input-event.sent"
+    );
+
+    expect(sentPointer).toMatchObject({
+      type: "input-event",
+      authorizationId,
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      event: {
+        redacted: "[REDACTED]",
+        kind: "pointer-move",
+        byteLength: expect.any(Number)
+      }
+    });
+    expect(receivedPointer).toMatchObject(sentPointer);
+    expect(sentKeyboard).toMatchObject({
+      type: "input-event",
+      authorizationId,
+      fromPeerId: "viewer-1",
+      toPeerId: "host-1",
+      event: {
+        redacted: "[REDACTED]",
+        kind: "key-down",
+        byteLength: expect.any(Number)
+      }
+    });
+    expect(receivedKeyboard).toMatchObject(sentKeyboard);
+    expect(auditActions).toHaveLength(2);
+    expect(auditActions.map((record) => record.detail)).toEqual([
+      expect.objectContaining({
+        authorizationId,
+        eventId: "input_dev_pointer_1",
+        sequence: 1,
+        inputKind: "pointer-move",
+        inputPayloadByteLength: expect.any(Number)
+      }),
+      expect.objectContaining({
+        authorizationId,
+        eventId: "input_dev_keyboard_1",
+        sequence: 2,
+        inputKind: "key-down",
+        inputPayloadByteLength: expect.any(Number)
+      })
+    ]);
+    const serialized = JSON.stringify([
+      sentPointer,
+      sentKeyboard,
+      receivedPointer,
+      receivedKeyboard,
+      auditActions
+    ]);
+    expect(serialized).not.toContain("0.42");
+    expect(serialized).not.toContain("0.24");
+    expect(serialized).not.toContain("KeyA");
+    expect(serialized).not.toContain("control");
+    expect(serialized).not.toContain("shift");
+  });
+
+  it("blocks remote interaction sends without active matching authorization", async () => {
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost();
+    const viewer = await startViewer(relay.url(), [], viewerEvents);
+    await waitForMessage(hostEvents, (message) => message.type === "hello");
+    await waitForMessage(viewerEvents, (message) => message.type === "hello");
+    const frameData = Buffer.from("blocked-raw-screen-content").toString("base64");
+
+    expect(() =>
+      host.sendScreenFrame({
+        authorizationId: "authz_missing_remote_interaction",
+        frameId: "frame_blocked_missing",
+        sequence: 1,
+        format: "image/png",
+        width: 320,
+        height: 200,
+        dataBase64: frameData
+      })
+    ).toThrow("Agent shell remote interaction requires active visible authorization");
+
+    expect(() =>
+      viewer.sendInputEvent({
+        authorizationId: "authz_missing_remote_interaction",
+        eventId: "input_blocked_missing",
+        sequence: 1,
+        event: {
+          kind: "pointer-down",
+          x: 0.5,
+          y: 0.5,
+          button: "primary"
+        }
+      })
+    ).toThrow("Agent shell remote interaction requires active visible authorization");
+    expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "screen-frame")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "sent" && event.message.type === "input-event")).toBe(false);
+    expect(JSON.stringify([hostEvents, viewerEvents])).not.toContain(frameData);
+    expect(JSON.stringify([hostEvents, viewerEvents])).not.toContain("blocked-raw-screen-content");
+  });
+
+  it("blocks paused revoked expired wrong-permission wrong-authorization and wrong-peer remote interactions", async () => {
+    const frameData = Buffer.from("blocked-remote-frame").toString("base64");
+
+    {
+      const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+        hostDecision: "approve",
+        hostPauseAfterMs: 0,
+        visibleToHost: true
+      });
+      await startViewer(relay.url(), ["screen:view"], viewerEvents);
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+      await waitForSentMessage(
+        hostEvents,
+        (message) => message.type === "session-authorization-state" && message.status === "paused"
+      );
+
+      expect(() =>
+        host.sendScreenFrame({
+          authorizationId,
+          frameId: "frame_blocked_paused",
+          sequence: 1,
+          format: "image/png",
+          width: 320,
+          height: 200,
+          dataBase64: frameData
+        })
+      ).toThrow("Agent shell remote interaction requires active visible authorization");
+    }
+
+    {
+      const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+        hostDecision: "approve",
+        hostRevokeAfterMs: 0,
+        hostRevokePermission: "screen:view",
+        visibleToHost: true
+      });
+      await startViewer(relay.url(), ["screen:view"], viewerEvents);
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+      await waitForSentMessage(
+        hostEvents,
+        (message) => message.type === "session-authorization-state" && message.status === "revoked"
+      );
+
+      expect(() =>
+        host.sendScreenFrame({
+          authorizationId,
+          frameId: "frame_blocked_revoked",
+          sequence: 1,
+          format: "image/png",
+          width: 320,
+          height: 200,
+          dataBase64: frameData
+        })
+      ).toThrow("Agent shell remote interaction requires active visible authorization");
+    }
+
+    {
+      const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+        authorizationTtlMs: 10,
+        hostDecision: "approve",
+        visibleToHost: true
+      });
+      await startViewer(relay.url(), ["screen:view"], viewerEvents);
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+      await waitForSentMessage(
+        hostEvents,
+        (message) => message.type === "session-authorization-state" && message.status === "expired"
+      );
+
+      expect(() =>
+        host.sendScreenFrame({
+          authorizationId,
+          frameId: "frame_blocked_expired",
+          sequence: 1,
+          format: "image/png",
+          width: 320,
+          height: 200,
+          dataBase64: frameData
+        })
+      ).toThrow("Agent shell remote interaction requires active visible authorization");
+    }
+
+    {
+      const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+        hostDecision: "approve",
+        visibleToHost: true
+      });
+      const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+      await waitForReceivedActiveAuthorizationId(viewerEvents);
+
+      expect(() =>
+        viewer.sendInputEvent({
+          authorizationId,
+          eventId: "input_blocked_wrong_permission",
+          sequence: 1,
+          event: {
+            kind: "pointer-move",
+            x: 0.1,
+            y: 0.1
+          }
+        })
+      ).toThrow("Agent shell remote interaction requires active visible authorization");
+      expect(() =>
+        host.sendScreenFrame({
+          authorizationId: "authz_wrong_remote_interaction",
+          frameId: "frame_blocked_wrong_auth",
+          sequence: 1,
+          format: "image/png",
+          width: 320,
+          height: 200,
+          dataBase64: frameData
+        })
+      ).toThrow("Agent shell remote interaction requires active visible authorization");
+      expect(() =>
+        host.sendScreenFrame({
+          authorizationId,
+          toPeerId: "viewer-2",
+          frameId: "frame_blocked_wrong_peer",
+          sequence: 2,
+          format: "image/png",
+          width: 320,
+          height: 200,
+          dataBase64: frameData
+        })
+      ).toThrow("Agent shell remote interaction sender and target must match runtime peer routing");
+    }
+  });
+
+  it("blocks remote interaction socket writes when accepted local audit persistence fails", async () => {
+    const backingSink = new MemoryAuditSink();
+    const rawAuditFailure = "remote interaction audit failed with raw-screen-content raw-key-data";
+    const failingSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.remote-interaction.screen-frame.sent") {
+          throw new Error(rawAuditFailure);
+        }
+
+        return backingSink.write(input);
+      }
+    };
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    const frameData = Buffer.from("audit-blocked-raw-screen-content").toString("base64");
+
+    expect(() =>
+      host.sendScreenFrame({
+        authorizationId,
+        frameId: "frame_audit_blocked",
+        sequence: 1,
+        format: "image/png",
+        width: 640,
+        height: 360,
+        dataBase64: frameData
+      })
+    ).toThrow("Agent shell runtime error");
+
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    await delay(100);
+    expect(errorEvent).toMatchObject({
+      direction: "error",
+      error: new Error("Agent shell runtime error"),
+      messageBytes: rawAuditFailure.length
+    });
+    expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "screen-frame")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "received" && event.message.type === "screen-frame")).toBe(false);
+    expect(backingSink.records().some((record) => record.action === "agent-shell.remote-interaction.screen-frame.sent")).toBe(false);
+    expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain(rawAuditFailure);
+    expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain(frameData);
+    expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain("audit-blocked-raw-screen-content");
+    expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain("raw-key-data");
+  });
+
+  it("blocks generic public send from bypassing remote interaction audit gates", async () => {
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    const frameData = Buffer.from("generic-bypass-raw-screen-content").toString("base64");
+
+    expect(() =>
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "screen-frame",
+        authorizationId,
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        frameId: "frame_generic_bypass",
+        sequence: 1,
+        capturedAt: new Date().toISOString(),
+        format: "image/png",
+        width: 640,
+        height: 360,
+        dataBase64: frameData
+      })
+    ).toThrow("Agent shell remote interaction messages require dedicated runtime methods");
+    expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "screen-frame")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "received" && event.message.type === "screen-frame")).toBe(false);
+    expect(JSON.stringify([hostEvents, viewerEvents])).not.toContain(frameData);
+    expect(JSON.stringify([hostEvents, viewerEvents])).not.toContain("generic-bypass-raw-screen-content");
+  });
+
+  it("ignores inbound development input events after stale or missing host authorization", async () => {
+    const staleScenarios: Array<{
+      name: string;
+      options: Parameters<typeof startRelayAndHost>[0];
+      waitForClosedState: (message: AgentShellSentProtocolEnvelope) => boolean;
+    }> = [
+      {
+        name: "pause",
+        options: {
+          hostDecision: "approve",
+          hostPauseAfterMs: 10,
+          visibleToHost: true
+        },
+        waitForClosedState: (message) =>
+          message.type === "session-authorization-state" && message.status === "paused"
+      },
+      {
+        name: "revoke",
+        options: {
+          hostDecision: "approve",
+          hostRevokeAfterMs: 10,
+          hostRevokePermission: "input:pointer",
+          visibleToHost: true
+        },
+        waitForClosedState: (message) => message.type === "permission-revoked"
+      },
+      {
+        name: "expiration",
+        options: {
+          authorizationTtlMs: 20,
+          hostDecision: "approve",
+          visibleToHost: true
+        },
+        waitForClosedState: (message) =>
+          message.type === "session-authorization-state" && message.status === "expired"
+      }
+    ];
+
+    for (const scenario of staleScenarios) {
+      const hostLogs: string[] = [];
+      const { relay, hostEvents } = await startRelayAndHost({
+        ...scenario.options,
+        hostLogger: captureLogger(hostLogs)
+      });
+      const rawViewer = await startRawViewer(relay.url());
+
+      try {
+        sendRawViewerAuthorizationRequest(rawViewer, ["input:pointer"]);
+        const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+        await waitForSentMessage(hostEvents, scenario.waitForClosedState);
+        const rawCountBefore = hostEvents.filter((event) => event.direction === "raw").length;
+        const receivedInputCountBefore = hostEvents.filter(
+          (event) => event.direction === "received" && event.message.type === "input-event"
+        ).length;
+        const eventId = `input_blocked_after_${scenario.name}`;
+
+        sendRawViewerInputEvent(rawViewer, {
+          authorizationId,
+          eventId,
+          event: {
+            kind: "pointer-move",
+            x: 0.33,
+            y: 0.77,
+            buttons: 1
+          }
+        });
+        await waitForRawEventCount(hostEvents, rawCountBefore + 1);
+        await delay(100);
+
+        expect(
+          hostEvents.filter((event) => event.direction === "received" && event.message.type === "input-event"),
+          scenario.name
+        ).toHaveLength(receivedInputCountBefore);
+        const serializedHostEvents = JSON.stringify(hostEvents);
+        const serializedHostLogs = hostLogs.join("\n");
+        expect(hostLogs.join("\n"), scenario.name).toContain("ignored unsafe inbound protocol message bytes=");
+        expect(serializedHostLogs, scenario.name).not.toContain(eventId);
+        expect(serializedHostLogs, scenario.name).not.toContain("pointer-move");
+        expect(serializedHostLogs, scenario.name).not.toContain("\"x\":0.33");
+        expect(serializedHostLogs, scenario.name).not.toContain("\"y\":0.77");
+        expect(serializedHostEvents, scenario.name).not.toContain(eventId);
+        expect(serializedHostEvents, scenario.name).not.toContain("pointer-move");
+        expect(serializedHostEvents, scenario.name).not.toContain("\\\"x\\\":0.33");
+        expect(serializedHostEvents, scenario.name).not.toContain("\\\"y\\\":0.77");
+      } finally {
+        await closeRawSocket(rawViewer);
+      }
+    }
+
+    {
+      const hostLogs: string[] = [];
+      const { relay, hostEvents } = await startRelayAndHost({
+        hostDecision: "approve",
+        hostLogger: captureLogger(hostLogs),
+        visibleToHost: true
+      });
+      const rawViewer = await startRawViewer(relay.url());
+
+      try {
+        sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
+        const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+        const rawCountBefore = hostEvents.filter((event) => event.direction === "raw").length;
+
+        sendRawViewerInputEvent(rawViewer, {
+          authorizationId,
+          eventId: "input_blocked_missing_permission",
+          event: {
+            kind: "key-down",
+            key: "KeyZ",
+            code: "KeyZ",
+            modifiers: ["control"]
+          }
+        });
+        await waitForRawEventCount(hostEvents, rawCountBefore + 1);
+        await delay(100);
+
+        expect(hostEvents.some((event) => event.direction === "received" && event.message.type === "input-event")).toBe(false);
+        expect(hostLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+        expect(hostLogs.join("\n")).not.toContain("input_blocked_missing_permission");
+        expect(hostLogs.join("\n")).not.toContain("KeyZ");
+        expect(hostLogs.join("\n")).not.toContain("control");
+        expect(JSON.stringify(hostEvents)).not.toContain("input_blocked_missing_permission");
+        expect(JSON.stringify(hostEvents)).not.toContain("KeyZ");
+        expect(JSON.stringify(hostEvents)).not.toContain("control");
+      } finally {
+        await closeRawSocket(rawViewer);
+      }
+    }
+  });
+
+  it("ignores inbound development screen frames after stale or misbound viewer authorization", async () => {
+    const viewerLogs: string[] = [];
+    const authorizationId = "authz_viewer_remote_frame_binding";
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const blockedFrameData = Buffer.from("blocked-inbound-screen-frame-content").toString("base64");
+    const lifecycleServer = await startObservedHostViewerAuthorizationLifecycleServer(() => [
+      {
+        ...createMessageBase("session-demo"),
+        type: "relay-ready",
+        peerId: "viewer-1",
+        roomSize: 2
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-decision",
+        authorizationId,
+        hostPeerId: "host-1",
+        viewerPeerId: "viewer-1",
+        decision: "approved",
+        grantedPermissions: ["screen:view"],
+        expiresAt
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId,
+        actorPeerId: "host-1",
+        status: "active",
+        visibleToHost: true,
+        permissions: ["screen:view"],
+        expiresAt
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "screen-frame",
+        authorizationId: "authz_wrong_inbound_screen_frame",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        frameId: "frame_blocked_wrong_auth",
+        sequence: 1,
+        capturedAt: new Date().toISOString(),
+        format: "image/png",
+        width: 320,
+        height: 200,
+        dataBase64: blockedFrameData
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "screen-frame",
+        authorizationId,
+        fromPeerId: "host-1",
+        toPeerId: "viewer-2",
+        frameId: "frame_blocked_wrong_target",
+        sequence: 2,
+        capturedAt: new Date().toISOString(),
+        format: "image/png",
+        width: 320,
+        height: 200,
+        dataBase64: blockedFrameData
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-state",
+        authorizationId,
+        actorPeerId: "host-1",
+        status: "paused",
+        visibleToHost: true,
+        permissions: ["screen:view"],
+        expiresAt
+      },
+      {
+        ...createMessageBase("session-demo"),
+        type: "screen-frame",
+        authorizationId,
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        frameId: "frame_blocked_paused",
+        sequence: 3,
+        capturedAt: new Date().toISOString(),
+        format: "image/png",
+        width: 320,
+        height: 200,
+        dataBase64: blockedFrameData
+      }
+    ]);
+    const viewerEvents: AgentShellEvent[] = [];
+    let viewer: AgentShellRuntime | undefined;
+
+    try {
+      viewer = await startViewer(
+        lifecycleServer.url,
+        ["screen:view"],
+        viewerEvents,
+        captureLogger(viewerLogs)
+      );
+
+      await waitForReceivedActiveAuthorizationId(viewerEvents);
+      await waitForRawEventCount(viewerEvents, 3);
+      await delay(100);
+
+      expect(viewerEvents.some((event) => event.direction === "received" && event.message.type === "screen-frame")).toBe(false);
+      expect(viewerLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
+      expect(viewerLogs.join("\n")).not.toContain("frame_blocked_wrong_auth");
+      expect(viewerLogs.join("\n")).not.toContain("frame_blocked_wrong_target");
+      expect(viewerLogs.join("\n")).not.toContain("frame_blocked_paused");
+      expect(viewerLogs.join("\n")).not.toContain(blockedFrameData);
+      expect(JSON.stringify(viewerEvents)).not.toContain("frame_blocked_wrong_auth");
+      expect(JSON.stringify(viewerEvents)).not.toContain("frame_blocked_wrong_target");
+      expect(JSON.stringify(viewerEvents)).not.toContain("frame_blocked_paused");
+      expect(JSON.stringify(viewerEvents)).not.toContain(blockedFrameData);
+      expect(JSON.stringify(viewerEvents)).not.toContain("blocked-inbound-screen-frame-content");
+    } finally {
+      await viewer?.stop();
+      await lifecycleServer.stop();
+    }
+  });
+
   it("blocks public signal sends with non-JSON payloads before sent events", async () => {
     const hostLogs: string[] = [];
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -15137,6 +15816,27 @@ function sendRawViewerSignalProbe(socket: WebSocket, authorizationId: string): v
       authorizationId,
       probe: "viewer-signal-probe-v1"
     }
+  }));
+}
+
+function sendRawViewerInputEvent(
+  socket: WebSocket,
+  input: {
+    authorizationId: string;
+    eventId: string;
+    event: Extract<ProtocolEnvelope, { type: "input-event" }>["event"];
+  }
+): void {
+  socket.send(encodeProtocolEnvelope({
+    ...createMessageBase("session-demo"),
+    type: "input-event",
+    authorizationId: input.authorizationId,
+    fromPeerId: "viewer-1",
+    toPeerId: "host-1",
+    eventId: input.eventId,
+    sequence: 1,
+    occurredAt: new Date().toISOString(),
+    event: input.event
   }));
 }
 

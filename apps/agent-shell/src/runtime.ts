@@ -125,16 +125,20 @@ export type AgentShellErrorDiagnostic = {
 export type AgentShellErrorLogKind = "runtime" | "socket";
 
 export type AgentShellSentProtocolEnvelope = AgentShellReasonRedacted<
-  | Exclude<ProtocolEnvelope, { type: "join-session" | "signal" }>
+  | Exclude<ProtocolEnvelope, { type: "join-session" | "signal" | "screen-frame" | "input-event" }>
   | (Omit<Extract<ProtocolEnvelope, { type: "join-session" }>, "pairingCode"> & {
       pairingCode: typeof REDACTED_EVENT_VALUE;
     })
   | AgentShellSignalEventEnvelope
+  | AgentShellScreenFrameEventEnvelope
+  | AgentShellInputEventEventEnvelope
 >;
 
 export type AgentShellReceivedProtocolEnvelope = AgentShellReasonRedacted<
-  | Exclude<ProtocolEnvelope, { type: "signal" }>
+  | Exclude<ProtocolEnvelope, { type: "signal" | "screen-frame" | "input-event" }>
   | AgentShellSignalEventEnvelope
+  | AgentShellScreenFrameEventEnvelope
+  | AgentShellInputEventEventEnvelope
 >;
 
 export type AgentShellSignalEventEnvelope = Omit<Extract<ProtocolEnvelope, { type: "signal" }>, "payload"> & {
@@ -143,6 +147,46 @@ export type AgentShellSignalEventEnvelope = Omit<Extract<ProtocolEnvelope, { typ
 
 export type AgentShellSignalPayloadSummary = {
   redacted: typeof REDACTED_EVENT_VALUE;
+  byteLength: number;
+};
+
+type AgentShellScreenFrameEnvelope = Extract<ProtocolEnvelope, { type: "screen-frame" }>;
+type AgentShellInputEventEnvelope = Extract<ProtocolEnvelope, { type: "input-event" }>;
+
+export type AgentShellScreenFrameInput = Readonly<
+  Omit<
+    AgentShellScreenFrameEnvelope,
+    "type" | "sessionId" | "messageId" | "createdAt" | "fromPeerId" | "capturedAt"
+  > & {
+    capturedAt?: string;
+  }
+>;
+
+export type AgentShellInputEventInput = Readonly<
+  Omit<
+    AgentShellInputEventEnvelope,
+    "type" | "sessionId" | "messageId" | "createdAt" | "fromPeerId" | "occurredAt"
+  > & {
+    occurredAt?: string;
+  }
+>;
+
+export type AgentShellScreenFrameEventEnvelope = Omit<AgentShellScreenFrameEnvelope, "dataBase64"> & {
+  dataBase64: AgentShellScreenFramePayloadSummary;
+};
+
+export type AgentShellInputEventEventEnvelope = Omit<AgentShellInputEventEnvelope, "event"> & {
+  event: AgentShellInputEventSummary;
+};
+
+export type AgentShellScreenFramePayloadSummary = {
+  redacted: typeof REDACTED_EVENT_VALUE;
+  byteLength: number;
+};
+
+export type AgentShellInputEventSummary = {
+  redacted: typeof REDACTED_EVENT_VALUE;
+  kind: AgentShellInputEventEnvelope["event"]["kind"];
   byteLength: number;
 };
 
@@ -166,6 +210,8 @@ export type AgentShellRuntime = {
   revokePermission(permission: Permission): void;
   resume(): void;
   terminate(): void;
+  sendScreenFrame(input: AgentShellScreenFrameInput): void;
+  sendInputEvent(input: AgentShellInputEventInput): void;
   send(message: ProtocolEnvelope): void;
 };
 
@@ -273,6 +319,18 @@ const AGENT_SHELL_SIGNAL_AUTHORIZATION_ERROR_MESSAGE =
   "Agent shell signal requires active visible screen authorization";
 const AGENT_SHELL_SIGNAL_ROUTING_ERROR_MESSAGE =
   "Agent shell signal sender and target must match runtime peer routing";
+const AGENT_SHELL_SCREEN_FRAME_ROLE_ERROR_MESSAGE =
+  "Agent shell screen-frame send is only valid for host runtimes";
+const AGENT_SHELL_INPUT_EVENT_ROLE_ERROR_MESSAGE =
+  "Agent shell input-event send is only valid for viewer runtimes";
+const AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE =
+  "Agent shell remote interaction requires active visible authorization";
+const AGENT_SHELL_REMOTE_INTERACTION_ROUTING_ERROR_MESSAGE =
+  "Agent shell remote interaction sender and target must match runtime peer routing";
+const AGENT_SHELL_REMOTE_INTERACTION_MESSAGE_ERROR_MESSAGE =
+  "Agent shell remote interaction message is invalid";
+const AGENT_SHELL_REMOTE_INTERACTION_PUBLIC_SEND_ERROR_MESSAGE =
+  "Agent shell remote interaction messages require dedicated runtime methods";
 const AGENT_SHELL_SESSION_ROUTING_ERROR_MESSAGE =
   "Agent shell message must match runtime session";
 const AGENT_SHELL_PUBLIC_SEND_AUTHORITY_ERROR_MESSAGE =
@@ -648,6 +706,14 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       }
     },
 
+    sendScreenFrame(input: AgentShellScreenFrameInput) {
+      sendDevelopmentScreenFrame(socket, options, sessionState, input);
+    },
+
+    sendInputEvent(input: AgentShellInputEventInput) {
+      sendDevelopmentInputEvent(socket, options, sessionState, input);
+    },
+
     send(message: ProtocolEnvelope) {
       sendPublicRuntimeMessage(socket, options, sessionState, message);
     }
@@ -814,6 +880,11 @@ async function handleMessage(
   }
 
   if (isUnauthorizedInboundSignal(envelope, options, sessionState)) {
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
+    return;
+  }
+
+  if (isUnauthorizedInboundRemoteInteraction(envelope, options, sessionState)) {
     reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
   }
@@ -1140,6 +1211,40 @@ function isUnauthorizedInboundSignal(
   );
 }
 
+function isUnauthorizedInboundRemoteInteraction(
+  envelope: ProtocolEnvelope,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState
+): boolean {
+  if (envelope.type === "screen-frame") {
+    const snapshot = sessionState.viewerAuthorization;
+    return (
+      options.role !== "viewer" ||
+      (envelope.toPeerId !== undefined && envelope.toPeerId !== options.peerId) ||
+      envelope.fromPeerId !== sessionState.observedPeerId ||
+      sessionState.observedPeerRole !== "host" ||
+      !hasActiveRemoteInteractionAuthorization(snapshot, "screen:view") ||
+      snapshot.authorizationId !== envelope.authorizationId ||
+      snapshot.remotePeerId !== envelope.fromPeerId
+    );
+  }
+
+  if (envelope.type === "input-event") {
+    const snapshot = sessionState.hostAuthorization;
+    return (
+      options.role !== "host" ||
+      (envelope.toPeerId !== undefined && envelope.toPeerId !== options.peerId) ||
+      envelope.fromPeerId !== sessionState.observedPeerId ||
+      sessionState.observedPeerRole !== "viewer" ||
+      !hasActiveRemoteInteractionAuthorization(snapshot, inputEventRequiredPermission(envelope.event)) ||
+      snapshot.authorizationId !== envelope.authorizationId ||
+      snapshot.remotePeerId !== envelope.fromPeerId
+    );
+  }
+
+  return false;
+}
+
 function updateViewerAuthorizationState(
   options: AgentShellRuntimeOptions,
   sessionState: AgentShellSessionState,
@@ -1346,6 +1451,239 @@ function sendPublicRuntimeMessage(
   sendProtocol(socket, options, message);
 }
 
+function sendDevelopmentScreenFrame(
+  socket: WebSocket | undefined,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  input: AgentShellScreenFrameInput
+): void {
+  if (options.role !== "host") {
+    throw new Error(AGENT_SHELL_SCREEN_FRAME_ROLE_ERROR_MESSAGE);
+  }
+
+  assertRemoteInteractionSocketReady(socket, sessionState);
+  const toPeerId = input.toPeerId ?? sessionState.observedPeerId;
+  const message = parseRemoteInteractionMessage({
+    ...createMessageBase(options.sessionId),
+    type: "screen-frame",
+    authorizationId: input.authorizationId,
+    fromPeerId: options.peerId,
+    ...(toPeerId ? { toPeerId } : {}),
+    frameId: input.frameId,
+    sequence: input.sequence,
+    capturedAt: input.capturedAt ?? new Date().toISOString(),
+    format: input.format,
+    width: input.width,
+    height: input.height,
+    dataBase64: input.dataBase64
+  });
+  assertScreenFrameSendAuthorized(message, options, sessionState);
+  sendAuditedRemoteInteraction(socket, options, message);
+}
+
+function sendDevelopmentInputEvent(
+  socket: WebSocket | undefined,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  input: AgentShellInputEventInput
+): void {
+  if (options.role !== "viewer") {
+    throw new Error(AGENT_SHELL_INPUT_EVENT_ROLE_ERROR_MESSAGE);
+  }
+
+  assertRemoteInteractionSocketReady(socket, sessionState);
+  const toPeerId = input.toPeerId ?? sessionState.observedPeerId;
+  const message = parseRemoteInteractionMessage({
+    ...createMessageBase(options.sessionId),
+    type: "input-event",
+    authorizationId: input.authorizationId,
+    fromPeerId: options.peerId,
+    ...(toPeerId ? { toPeerId } : {}),
+    eventId: input.eventId,
+    sequence: input.sequence,
+    occurredAt: input.occurredAt ?? new Date().toISOString(),
+    event: input.event
+  });
+  assertInputEventSendAuthorized(message, options, sessionState);
+  sendAuditedRemoteInteraction(socket, options, message);
+}
+
+function assertRemoteInteractionSocketReady(
+  socket: WebSocket | undefined,
+  sessionState: AgentShellSessionState
+): asserts socket is WebSocket {
+  if (!socket) {
+    throw new Error("Agent shell runtime is not started");
+  }
+
+  if (sessionState.remotePeerDisconnected) {
+    throw new Error(AGENT_SHELL_PEER_DISCONNECTED_ERROR_MESSAGE);
+  }
+
+  if (sessionState.localPeerDisconnected) {
+    throw new Error(AGENT_SHELL_LOCAL_PEER_DISCONNECTED_ERROR_MESSAGE);
+  }
+
+  assertLocalRuntimeSocketOpen(socket);
+}
+
+function parseRemoteInteractionMessage<T extends AgentShellScreenFrameEnvelope | AgentShellInputEventEnvelope>(
+  message: T
+): T {
+  try {
+    return parseProtocolEnvelope(message) as T;
+  } catch {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_MESSAGE_ERROR_MESSAGE);
+  }
+}
+
+function assertScreenFrameSendAuthorized(
+  message: AgentShellScreenFrameEnvelope,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState
+): void {
+  assertRemoteInteractionRouting(message, options, sessionState, "viewer");
+
+  const snapshot = sessionState.hostAuthorization;
+  if (
+    !hasActiveRemoteInteractionAuthorization(snapshot, "screen:view") ||
+    snapshot.authorizationId !== message.authorizationId
+  ) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
+  }
+
+  if (snapshot.remotePeerId !== sessionState.observedPeerId) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_ROUTING_ERROR_MESSAGE);
+  }
+}
+
+function assertInputEventSendAuthorized(
+  message: AgentShellInputEventEnvelope,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState
+): void {
+  assertRemoteInteractionRouting(message, options, sessionState, "host");
+
+  const requiredPermission = inputEventRequiredPermission(message.event);
+  const snapshot = sessionState.viewerAuthorization;
+  if (
+    !hasActiveRemoteInteractionAuthorization(snapshot, requiredPermission) ||
+    snapshot.authorizationId !== message.authorizationId
+  ) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
+  }
+
+  if (snapshot.remotePeerId !== sessionState.observedPeerId) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_ROUTING_ERROR_MESSAGE);
+  }
+}
+
+function assertRemoteInteractionRouting(
+  message: AgentShellScreenFrameEnvelope | AgentShellInputEventEnvelope,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  expectedRecipientRole: SessionRole
+): void {
+  if (
+    !sessionState.recipientAvailable ||
+    !sessionState.observedPeerId ||
+    sessionState.observedPeerRole !== expectedRecipientRole
+  ) {
+    throw new Error(AGENT_SHELL_PUBLIC_SEND_RECIPIENT_ERROR_MESSAGE);
+  }
+
+  if (
+    message.fromPeerId !== options.peerId ||
+    message.toPeerId === options.peerId ||
+    (message.toPeerId && message.toPeerId !== sessionState.observedPeerId)
+  ) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_ROUTING_ERROR_MESSAGE);
+  }
+}
+
+function hasActiveRemoteInteractionAuthorization(
+  snapshot: RuntimeAuthorizationSnapshot | undefined,
+  permission: Permission
+): snapshot is VisibleRuntimeAuthorizationSnapshot {
+  return Boolean(
+    snapshot &&
+      snapshot.status === "active" &&
+      snapshot.visibleToHost &&
+      snapshot.expiresAt &&
+      !hasAuthorizationExpired(snapshot.expiresAt) &&
+      snapshot.permissions.includes(permission)
+  );
+}
+
+function inputEventRequiredPermission(event: AgentShellInputEventEnvelope["event"]): Permission {
+  switch (event.kind) {
+    case "key-down":
+    case "key-up":
+      return "input:keyboard";
+    case "pointer-move":
+    case "pointer-down":
+    case "pointer-up":
+    case "pointer-wheel":
+      return "input:pointer";
+    default: {
+      const exhaustive: never = event;
+      return exhaustive;
+    }
+  }
+}
+
+function sendAuditedRemoteInteraction(
+  socket: WebSocket,
+  options: AgentShellRuntimeOptions,
+  message: AgentShellScreenFrameEnvelope | AgentShellInputEventEnvelope
+): void {
+  try {
+    persistRemoteInteractionSendAudit(options, message);
+    sendNormalizedProtocol(socket, options, message);
+  } catch (error) {
+    reportRuntimeError(options, error);
+    throw createSanitizedRuntimeError();
+  }
+}
+
+function persistRemoteInteractionSendAudit(
+  options: AgentShellRuntimeOptions,
+  message: AgentShellScreenFrameEnvelope | AgentShellInputEventEnvelope
+): void {
+  writeDevelopmentAuditRecord(options, {
+    action:
+      message.type === "screen-frame"
+        ? "agent-shell.remote-interaction.screen-frame.sent"
+        : "agent-shell.remote-interaction.input-event.sent",
+    outcome: "accepted",
+    detail: remoteInteractionAuditDetail(message)
+  });
+}
+
+function remoteInteractionAuditDetail(
+  message: AgentShellScreenFrameEnvelope | AgentShellInputEventEnvelope
+): AuditDetail {
+  if (message.type === "screen-frame") {
+    return {
+      authorizationId: message.authorizationId,
+      frameId: message.frameId,
+      sequence: message.sequence,
+      format: message.format,
+      width: message.width,
+      height: message.height,
+      frameDataByteLength: Buffer.byteLength(message.dataBase64, "utf8")
+    };
+  }
+
+  return {
+    authorizationId: message.authorizationId,
+    eventId: message.eventId,
+    sequence: message.sequence,
+    inputKind: message.event.kind,
+    inputPayloadByteLength: Buffer.byteLength(stringifyJson(message.event), "utf8")
+  };
+}
+
 function assertPublicSendSession(message: ProtocolEnvelope, options: AgentShellRuntimeOptions): void {
   if (message.sessionId !== options.sessionId) {
     throw new Error(AGENT_SHELL_SESSION_ROUTING_ERROR_MESSAGE);
@@ -1358,6 +1696,9 @@ function assertPublicSendAuthority(message: ProtocolEnvelope, options: AgentShel
     case "relay-ready":
     case "peer-disconnected":
       throw new Error(AGENT_SHELL_PUBLIC_SEND_AUTHORITY_ERROR_MESSAGE);
+    case "screen-frame":
+    case "input-event":
+      throw new Error(AGENT_SHELL_REMOTE_INTERACTION_PUBLIC_SEND_ERROR_MESSAGE);
     case "hello":
       if (message.peerId !== options.peerId || message.role !== options.role) {
         throw new Error(AGENT_SHELL_PUBLIC_SEND_AUTHORITY_ERROR_MESSAGE);
@@ -3671,6 +4012,14 @@ function sendProtocol(
   }
 
   const normalizedMessage = parseProtocolEnvelope(message);
+  sendNormalizedProtocol(socket, options, normalizedMessage);
+}
+
+function sendNormalizedProtocol(
+  socket: WebSocket,
+  options: AgentShellRuntimeOptions,
+  normalizedMessage: ProtocolEnvelope
+): void {
   socket.send(encodeProtocolEnvelope(normalizedMessage));
   emitRuntimeEventBestEffort(options, { direction: "sent", message: redactSentEventMessage(normalizedMessage) });
 }
@@ -3687,12 +4036,20 @@ function redactSentEventMessage(message: ProtocolEnvelope): AgentShellSentProtoc
     return redactProtocolReason(redactSignalEventMessage(message)) as AgentShellSentProtocolEnvelope;
   }
 
+  if (message.type === "screen-frame" || message.type === "input-event") {
+    return redactProtocolReason(redactRemoteInteractionEventMessage(message)) as AgentShellSentProtocolEnvelope;
+  }
+
   return redactProtocolReason(message) as AgentShellSentProtocolEnvelope;
 }
 
 function redactReceivedEventMessage(message: ProtocolEnvelope): AgentShellReceivedProtocolEnvelope {
   if (message.type === "signal") {
     return redactProtocolReason(redactSignalEventMessage(message)) as AgentShellReceivedProtocolEnvelope;
+  }
+
+  if (message.type === "screen-frame" || message.type === "input-event") {
+    return redactProtocolReason(redactRemoteInteractionEventMessage(message)) as AgentShellReceivedProtocolEnvelope;
   }
 
   return redactProtocolReason(message) as AgentShellReceivedProtocolEnvelope;
@@ -3706,6 +4063,29 @@ function redactSignalEventMessage(
     payload: {
       redacted: REDACTED_EVENT_VALUE,
       byteLength: Buffer.byteLength(stringifyJson(message.payload), "utf8")
+    }
+  };
+}
+
+function redactRemoteInteractionEventMessage(
+  message: AgentShellScreenFrameEnvelope | AgentShellInputEventEnvelope
+): AgentShellScreenFrameEventEnvelope | AgentShellInputEventEventEnvelope {
+  if (message.type === "screen-frame") {
+    return {
+      ...message,
+      dataBase64: {
+        redacted: REDACTED_EVENT_VALUE,
+        byteLength: Buffer.byteLength(message.dataBase64, "utf8")
+      }
+    };
+  }
+
+  return {
+    ...message,
+    event: {
+      redacted: REDACTED_EVENT_VALUE,
+      kind: message.event.kind,
+      byteLength: Buffer.byteLength(stringifyJson(message.event), "utf8")
     }
   };
 }
