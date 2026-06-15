@@ -208,6 +208,15 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 `--dev-screen-frame-after-ms` is host-only. It waits until the host runtime has an active visible authorization with `screen:view`, then sends exactly one development `screen-frame` message through `sendScreenFrame()`. By default it sends a tiny static PNG marker; optional `--dev-screen-frame-id`, `--dev-screen-frame-format`, `--dev-screen-frame-width`, `--dev-screen-frame-height`, and `--dev-screen-frame-data-base64` values are bounded and validated before runtime startup. This path does not read files, capture the real screen, start a native Windows capture adapter, or expose raw frame bytes in events, logs, or audit records.
 
+To exercise bounded frame cadence on the same consent-bound path:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --dev-screen-frame-after-ms 1000 --dev-screen-frame-count 3 --dev-screen-frame-interval-ms 1000
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+`--dev-screen-frame-count` and `--dev-screen-frame-interval-ms` make the host send a finite stream of static development frames. Count must be an exact integer from `1` through `1000`; multi-frame streams require a positive exact interval. Each frame uses a deterministic derived frame id and increasing sequence, and every send still goes through `sendScreenFrame()` authorization, routing, audit-before-send, and redaction gates. Authorization loss, disconnect, runtime rejection, or local shutdown stops the stream. This still does not capture the real screen, read arbitrary frame files, render a viewer desktop, or start native Windows APIs.
+
 Exercise a consent-bound development input message:
 
 ```powershell

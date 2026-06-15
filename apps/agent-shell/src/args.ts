@@ -28,6 +28,10 @@ import {
 export type AgentShellDevScreenFrameArgs = Readonly<{
   afterMs: number;
   frame: Omit<AgentShellScreenFrameInput, "authorizationId">;
+  stream?: {
+    count: number;
+    intervalMs: number;
+  };
 }>;
 
 export type AgentShellDevInputEventArgs = Readonly<{
@@ -76,11 +80,12 @@ export type AgentShellArgs = {
 };
 
 export const AGENT_SHELL_USAGE =
-  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000] [--dev-screen-frame-after-ms 1000] [--dev-screen-frame-id frame_cli_1] [--dev-screen-frame-format image/png] [--dev-screen-frame-width 1] [--dev-screen-frame-height 1] [--dev-screen-frame-data-base64 base64] [--dev-input-after-ms 1000] [--dev-input-kind pointer-move|pointer-down|pointer-up|pointer-wheel|key-down|key-up] [--dev-input-event-id input_cli_1] [--dev-pointer-x 0.5] [--dev-pointer-y 0.5] [--dev-pointer-button primary] [--dev-pointer-buttons 1] [--dev-pointer-delta-x 0] [--dev-pointer-delta-y 1] [--dev-key KeyA] [--dev-code KeyA] [--dev-modifiers shift,control]";
+  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000] [--dev-screen-frame-after-ms 1000] [--dev-screen-frame-id frame_cli_1] [--dev-screen-frame-format image/png] [--dev-screen-frame-width 1] [--dev-screen-frame-height 1] [--dev-screen-frame-data-base64 base64] [--dev-screen-frame-count 3] [--dev-screen-frame-interval-ms 1000] [--dev-input-after-ms 1000] [--dev-input-kind pointer-move|pointer-down|pointer-up|pointer-wheel|key-down|key-up] [--dev-input-event-id input_cli_1] [--dev-pointer-x 0.5] [--dev-pointer-y 0.5] [--dev-pointer-button primary] [--dev-pointer-buttons 1] [--dev-pointer-delta-x 0] [--dev-pointer-delta-y 1] [--dev-key KeyA] [--dev-code KeyA] [--dev-modifiers shift,control]";
 
 const DEFAULT_DEV_SCREEN_FRAME_DATA_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const DEFAULT_DEV_SCREEN_FRAME_ID = "frame_cli_1";
+const MAX_DEV_SCREEN_FRAME_STREAM_COUNT = 1000;
 const DEFAULT_DEV_INPUT_EVENT_ID = "input_cli_1";
 const DEV_CLI_VALIDATION_AUTHORIZATION_ID = "authz_cli_validation";
 const DEV_CLI_VALIDATION_FROM_PEER_ID = "peer-cli-validation";
@@ -133,6 +138,8 @@ const knownOptions = new Set([
   "dev-screen-frame-width",
   "dev-screen-frame-height",
   "dev-screen-frame-data-base64",
+  "dev-screen-frame-count",
+  "dev-screen-frame-interval-ms",
   "dev-input-after-ms",
   "dev-input-kind",
   "dev-input-event-id",
@@ -190,7 +197,9 @@ const viewerRejectedHostWorkflowOptions = [
   "dev-screen-frame-format",
   "dev-screen-frame-width",
   "dev-screen-frame-height",
-  "dev-screen-frame-data-base64"
+  "dev-screen-frame-data-base64",
+  "dev-screen-frame-count",
+  "dev-screen-frame-interval-ms"
 ] as const;
 
 const devScreenFrameOptions = [
@@ -199,7 +208,9 @@ const devScreenFrameOptions = [
   "dev-screen-frame-format",
   "dev-screen-frame-width",
   "dev-screen-frame-height",
-  "dev-screen-frame-data-base64"
+  "dev-screen-frame-data-base64",
+  "dev-screen-frame-count",
+  "dev-screen-frame-interval-ms"
 ] as const;
 
 const devInputEventOptions = [
@@ -751,8 +762,46 @@ function parseDevScreenFrame(
     height: parseIntegerOption(options.get("dev-screen-frame-height") ?? "1", 1, 16_384),
     dataBase64: options.get("dev-screen-frame-data-base64") ?? DEFAULT_DEV_SCREEN_FRAME_DATA_BASE64
   });
+  const stream = parseDevScreenFrameStream(frame.frameId, options);
 
-  return { afterMs, frame };
+  return {
+    afterMs,
+    frame,
+    ...(stream ? { stream } : {})
+  };
+}
+
+function parseDevScreenFrameStream(
+  baseFrameId: string,
+  options: Map<string, string>
+): AgentShellDevScreenFrameArgs["stream"] | undefined {
+  const rawCount = options.get("dev-screen-frame-count");
+  const rawIntervalMs = options.get("dev-screen-frame-interval-ms");
+  const count =
+    rawCount === undefined
+      ? 1
+      : parseIntegerOption(rawCount, 1, MAX_DEV_SCREEN_FRAME_STREAM_COUNT);
+
+  if (count === 1) {
+    if (rawIntervalMs !== undefined) {
+      throw new AgentShellUsageError();
+    }
+
+    return undefined;
+  }
+
+  if (rawIntervalMs === undefined) {
+    throw new AgentShellUsageError();
+  }
+
+  const intervalMs = parseIntegerOption(rawIntervalMs, 1, MAX_AGENT_SHELL_TIMER_DELAY_MS);
+  parseRemoteInteractionId(createDevScreenFrameStreamFrameId(baseFrameId, count - 1));
+
+  return { count, intervalMs };
+}
+
+function createDevScreenFrameStreamFrameId(baseFrameId: string, sequenceOffset: number): string {
+  return `${baseFrameId}_${sequenceOffset}`;
 }
 
 function parseDevInputEvent(

@@ -213,7 +213,9 @@ describe("agent shell arguments", () => {
       ["dev-screen-frame-format", "image/png"],
       ["dev-screen-frame-width", "1"],
       ["dev-screen-frame-height", "1"],
-      ["dev-screen-frame-data-base64", "eA=="]
+      ["dev-screen-frame-data-base64", "eA=="],
+      ["dev-screen-frame-count", "3"],
+      ["dev-screen-frame-interval-ms", "1000"]
     ] as const;
 
     for (const [option, value] of hostWorkflowOptions) {
@@ -359,6 +361,39 @@ describe("agent shell arguments", () => {
     expect(args.devInputEvent).toBeUndefined();
   });
 
+  it("parses host development screen-frame stream CLI args", () => {
+    const args = parseArgs(
+      [
+        "host",
+        "--dev-screen-frame-after-ms",
+        "0",
+        "--dev-screen-frame-id",
+        "frame_cli_stream",
+        "--dev-screen-frame-count",
+        "3",
+        "--dev-screen-frame-interval-ms",
+        "1000"
+      ],
+      {},
+      42
+    );
+
+    expect(args.devScreenFrame).toMatchObject({
+      afterMs: 0,
+      frame: {
+        frameId: "frame_cli_stream",
+        sequence: 0,
+        format: "image/png",
+        width: 1,
+        height: 1
+      },
+      stream: {
+        count: 3,
+        intervalMs: 1000
+      }
+    });
+  });
+
   it("parses viewer development pointer and keyboard input CLI scheduling args", () => {
     expect(
       parseArgs(
@@ -440,7 +475,10 @@ describe("agent shell arguments", () => {
       ["--dev-screen-frame-format", "raw"],
       ["--dev-screen-frame-width", "0"],
       ["--dev-screen-frame-height", "16385"],
-      ["--dev-screen-frame-data-base64", "not base64"]
+      ["--dev-screen-frame-data-base64", "not base64"],
+      ["--dev-screen-frame-count", "0"],
+      ["--dev-screen-frame-count", "1001"],
+      ["--dev-screen-frame-interval-ms", "0"]
     ] as const;
 
     expect(() => parseArgs(["host", "--dev-screen-frame-id", "frame_cli_custom"], {}, 42)).toThrow(
@@ -451,6 +489,45 @@ describe("agent shell arguments", () => {
         parseArgs(["host", "--dev-screen-frame-after-ms", "0", option, value], {}, 42)
       ).toThrow(AgentShellUsageError);
     }
+    expect(() =>
+      parseArgs(
+        ["host", "--dev-screen-frame-after-ms", "0", "--dev-screen-frame-count", "2"],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+    expect(() =>
+      parseArgs(
+        [
+          "host",
+          "--dev-screen-frame-after-ms",
+          "0",
+          "--dev-screen-frame-count",
+          "1",
+          "--dev-screen-frame-interval-ms",
+          "1000"
+        ],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+    expect(() =>
+      parseArgs(
+        [
+          "host",
+          "--dev-screen-frame-after-ms",
+          "0",
+          "--dev-screen-frame-id",
+          `${"a".repeat(127)}`,
+          "--dev-screen-frame-count",
+          "2",
+          "--dev-screen-frame-interval-ms",
+          "1000"
+        ],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
 
     const malformedViewerInputCases = [
       [

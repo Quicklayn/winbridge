@@ -7,6 +7,7 @@ import { scheduleHostStatusPrint, type HostStatusPrintHandle } from "./host-stat
 import {
   scheduleDevelopmentInputEventSend,
   scheduleDevelopmentScreenFrameSend,
+  scheduleDevelopmentScreenFrameStream,
   type RemoteInteractionCliHandle
 } from "./remote-interaction-cli.js";
 import { createAgentShellRuntime } from "./runtime.js";
@@ -90,7 +91,12 @@ try {
       }
 
       if (args.devScreenFrame) {
-        devScreenFrameSend = scheduleDevelopmentScreenFrameSend(runtime, args.devScreenFrame);
+        devScreenFrameSend = args.devScreenFrame.stream
+          ? scheduleDevelopmentScreenFrameStream(runtime, {
+              ...args.devScreenFrame,
+              stream: args.devScreenFrame.stream
+            })
+          : scheduleDevelopmentScreenFrameSend(runtime, args.devScreenFrame);
       }
 
       if (args.devInputEvent) {

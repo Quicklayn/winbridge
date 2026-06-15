@@ -23,6 +23,7 @@
 - WebRTC signaling.
 - Screen frame transport design after consent, authorization, visibility, revoke, and audit gates are specified.
 - Agent-shell development `screen-frame` CLI exerciser for one-shot metadata-redacted transport checks.
+- Agent-shell finite frame stream loop for metadata-redacted cadence and authorization-loss checks.
 - Bandwidth and quality controls.
 - Pause/resume.
 - Timeout and reconnect behavior.

@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentShellDevInputEventArgs, AgentShellDevScreenFrameArgs } from "./args.js";
 import {
   scheduleDevelopmentInputEventSend,
-  scheduleDevelopmentScreenFrameSend
+  scheduleDevelopmentScreenFrameSend,
+  scheduleDevelopmentScreenFrameStream
 } from "./remote-interaction-cli.js";
 import type { AgentShellRuntime } from "./runtime.js";
 
@@ -30,6 +31,17 @@ const inputArgs: AgentShellDevInputEventArgs = {
       y: 0.5,
       buttons: 0
     }
+  }
+};
+
+const streamArgs: AgentShellDevScreenFrameArgs & {
+  stream: NonNullable<AgentShellDevScreenFrameArgs["stream"]>;
+} = {
+  ...frameArgs,
+  afterMs: 0,
+  stream: {
+    count: 3,
+    intervalMs: 5
   }
 };
 
@@ -140,6 +152,141 @@ describe("development remote interaction CLI scheduler", () => {
     }
   });
 
+  it("streams a bounded number of screen frames at the configured cadence", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntimeSpy();
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "active",
+        visibleToHost: true,
+        authorizationStatus: "active",
+        authorizationId: "authz_cli_stream_1",
+        permissionCount: 1
+      });
+      const output = createCapturingOutput();
+
+      scheduleDevelopmentScreenFrameStream(runtime, streamArgs, {
+        output,
+        pollIntervalMs: 2
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(1);
+      expect(runtime.sendScreenFrame).toHaveBeenLastCalledWith({
+        authorizationId: "authz_cli_stream_1",
+        ...frameArgs.frame,
+        frameId: "frame_cli_1_0",
+        sequence: 0
+      });
+
+      await vi.advanceTimersByTimeAsync(4);
+      expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(2);
+      expect(runtime.sendScreenFrame).toHaveBeenLastCalledWith({
+        authorizationId: "authz_cli_stream_1",
+        ...frameArgs.frame,
+        frameId: "frame_cli_1_1",
+        sequence: 1
+      });
+
+      await vi.advanceTimersByTimeAsync(5);
+      expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(3);
+      expect(runtime.sendScreenFrame).toHaveBeenLastCalledWith({
+        authorizationId: "authz_cli_stream_1",
+        ...frameArgs.frame,
+        frameId: "frame_cli_1_2",
+        sequence: 2
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+      expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(3);
+      expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+      expect(runtime.send).not.toHaveBeenCalled();
+      expect(output.text()).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for authorization before starting a frame stream", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntimeSpy();
+      const output = createCapturingOutput();
+
+      scheduleDevelopmentScreenFrameStream(runtime, streamArgs, {
+        output,
+        pollIntervalMs: 2
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(runtime.sendScreenFrame).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(2);
+      expect(runtime.sendScreenFrame).not.toHaveBeenCalled();
+
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "active",
+        visibleToHost: true,
+        authorizationStatus: "active",
+        authorizationId: "authz_cli_stream_2",
+        permissionCount: 1
+      });
+      await vi.advanceTimersByTimeAsync(2);
+
+      expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(1);
+      expect(runtime.sendScreenFrame).toHaveBeenLastCalledWith({
+        authorizationId: "authz_cli_stream_2",
+        ...frameArgs.frame,
+        frameId: "frame_cli_1_0",
+        sequence: 0
+      });
+      expect(output.text()).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops a frame stream after authorization loss without retrying sends", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntimeSpy();
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "active",
+        visibleToHost: true,
+        authorizationStatus: "active",
+        authorizationId: "authz_cli_stream_3",
+        permissionCount: 1
+      });
+      const output = createCapturingOutput();
+
+      scheduleDevelopmentScreenFrameStream(runtime, streamArgs, {
+        output,
+        pollIntervalMs: 2
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(1);
+
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "paused",
+        visibleToHost: true,
+        authorizationStatus: "paused",
+        authorizationId: "authz_cli_stream_3",
+        permissionCount: 1
+      });
+      await vi.advanceTimersByTimeAsync(5);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(1);
+      expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+      expect(runtime.send).not.toHaveBeenCalled();
+      expect(output.text()).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not send while authorization is missing, paused, revoked, or expired", async () => {
     vi.useFakeTimers();
     try {
@@ -234,6 +381,40 @@ describe("development remote interaction CLI scheduler", () => {
       const output = createCapturingOutput();
 
       scheduleDevelopmentScreenFrameSend(runtime, { ...frameArgs, afterMs: 0 }, { output });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(output.text()).toContain(
+        `[winbridge-agent] error messageBytes=${Buffer.byteLength(rawErrorMessage)}`
+      );
+      expect(output.text()).not.toContain(rawErrorMessage);
+      expect(output.text()).not.toContain("raw-screen-content");
+      expect(output.text()).not.toContain("C:\\Users\\Nur");
+
+      await vi.advanceTimersByTimeAsync(50);
+      expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("formats frame stream runtime failures without raw exception text", async () => {
+    vi.useFakeTimers();
+    try {
+      const rawErrorMessage = "stream audit failed with raw-screen-content at C:\\Users\\Nur\\secret";
+      const runtime = createRuntimeSpy();
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "active",
+        visibleToHost: true,
+        authorizationStatus: "active",
+        authorizationId: "authz_cli_stream_4",
+        permissionCount: 1
+      });
+      vi.mocked(runtime.sendScreenFrame).mockImplementation(() => {
+        throw new Error(rawErrorMessage);
+      });
+      const output = createCapturingOutput();
+
+      scheduleDevelopmentScreenFrameStream(runtime, streamArgs, { output });
       await vi.advanceTimersByTimeAsync(0);
 
       expect(output.text()).toContain(

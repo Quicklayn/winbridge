@@ -17,7 +17,8 @@ import { createRelayRuntime, type RelayRuntime } from "../../relay/src/server.js
 import { parseArgs } from "./args.js";
 import {
   scheduleDevelopmentInputEventSend,
-  scheduleDevelopmentScreenFrameSend
+  scheduleDevelopmentScreenFrameSend,
+  scheduleDevelopmentScreenFrameStream
 } from "./remote-interaction-cli.js";
 import {
   createAgentShellErrorDiagnostic,
@@ -1888,6 +1889,130 @@ describe("agent shell consent workflow", () => {
       });
       expect(JSON.stringify([sentFrame, receivedFrame, auditRecord])).not.toContain(frameData);
       expect(JSON.stringify([sentFrame, receivedFrame, auditRecord])).not.toContain("cli-raw-screen-content");
+    } finally {
+      handle.stop();
+    }
+  });
+
+  it("schedules host CLI development screen frame streams through runtime gates", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    const frameData = Buffer.from("cli-stream-raw-screen-content-private-marker").toString("base64");
+    const handle = scheduleDevelopmentScreenFrameStream(
+      host,
+      {
+        afterMs: 0,
+        frame: {
+          frameId: "frame_cli_stream",
+          sequence: 0,
+          format: "image/png",
+          width: 2,
+          height: 2,
+          dataBase64: frameData
+        },
+        stream: {
+          count: 3,
+          intervalMs: 5
+        }
+      },
+      { pollIntervalMs: 5 }
+    );
+
+    try {
+      const sentFrames = [
+        await waitForSentMessage(
+          hostEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_stream_0"
+        ),
+        await waitForSentMessage(
+          hostEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_stream_1"
+        ),
+        await waitForSentMessage(
+          hostEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_stream_2"
+        )
+      ];
+      const receivedFrames = [
+        await waitForMessage(
+          viewerEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_stream_0"
+        ),
+        await waitForMessage(
+          viewerEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_stream_1"
+        ),
+        await waitForMessage(
+          viewerEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_stream_2"
+        )
+      ];
+      const auditRecords = hostAuditSink.records().filter(
+        (record) => record.action === "agent-shell.remote-interaction.screen-frame.sent"
+      );
+
+      expect(sentFrames).toEqual([
+        expect.objectContaining({
+          type: "screen-frame",
+          authorizationId,
+          fromPeerId: "host-1",
+          toPeerId: "viewer-1",
+          frameId: "frame_cli_stream_0",
+          sequence: 0,
+          dataBase64: {
+            redacted: "[REDACTED]",
+            byteLength: Buffer.byteLength(frameData, "utf8")
+          }
+        }),
+        expect.objectContaining({
+          type: "screen-frame",
+          authorizationId,
+          frameId: "frame_cli_stream_1",
+          sequence: 1
+        }),
+        expect.objectContaining({
+          type: "screen-frame",
+          authorizationId,
+          frameId: "frame_cli_stream_2",
+          sequence: 2
+        })
+      ]);
+      expect(receivedFrames).toEqual([
+        expect.objectContaining({ frameId: "frame_cli_stream_0", sequence: 0 }),
+        expect.objectContaining({ frameId: "frame_cli_stream_1", sequence: 1 }),
+        expect.objectContaining({ frameId: "frame_cli_stream_2", sequence: 2 })
+      ]);
+      expect(auditRecords.map((record) => record.detail)).toEqual([
+        expect.objectContaining({
+          authorizationId,
+          frameId: "frame_cli_stream_0",
+          sequence: 0,
+          frameDataByteLength: Buffer.byteLength(frameData, "utf8")
+        }),
+        expect.objectContaining({
+          authorizationId,
+          frameId: "frame_cli_stream_1",
+          sequence: 1,
+          frameDataByteLength: Buffer.byteLength(frameData, "utf8")
+        }),
+        expect.objectContaining({
+          authorizationId,
+          frameId: "frame_cli_stream_2",
+          sequence: 2,
+          frameDataByteLength: Buffer.byteLength(frameData, "utf8")
+        })
+      ]);
+      expect(JSON.stringify([sentFrames, receivedFrames, auditRecords])).not.toContain(frameData);
+      expect(JSON.stringify([sentFrames, receivedFrames, auditRecords])).not.toContain(
+        "cli-stream-raw-screen-content"
+      );
     } finally {
       handle.stop();
     }
