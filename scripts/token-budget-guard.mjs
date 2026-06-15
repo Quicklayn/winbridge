@@ -1,6 +1,4 @@
 const DAILY_DEFAULT_LIMIT = 100_000_000;
-const FIVE_HOUR_THRESHOLD = 0.4;
-const WEEKLY_THRESHOLD = 0.4;
 
 const allowUnknown = process.env.WINBRIDGE_TOKEN_GUARD_ALLOW_UNKNOWN === "1";
 
@@ -12,20 +10,6 @@ const checks = [
     defaultLimit: DAILY_DEFAULT_LIMIT,
     maxRatio: 1,
     hardLimitText: "100000000 tokens per day"
-  },
-  {
-    name: "5h",
-    usageEnv: "WINBRIDGE_TOKEN_USAGE_5H",
-    limitEnv: "WINBRIDGE_TOKEN_LIMIT_5H",
-    maxRatio: FIVE_HOUR_THRESHOLD,
-    hardLimitText: "40% of the rolling 5-hour subscription token limit"
-  },
-  {
-    name: "weekly",
-    usageEnv: "WINBRIDGE_TOKEN_USAGE_WEEKLY",
-    limitEnv: "WINBRIDGE_TOKEN_LIMIT_WEEKLY",
-    maxRatio: WEEKLY_THRESHOLD,
-    hardLimitText: "40% of the rolling weekly subscription token limit"
   }
 ];
 

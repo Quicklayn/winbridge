@@ -10,30 +10,23 @@ Token budget protection is the highest-priority project workflow constraint for
 agent work in this repository. It does not override the safety policy below, but
 it can stop or narrow any development task before more tokens are spent.
 
-Hard limits:
+Hard limit:
 
-- Daily agent-token usage MUST stay below `100000000` tokens.
-- Agent work MUST stop when either the rolling 5-hour token usage or rolling
-  weekly token usage reaches `40%` of the corresponding subscription limit.
-- If current 5-hour or weekly usage/limit data is unavailable, autonomous
-  long-running work MUST pause instead of assuming budget is available.
-- Every substantial status or handoff SHOULD report known daily, 5-hour, and
-  weekly budget state, or explicitly say that the provider-side budget data is
-  unavailable.
+- Daily agent-token usage for this project MUST stay below `100000000` tokens.
+- Agent work MUST stop when known daily project usage reaches the configured
+  daily limit.
+- Every substantial status or handoff SHOULD report known daily budget state,
+  or explicitly say that provider-side daily project usage data is unavailable.
 
-Use `npm run token:guard` before substantial autonomous work when token usage
-figures are available in the environment:
+Use `npm run token:guard` before substantial autonomous work when daily token
+usage figures are available in the environment:
 
 - `WINBRIDGE_TOKEN_USAGE_DAILY`
-- `WINBRIDGE_TOKEN_USAGE_5H`
-- `WINBRIDGE_TOKEN_LIMIT_5H`
-- `WINBRIDGE_TOKEN_USAGE_WEEKLY`
-- `WINBRIDGE_TOKEN_LIMIT_WEEKLY`
 
 Optional overrides:
 
 - `WINBRIDGE_TOKEN_LIMIT_DAILY` defaults to `100000000`.
-- `WINBRIDGE_TOKEN_GUARD_ALLOW_UNKNOWN=1` turns missing provider-side values
+- `WINBRIDGE_TOKEN_GUARD_ALLOW_UNKNOWN=1` turns missing provider-side daily usage
   into warnings for short, explicitly bounded manual work only.
 
 This project is dual-use. All work MUST keep the product in the legitimate remote assistance category:
