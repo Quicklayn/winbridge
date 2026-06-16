@@ -2,7 +2,7 @@
 
 WinBridge is a consent-first Windows-to-Windows remote assistance project.
 
-The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, and a non-native agent shell. It does **not** implement screen capture, input injection, unattended access, or production deployment yet.
+The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, a non-native agent shell, and an isolated Windows screen capture adapter. It does **not** wire real screen capture into a remote session, implement input injection, unattended access, or production deployment yet.
 
 ## Safety Scope
 
@@ -35,6 +35,7 @@ apps/
 packages/
   audit-log/       Shared development audit sinks.
   protocol/        Shared consent, session, and message schemas.
+  windows-capture/ Windows-only one-shot capture adapter behind explicit visible grants.
 docs/              Architecture, security, privacy, release, GitHub setup, roadmap, orchestration.
 openspec/          Spec-driven planning source of truth.
 ```
@@ -65,6 +66,13 @@ npm run verify
 Windows Vitest worker exits with the recognized transient IPC channel-closed
 failure, the runner retries that test file once; ordinary test failures are not
 retried.
+
+The `@winbridge/windows-capture` package is a reviewed native boundary for
+future MVP host viewing. It performs no capture at import or construction time,
+requires an explicit active visible `screen:view` grant, rejects non-Windows and
+expired/disconnected/invisible grants before native calls, and returns a bounded
+PNG frame only to the immediate caller. It is not yet connected to agent-shell
+streaming or viewer rendering.
 
 Run the development relay:
 

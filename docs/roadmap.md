@@ -31,6 +31,7 @@
 ## Phase 3: Windows Native Host
 
 - Windows capture adapter after a dedicated OpenSpec design and security review.
+- Wire the capture adapter into consent-bound host streaming with visible-session and revocation gates.
 - Visible host status surface.
 - Disconnect hotkey or tray control.
 - Permission enforcement.

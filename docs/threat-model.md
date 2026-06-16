@@ -13,11 +13,14 @@ In scope:
 - Non-native agent shell used to exercise consent, visibility, revocation, and
   audit workflows.
 - Local development audit sinks and JSONL audit files.
+- Windows screen capture adapter package boundary, limited to explicit one-shot
+  calls with active visible `screen:view` grants.
 - Repository workflow, OpenSpec artifacts, CI, and release documentation.
 
 Out of scope until future OpenSpec design and security review:
 
-- Screen capture, frame transport, and remote input injection.
+- Wiring screen capture into remote sessions, frame transport, and remote input
+  injection.
 - Clipboard sync, file transfer, diagnostics collection, or remote shell.
 - Native Windows UI, services, startup behavior, installer, updater, privilege
   elevation, and production deployment.
@@ -38,9 +41,12 @@ Permanently prohibited:
   and session ids.
 - Audit records and local JSONL audit files.
 - Local runtime status snapshots and disconnect metadata.
-- Future remote assistance content such as screen frames, input, clipboard,
-  files, and diagnostics remains an explicit non-asset for the current
-  bootstrap because it must not be collected.
+- Screen frames returned by the isolated capture adapter are sensitive content
+  and must remain in-memory to the immediate caller until later transport work
+  defines consent-bound forwarding and retention rules.
+- Future remote assistance content such as input, clipboard, files, and
+  diagnostics remains an explicit non-asset for the current bootstrap because it
+  must not be collected.
 
 ## Trust Boundaries
 
@@ -60,6 +66,7 @@ Permanently prohibited:
 | Hidden active session | Host indicator events activate only after explicit visible approval and deactivate on pause, revoke, termination, expiration, disconnect, runtime stop, or socket close. |
 | Stale grant replay | Viewer state is bound to host authority and authorization id; terminal and same-authorization stale lifecycle messages cannot restore revoked permissions. |
 | Secret disclosure in diagnostics | CLI/runtime events, relay errors, audit metadata, raw events, close reasons, and signal summaries redact or omit raw tokens, pairing codes, private reasons, payloads, display names, and remote-content markers. |
+| Hidden capture | The Windows capture adapter rejects non-Windows, inactive, invisible, expired, permissionless, or disconnected grants before native capture and has no import-time, construction-time, loop, service, startup, elevation, file-write, relay, or viewer-rendering side effects. |
 | Audit repudiation | Security-relevant relay and agent-shell lifecycle events are audited; accepted relay forwarding writes audit before recipient delivery and fails closed if that audit write fails. |
 | Invalid or abusive joins | Pairing tickets are hashed, expiring, use-limited, and device-distinct; invalid token and malformed message attempts are rate-limited with bounded audit metadata. |
 | Denial of service | Relay bounds raw WebSocket message size, heartbeat timeouts, local rate limits, room size, duplicate peer ids, and runtime start lifecycle. Production distributed abuse controls remain future work. |
@@ -80,6 +87,6 @@ the relevant OpenSpec artifacts with:
 - Installer, startup, service, privilege, and uninstall/disable behavior when
   applicable.
 
-Native capture, input, clipboard, file transfer, diagnostics, production
-identity, production relay, installer, startup, service, and privilege work must
-not begin until those gates are explicit and reviewed.
+Additional native capture wiring, input, clipboard, file transfer, diagnostics,
+production identity, production relay, installer, startup, service, and
+privilege work must not begin until those gates are explicit and reviewed.

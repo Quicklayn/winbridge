@@ -8,6 +8,9 @@
       "path": "packages/audit-log"
     },
     {
+      "path": "packages/windows-capture"
+    },
+    {
       "path": "apps/relay"
     },
     {
