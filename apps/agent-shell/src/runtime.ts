@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import WebSocket, { type RawData } from "ws";
 import type { AuditSink } from "@winbridge/audit-log";
 import {
+  createWindowsScreenCaptureAdapter,
+  type WindowsScreenCaptureAdapter
+} from "@winbridge/windows-capture";
+import {
   createDeviceIdentity,
   createMessageBase,
   decodeProtocolEnvelope,
@@ -79,6 +83,7 @@ export type AgentShellRuntimeOptions = {
   hostDisconnectReason?: string;
   hostSignalProbeAck?: boolean;
   viewerSignalProbeAfterMs?: number;
+  screenCapture?: WindowsScreenCaptureAdapter;
   auditSink?: AuditSink;
   logger?: {
     log(message: string): void;
@@ -171,6 +176,12 @@ export type AgentShellInputEventInput = Readonly<
   }
 >;
 
+export type AgentShellCapturedScreenFrameInput = Readonly<{
+  frameId: string;
+  sequence: number;
+  toPeerId?: string;
+}>;
+
 export type AgentShellScreenFrameEventEnvelope = Omit<AgentShellScreenFrameEnvelope, "dataBase64"> & {
   dataBase64: AgentShellScreenFramePayloadSummary;
 };
@@ -210,6 +221,7 @@ export type AgentShellRuntime = {
   revokePermission(permission: Permission): void;
   resume(): void;
   terminate(): void;
+  captureAndSendScreenFrame(input: AgentShellCapturedScreenFrameInput): Promise<void>;
   sendScreenFrame(input: AgentShellScreenFrameInput): void;
   sendInputEvent(input: AgentShellInputEventInput): void;
   send(message: ProtocolEnvelope): void;
@@ -502,7 +514,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
           );
           logRuntimeLoggerMessageBestEffort(
             logger,
-            "[winbridge-agent] Native screen capture and remote input are not implemented."
+            "[winbridge-agent] Viewer desktop rendering and remote input are not implemented."
           );
           logRuntimeLoggerMessageBestEffort(
             logger,
@@ -704,6 +716,10 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         reportRuntimeError(options, error);
         throw createSanitizedRuntimeError();
       }
+    },
+
+    async captureAndSendScreenFrame(input: AgentShellCapturedScreenFrameInput) {
+      await captureAndSendDevelopmentScreenFrame(socket, options, sessionState, input);
     },
 
     sendScreenFrame(input: AgentShellScreenFrameInput) {
@@ -1481,6 +1497,48 @@ function sendDevelopmentScreenFrame(
   sendAuditedRemoteInteraction(socket, options, message);
 }
 
+async function captureAndSendDevelopmentScreenFrame(
+  socket: WebSocket | undefined,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  input: AgentShellCapturedScreenFrameInput
+): Promise<void> {
+  try {
+    if (options.role !== "host") {
+      throw new Error(AGENT_SHELL_SCREEN_FRAME_ROLE_ERROR_MESSAGE);
+    }
+
+    assertRemoteInteractionSocketReady(socket, sessionState);
+    const authorization = getAuthorizedWindowsScreenCaptureAuthorization(options, sessionState, input.toPeerId);
+    persistWindowsScreenCaptureAudit(options, authorization, input);
+
+    const captureAdapter = options.screenCapture ?? createWindowsScreenCaptureAdapter();
+    const frame = await captureAdapter.capturePrimaryScreen({
+      authorizationId: authorization.authorizationId,
+      authorizationStatus: "active",
+      visibleToHost: authorization.visibleToHost,
+      permissions: authorization.permissions,
+      peerConnected: !sessionState.localPeerDisconnected && !sessionState.remotePeerDisconnected,
+      expiresAt: authorization.expiresAt
+    });
+
+    sendDevelopmentScreenFrame(socket, options, sessionState, {
+      authorizationId: authorization.authorizationId,
+      toPeerId: input.toPeerId,
+      frameId: input.frameId,
+      sequence: input.sequence,
+      capturedAt: frame.capturedAt,
+      format: "image/png",
+      width: frame.width,
+      height: frame.height,
+      dataBase64: frame.dataBase64
+    });
+  } catch (error) {
+    reportRuntimeError(options, error);
+    throw createSanitizedRuntimeError();
+  }
+}
+
 function sendDevelopmentInputEvent(
   socket: WebSocket | undefined,
   options: AgentShellRuntimeOptions,
@@ -1557,6 +1615,44 @@ function assertScreenFrameSendAuthorized(
   }
 }
 
+function getAuthorizedWindowsScreenCaptureAuthorization(
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  toPeerId: string | undefined
+): VisibleRuntimeAuthorizationSnapshot {
+  assertRemoteInteractionPeerRouting(options.peerId, toPeerId, options, sessionState, "viewer");
+
+  const snapshot = sessionState.hostAuthorization;
+  if (!hasActiveRemoteInteractionAuthorization(snapshot, "screen:view")) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
+  }
+
+  if (snapshot.remotePeerId !== sessionState.observedPeerId) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_ROUTING_ERROR_MESSAGE);
+  }
+
+  return snapshot;
+}
+
+function persistWindowsScreenCaptureAudit(
+  options: AgentShellRuntimeOptions,
+  snapshot: VisibleRuntimeAuthorizationSnapshot,
+  input: AgentShellCapturedScreenFrameInput
+): void {
+  writeDevelopmentAuditRecord(options, {
+    action: "agent-shell.remote-interaction.screen-capture.requested",
+    outcome: "accepted",
+    detail: {
+      authorizationId: snapshot.authorizationId,
+      authorizationStatus: snapshot.status,
+      frameId: input.frameId,
+      sequence: input.sequence,
+      visibleToHost: snapshot.visibleToHost,
+      permissionCount: snapshot.permissions.length
+    }
+  });
+}
+
 function assertInputEventSendAuthorized(
   message: AgentShellInputEventEnvelope,
   options: AgentShellRuntimeOptions,
@@ -1584,6 +1680,22 @@ function assertRemoteInteractionRouting(
   sessionState: AgentShellSessionState,
   expectedRecipientRole: SessionRole
 ): void {
+  assertRemoteInteractionPeerRouting(
+    message.fromPeerId,
+    message.toPeerId,
+    options,
+    sessionState,
+    expectedRecipientRole
+  );
+}
+
+function assertRemoteInteractionPeerRouting(
+  fromPeerId: string,
+  toPeerId: string | undefined,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  expectedRecipientRole: SessionRole
+): void {
   if (
     !sessionState.recipientAvailable ||
     !sessionState.observedPeerId ||
@@ -1593,9 +1705,9 @@ function assertRemoteInteractionRouting(
   }
 
   if (
-    message.fromPeerId !== options.peerId ||
-    message.toPeerId === options.peerId ||
-    (message.toPeerId && message.toPeerId !== sessionState.observedPeerId)
+    fromPeerId !== options.peerId ||
+    toPeerId === options.peerId ||
+    (toPeerId && toPeerId !== sessionState.observedPeerId)
   ) {
     throw new Error(AGENT_SHELL_REMOTE_INTERACTION_ROUTING_ERROR_MESSAGE);
   }

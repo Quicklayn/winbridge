@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileAuditSink, MemoryAuditSink, type AuditSink } from "@winbridge/audit-log";
+import type { WindowsScreenCaptureAdapter } from "@winbridge/windows-capture";
 import {
   createMessageBase,
   encodeProtocolEnvelope,
@@ -11,11 +12,13 @@ import {
   type Permission,
   type ProtocolEnvelope
 } from "@winbridge/protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { createRelayRuntime, type RelayRuntime } from "../../relay/src/server.js";
 import { parseArgs } from "./args.js";
 import {
+  scheduleDevelopmentCapturedScreenFrameSend,
+  scheduleDevelopmentCapturedScreenFrameStream,
   scheduleDevelopmentInputEventSend,
   scheduleDevelopmentScreenFrameSend,
   scheduleDevelopmentScreenFrameStream
@@ -1843,6 +1846,7 @@ describe("agent shell consent workflow", () => {
       host,
       {
         afterMs: 0,
+        source: "static",
         frame: {
           frameId: "frame_cli_scheduled_1",
           sequence: 0,
@@ -1894,6 +1898,111 @@ describe("agent shell consent workflow", () => {
     }
   });
 
+  it("schedules host CLI Windows capture frames through runtime gates", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const frameData = Buffer.from("captured-raw-screen-content-private-marker").toString("base64");
+    const capturePrimaryScreen = vi.fn(async (grant) => ({
+      authorizationId: grant.authorizationId,
+      capturedAt: new Date().toISOString(),
+      format: "png" as const,
+      width: 2,
+      height: 2,
+      dataBase64: frameData,
+      dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+    }));
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    const handle = scheduleDevelopmentCapturedScreenFrameSend(
+      host,
+      {
+        afterMs: 0,
+        source: "windows-capture",
+        frame: {
+          frameId: "frame_cli_capture_1",
+          sequence: 0,
+          format: "image/png",
+          width: 1,
+          height: 1,
+          dataBase64: "eA=="
+        }
+      },
+      { pollIntervalMs: 5 }
+    );
+
+    try {
+      const sentFrame = await waitForSentMessage(
+        hostEvents,
+        (message) => message.type === "screen-frame" && message.frameId === "frame_cli_capture_1"
+      );
+      const receivedFrame = await waitForMessage(
+        viewerEvents,
+        (message) => message.type === "screen-frame" && message.frameId === "frame_cli_capture_1"
+      );
+      const auditRecords = hostAuditSink.records();
+      const captureAuditIndex = auditRecords.findIndex(
+        (record) => record.action === "agent-shell.remote-interaction.screen-capture.requested"
+      );
+      const sendAuditIndex = auditRecords.findIndex(
+        (record) => record.action === "agent-shell.remote-interaction.screen-frame.sent"
+      );
+
+      expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
+      expect(capturePrimaryScreen).toHaveBeenCalledWith(expect.objectContaining({
+        authorizationId,
+        authorizationStatus: "active",
+        visibleToHost: true,
+        permissions: ["screen:view"],
+        peerConnected: true,
+        expiresAt: expect.any(String)
+      }));
+      expect(sentFrame).toMatchObject({
+        type: "screen-frame",
+        authorizationId,
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        frameId: "frame_cli_capture_1",
+        sequence: 0,
+        format: "image/png",
+        width: 2,
+        height: 2,
+        dataBase64: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(frameData, "utf8")
+        }
+      });
+      expect(receivedFrame).toMatchObject(sentFrame);
+      expect(captureAuditIndex).toBeGreaterThanOrEqual(0);
+      expect(sendAuditIndex).toBeGreaterThan(captureAuditIndex);
+      expect(auditRecords[captureAuditIndex]?.detail).toMatchObject({
+        authorizationId,
+        authorizationStatus: "active",
+        frameId: "frame_cli_capture_1",
+        sequence: 0,
+        visibleToHost: true,
+        permissionCount: 1
+      });
+      expect(auditRecords[sendAuditIndex]?.detail).toMatchObject({
+        authorizationId,
+        frameId: "frame_cli_capture_1",
+        sequence: 0,
+        frameDataByteLength: Buffer.byteLength(frameData, "utf8")
+      });
+      expect(JSON.stringify([sentFrame, receivedFrame, auditRecords])).not.toContain(frameData);
+      expect(JSON.stringify([sentFrame, receivedFrame, auditRecords])).not.toContain(
+        "captured-raw-screen-content"
+      );
+    } finally {
+      handle.stop();
+    }
+  });
+
   it("schedules host CLI development screen frame streams through runtime gates", async () => {
     const hostAuditSink = new MemoryAuditSink();
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -1909,6 +2018,7 @@ describe("agent shell consent workflow", () => {
       host,
       {
         afterMs: 0,
+        source: "static",
         frame: {
           frameId: "frame_cli_stream",
           sequence: 0,
@@ -2012,6 +2122,112 @@ describe("agent shell consent workflow", () => {
       expect(JSON.stringify([sentFrames, receivedFrames, auditRecords])).not.toContain(frameData);
       expect(JSON.stringify([sentFrames, receivedFrames, auditRecords])).not.toContain(
         "cli-stream-raw-screen-content"
+      );
+    } finally {
+      handle.stop();
+    }
+  });
+
+  it("schedules bounded host CLI Windows capture streams through runtime gates", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const frameData = Buffer.from("captured-stream-raw-screen-content-private-marker").toString("base64");
+    const capturePrimaryScreen = vi.fn(async (grant) => ({
+      authorizationId: grant.authorizationId,
+      capturedAt: new Date().toISOString(),
+      format: "png" as const,
+      width: 2,
+      height: 2,
+      dataBase64: frameData,
+      dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+    }));
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    const handle = scheduleDevelopmentCapturedScreenFrameStream(
+      host,
+      {
+        afterMs: 0,
+        source: "windows-capture",
+        frame: {
+          frameId: "frame_cli_capture_stream",
+          sequence: 0,
+          format: "image/png",
+          width: 1,
+          height: 1,
+          dataBase64: "eA=="
+        },
+        stream: {
+          count: 2,
+          intervalMs: 5
+        }
+      },
+      { pollIntervalMs: 5 }
+    );
+
+    try {
+      const sentFrames = [
+        await waitForSentMessage(
+          hostEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_capture_stream_0"
+        ),
+        await waitForSentMessage(
+          hostEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_capture_stream_1"
+        )
+      ];
+      const receivedFrames = [
+        await waitForMessage(
+          viewerEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_capture_stream_0"
+        ),
+        await waitForMessage(
+          viewerEvents,
+          (message) => message.type === "screen-frame" && message.frameId === "frame_cli_capture_stream_1"
+        )
+      ];
+      const captureAuditRecords = hostAuditSink.records().filter(
+        (record) => record.action === "agent-shell.remote-interaction.screen-capture.requested"
+      );
+      const sendAuditRecords = hostAuditSink.records().filter(
+        (record) => record.action === "agent-shell.remote-interaction.screen-frame.sent"
+      );
+
+      expect(capturePrimaryScreen).toHaveBeenCalledTimes(2);
+      expect(sentFrames).toEqual([
+        expect.objectContaining({
+          type: "screen-frame",
+          authorizationId,
+          frameId: "frame_cli_capture_stream_0",
+          sequence: 0
+        }),
+        expect.objectContaining({
+          type: "screen-frame",
+          authorizationId,
+          frameId: "frame_cli_capture_stream_1",
+          sequence: 1
+        })
+      ]);
+      expect(receivedFrames).toEqual([
+        expect.objectContaining({ frameId: "frame_cli_capture_stream_0", sequence: 0 }),
+        expect.objectContaining({ frameId: "frame_cli_capture_stream_1", sequence: 1 })
+      ]);
+      expect(captureAuditRecords).toHaveLength(2);
+      expect(sendAuditRecords).toHaveLength(2);
+      expect(captureAuditRecords.map((record) => record.detail)).toEqual([
+        expect.objectContaining({ authorizationId, frameId: "frame_cli_capture_stream_0", sequence: 0 }),
+        expect.objectContaining({ authorizationId, frameId: "frame_cli_capture_stream_1", sequence: 1 })
+      ]);
+      expect(JSON.stringify([sentFrames, receivedFrames, captureAuditRecords, sendAuditRecords])).not.toContain(
+        frameData
+      );
+      expect(JSON.stringify([sentFrames, receivedFrames, captureAuditRecords, sendAuditRecords])).not.toContain(
+        "captured-stream-raw-screen-content"
       );
     } finally {
       handle.stop();
@@ -2362,6 +2578,113 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain(frameData);
     expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain("audit-blocked-raw-screen-content");
     expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain("raw-key-data");
+  });
+
+  it("blocks Windows capture before adapter invocation when capture audit fails", async () => {
+    const backingSink = new MemoryAuditSink();
+    const rawAuditFailure = "capture audit failed with raw-screen-content raw-token";
+    const capturePrimaryScreen = vi.fn(async (grant) => ({
+      authorizationId: grant.authorizationId,
+      capturedAt: new Date().toISOString(),
+      format: "png" as const,
+      width: 2,
+      height: 2,
+      dataBase64: Buffer.from("capture-audit-blocked-raw-screen-content").toString("base64"),
+      dataBase64Bytes: 64
+    }));
+    const failingSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.remote-interaction.screen-capture.requested") {
+          throw new Error(rawAuditFailure);
+        }
+
+        return backingSink.write(input);
+      }
+    };
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+
+    await expect(
+      host.captureAndSendScreenFrame({
+        frameId: "frame_capture_audit_blocked",
+        sequence: 0
+      })
+    ).rejects.toThrow("Agent shell runtime error");
+
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    await delay(100);
+    expect(errorEvent).toMatchObject({
+      direction: "error",
+      error: new Error("Agent shell runtime error"),
+      messageBytes: rawAuditFailure.length
+    });
+    expect(capturePrimaryScreen).not.toHaveBeenCalled();
+    expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "screen-frame")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "received" && event.message.type === "screen-frame")).toBe(false);
+    expect(backingSink.records().some((record) => record.action === "agent-shell.remote-interaction.screen-capture.requested")).toBe(false);
+    expect(backingSink.records().some((record) => record.action === "agent-shell.remote-interaction.screen-frame.sent")).toBe(false);
+    expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain(rawAuditFailure);
+    expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain("raw-screen-content");
+    expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain("raw-token");
+  });
+
+  it("redacts Windows capture adapter failures and does not send frames", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const rawCaptureFailure = "capture adapter failed with raw-screen-content C:\\Users\\Nur\\secret";
+    const capturePrimaryScreen = vi.fn(async () => {
+      throw new Error(rawCaptureFailure);
+    });
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+
+    await expect(
+      host.captureAndSendScreenFrame({
+        frameId: "frame_capture_failed",
+        sequence: 0
+      })
+    ).rejects.toThrow("Agent shell runtime error");
+
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    await delay(100);
+    expect(errorEvent).toMatchObject({
+      direction: "error",
+      error: new Error("Agent shell runtime error"),
+      messageBytes: rawCaptureFailure.length
+    });
+    expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
+    expect(hostAuditSink.records()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "agent-shell.remote-interaction.screen-capture.requested",
+          detail: expect.objectContaining({
+            authorizationId,
+            frameId: "frame_capture_failed",
+            sequence: 0,
+            visibleToHost: true
+          })
+        })
+      ])
+    );
+    expect(hostAuditSink.records().some((record) => record.action === "agent-shell.remote-interaction.screen-frame.sent")).toBe(false);
+    expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "screen-frame")).toBe(false);
+    expect(viewerEvents.some((event) => event.direction === "received" && event.message.type === "screen-frame")).toBe(false);
+    expect(JSON.stringify([hostEvents, viewerEvents, hostAuditSink.records()])).not.toContain(rawCaptureFailure);
+    expect(JSON.stringify([hostEvents, viewerEvents, hostAuditSink.records()])).not.toContain("raw-screen-content");
+    expect(JSON.stringify([hostEvents, viewerEvents, hostAuditSink.records()])).not.toContain("C:\\Users\\Nur");
   });
 
   it("blocks generic public send from bypassing remote interaction audit gates", async () => {
@@ -15981,6 +16304,7 @@ async function startRelayAndHost(options: {
   hostRevokeAfterMs?: number;
   hostRevokePermission?: Permission;
   hostRevokeReason?: string;
+  hostScreenCapture?: WindowsScreenCaptureAdapter;
   hostSignalProbeAck?: boolean;
   hostTerminateAfterMs?: number;
   hostTerminateReason?: string;
@@ -16025,6 +16349,7 @@ async function startRelayAndHost(options: {
     hostRevokeAfterMs: options.hostRevokeAfterMs,
     hostRevokePermission: options.hostRevokePermission,
     hostRevokeReason: options.hostRevokeReason,
+    screenCapture: options.hostScreenCapture,
     hostSignalProbeAck: options.hostSignalProbeAck,
     hostTerminateAfterMs: options.hostTerminateAfterMs,
     hostTerminateReason: options.hostTerminateReason,

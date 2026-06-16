@@ -209,6 +209,7 @@ describe("agent shell arguments", () => {
       ["disconnect-after-ms", "0"],
       ["disconnect-reason", "Host local close"],
       ["dev-screen-frame-after-ms", "0"],
+      ["dev-screen-frame-source", "windows-capture"],
       ["dev-screen-frame-id", "frame_cli_1"],
       ["dev-screen-frame-format", "image/png"],
       ["dev-screen-frame-width", "1"],
@@ -349,6 +350,7 @@ describe("agent shell arguments", () => {
 
     expect(args.devScreenFrame).toEqual({
       afterMs: 0,
+      source: "static",
       frame: {
         frameId: "frame_cli_custom",
         sequence: 0,
@@ -359,6 +361,44 @@ describe("agent shell arguments", () => {
       }
     });
     expect(args.devInputEvent).toBeUndefined();
+  });
+
+  it("parses host development Windows capture source CLI args", () => {
+    const args = parseArgs(
+      [
+        "host",
+        "--dev-screen-frame-after-ms",
+        "0",
+        "--dev-screen-frame-source",
+        "windows-capture",
+        "--dev-screen-frame-id",
+        "frame_cli_capture",
+        "--dev-screen-frame-count",
+        "2",
+        "--dev-screen-frame-interval-ms",
+        "1000"
+      ],
+      {},
+      42
+    );
+
+    expect(args.devScreenFrame).toEqual({
+      afterMs: 0,
+      source: "windows-capture",
+      frame: {
+        frameId: "frame_cli_capture",
+        sequence: 0,
+        format: "image/png",
+        width: 1,
+        height: 1,
+        dataBase64:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+      },
+      stream: {
+        count: 2,
+        intervalMs: 1000
+      }
+    });
   });
 
   it("parses host development screen-frame stream CLI args", () => {
@@ -380,6 +420,7 @@ describe("agent shell arguments", () => {
 
     expect(args.devScreenFrame).toMatchObject({
       afterMs: 0,
+      source: "static",
       frame: {
         frameId: "frame_cli_stream",
         sequence: 0,
@@ -471,6 +512,7 @@ describe("agent shell arguments", () => {
 
   it("rejects unsafe or malformed development remote interaction CLI args", () => {
     const malformedHostFrameCases = [
+      ["--dev-screen-frame-source", "native"],
       ["--dev-screen-frame-id", "token-raw-frame-secret"],
       ["--dev-screen-frame-format", "raw"],
       ["--dev-screen-frame-width", "0"],
@@ -487,6 +529,28 @@ describe("agent shell arguments", () => {
     for (const [option, value] of malformedHostFrameCases) {
       expect(() =>
         parseArgs(["host", "--dev-screen-frame-after-ms", "0", option, value], {}, 42)
+      ).toThrow(AgentShellUsageError);
+    }
+    for (const [option, value] of [
+      ["--dev-screen-frame-format", "image/png"],
+      ["--dev-screen-frame-width", "1"],
+      ["--dev-screen-frame-height", "1"],
+      ["--dev-screen-frame-data-base64", "eA=="]
+    ] as const) {
+      expect(() =>
+        parseArgs(
+          [
+            "host",
+            "--dev-screen-frame-after-ms",
+            "0",
+            "--dev-screen-frame-source",
+            "windows-capture",
+            option,
+            value
+          ],
+          {},
+          42
+        )
       ).toThrow(AgentShellUsageError);
     }
     expect(() =>

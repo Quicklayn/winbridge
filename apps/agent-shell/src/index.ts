@@ -5,6 +5,8 @@ import { createInteractiveHostDecisionProvider } from "./host-consent-prompt.js"
 import { startInteractiveHostControlPrompt, type HostControlPromptHandle } from "./host-control-prompt.js";
 import { scheduleHostStatusPrint, type HostStatusPrintHandle } from "./host-status.js";
 import {
+  scheduleDevelopmentCapturedScreenFrameSend,
+  scheduleDevelopmentCapturedScreenFrameStream,
   scheduleDevelopmentInputEventSend,
   scheduleDevelopmentScreenFrameSend,
   scheduleDevelopmentScreenFrameStream,
@@ -91,12 +93,21 @@ try {
       }
 
       if (args.devScreenFrame) {
-        devScreenFrameSend = args.devScreenFrame.stream
-          ? scheduleDevelopmentScreenFrameStream(runtime, {
-              ...args.devScreenFrame,
-              stream: args.devScreenFrame.stream
-            })
-          : scheduleDevelopmentScreenFrameSend(runtime, args.devScreenFrame);
+        if (args.devScreenFrame.source === "windows-capture") {
+          devScreenFrameSend = args.devScreenFrame.stream
+            ? scheduleDevelopmentCapturedScreenFrameStream(runtime, {
+                ...args.devScreenFrame,
+                stream: args.devScreenFrame.stream
+              })
+            : scheduleDevelopmentCapturedScreenFrameSend(runtime, args.devScreenFrame);
+        } else {
+          devScreenFrameSend = args.devScreenFrame.stream
+            ? scheduleDevelopmentScreenFrameStream(runtime, {
+                ...args.devScreenFrame,
+                stream: args.devScreenFrame.stream
+              })
+            : scheduleDevelopmentScreenFrameSend(runtime, args.devScreenFrame);
+        }
       }
 
       if (args.devInputEvent) {

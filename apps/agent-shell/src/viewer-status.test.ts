@@ -244,6 +244,9 @@ function createRuntimeSpy(): AgentShellRuntime {
     revokePermission: vi.fn(),
     resume: vi.fn(),
     terminate: vi.fn(),
+    captureAndSendScreenFrame: vi.fn(),
+    sendScreenFrame: vi.fn(),
+    sendInputEvent: vi.fn(),
     send: vi.fn()
   };
 }

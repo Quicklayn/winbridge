@@ -27,6 +27,7 @@ import {
 
 export type AgentShellDevScreenFrameArgs = Readonly<{
   afterMs: number;
+  source: "static" | "windows-capture";
   frame: Omit<AgentShellScreenFrameInput, "authorizationId">;
   stream?: {
     count: number;
@@ -80,7 +81,7 @@ export type AgentShellArgs = {
 };
 
 export const AGENT_SHELL_USAGE =
-  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000] [--dev-screen-frame-after-ms 1000] [--dev-screen-frame-id frame_cli_1] [--dev-screen-frame-format image/png] [--dev-screen-frame-width 1] [--dev-screen-frame-height 1] [--dev-screen-frame-data-base64 base64] [--dev-screen-frame-count 3] [--dev-screen-frame-interval-ms 1000] [--dev-input-after-ms 1000] [--dev-input-kind pointer-move|pointer-down|pointer-up|pointer-wheel|key-down|key-up] [--dev-input-event-id input_cli_1] [--dev-pointer-x 0.5] [--dev-pointer-y 0.5] [--dev-pointer-button primary] [--dev-pointer-buttons 1] [--dev-pointer-delta-x 0] [--dev-pointer-delta-y 1] [--dev-key KeyA] [--dev-code KeyA] [--dev-modifiers shift,control]";
+  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000] [--dev-screen-frame-after-ms 1000] [--dev-screen-frame-source static|windows-capture] [--dev-screen-frame-id frame_cli_1] [--dev-screen-frame-format image/png] [--dev-screen-frame-width 1] [--dev-screen-frame-height 1] [--dev-screen-frame-data-base64 base64] [--dev-screen-frame-count 3] [--dev-screen-frame-interval-ms 1000] [--dev-input-after-ms 1000] [--dev-input-kind pointer-move|pointer-down|pointer-up|pointer-wheel|key-down|key-up] [--dev-input-event-id input_cli_1] [--dev-pointer-x 0.5] [--dev-pointer-y 0.5] [--dev-pointer-button primary] [--dev-pointer-buttons 1] [--dev-pointer-delta-x 0] [--dev-pointer-delta-y 1] [--dev-key KeyA] [--dev-code KeyA] [--dev-modifiers shift,control]";
 
 const DEFAULT_DEV_SCREEN_FRAME_DATA_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -133,6 +134,7 @@ const knownOptions = new Set([
   "viewer-status-after-ms",
   "viewer-disconnect-after-ms",
   "dev-screen-frame-after-ms",
+  "dev-screen-frame-source",
   "dev-screen-frame-id",
   "dev-screen-frame-format",
   "dev-screen-frame-width",
@@ -193,6 +195,7 @@ const viewerRejectedHostWorkflowOptions = [
   "disconnect-after-ms",
   "disconnect-reason",
   "dev-screen-frame-after-ms",
+  "dev-screen-frame-source",
   "dev-screen-frame-id",
   "dev-screen-frame-format",
   "dev-screen-frame-width",
@@ -204,6 +207,7 @@ const viewerRejectedHostWorkflowOptions = [
 
 const devScreenFrameOptions = [
   "dev-screen-frame-after-ms",
+  "dev-screen-frame-source",
   "dev-screen-frame-id",
   "dev-screen-frame-format",
   "dev-screen-frame-width",
@@ -754,6 +758,16 @@ function parseDevScreenFrame(
   }
 
   const afterMs = parseRequiredTimerDelayMs(options.get("dev-screen-frame-after-ms"));
+  const source = parseDevScreenFrameSource(options.get("dev-screen-frame-source"));
+  if (source === "windows-capture") {
+    assertNoOptions(options, [
+      "dev-screen-frame-format",
+      "dev-screen-frame-width",
+      "dev-screen-frame-height",
+      "dev-screen-frame-data-base64"
+    ]);
+  }
+
   const frame = validateDevScreenFrame({
     frameId: parseRemoteInteractionId(options.get("dev-screen-frame-id") ?? DEFAULT_DEV_SCREEN_FRAME_ID),
     sequence: 0,
@@ -766,9 +780,22 @@ function parseDevScreenFrame(
 
   return {
     afterMs,
+    source,
     frame,
     ...(stream ? { stream } : {})
   };
+}
+
+function parseDevScreenFrameSource(raw: string | undefined): AgentShellDevScreenFrameArgs["source"] {
+  if (raw === undefined || raw === "static") {
+    return "static";
+  }
+
+  if (raw === "windows-capture") {
+    return raw;
+  }
+
+  throw new AgentShellUsageError();
 }
 
 function parseDevScreenFrameStream(

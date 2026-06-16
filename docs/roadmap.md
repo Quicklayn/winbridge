@@ -24,6 +24,7 @@
 - Screen frame transport design after consent, authorization, visibility, revoke, and audit gates are specified.
 - Agent-shell development `screen-frame` CLI exerciser for one-shot metadata-redacted transport checks.
 - Agent-shell finite frame stream loop for metadata-redacted cadence and authorization-loss checks.
+- Agent-shell Windows capture source wired through metadata-only capture audit and existing consent-bound `screen-frame` gates.
 - Bandwidth and quality controls.
 - Pause/resume.
 - Timeout and reconnect behavior.
@@ -31,7 +32,7 @@
 ## Phase 3: Windows Native Host
 
 - Windows capture adapter after a dedicated OpenSpec design and security review.
-- Wire the capture adapter into consent-bound host streaming with visible-session and revocation gates.
+- Production native capture UX/media pipeline beyond the development agent-shell source.
 - Visible host status surface.
 - Disconnect hotkey or tray control.
 - Permission enforcement.

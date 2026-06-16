@@ -83,6 +83,55 @@ export function scheduleDevelopmentScreenFrameStream(
   );
 }
 
+export function scheduleDevelopmentCapturedScreenFrameSend(
+  runtime: Pick<AgentShellRuntime, "getHostStatus" | "captureAndSendScreenFrame">,
+  args: AgentShellDevScreenFrameArgs,
+  options: RemoteInteractionCliOptions = {}
+): RemoteInteractionCliHandle {
+  return scheduleDevelopmentRemoteInteractionAsync(args.afterMs, options, async () => {
+    const status = runtime.getHostStatus();
+    if (!isReadyRemoteInteractionStatus(status)) {
+      return "waiting";
+    }
+
+    await runtime.captureAndSendScreenFrame({
+      frameId: args.frame.frameId,
+      sequence: args.frame.sequence
+    });
+
+    return "done";
+  });
+}
+
+export function scheduleDevelopmentCapturedScreenFrameStream(
+  runtime: Pick<AgentShellRuntime, "getHostStatus" | "captureAndSendScreenFrame">,
+  args: AgentShellDevScreenFrameArgs & {
+    stream: NonNullable<AgentShellDevScreenFrameArgs["stream"]>;
+  },
+  options: RemoteInteractionCliOptions = {}
+): RemoteInteractionCliHandle {
+  let sentCount = 0;
+  return scheduleDevelopmentRemoteInteractionStreamAsync(
+    args.afterMs,
+    args.stream.intervalMs,
+    options,
+    async () => {
+      const status = runtime.getHostStatus();
+      if (!isReadyRemoteInteractionStatus(status)) {
+        return sentCount > 0 ? "done" : "waiting";
+      }
+
+      await runtime.captureAndSendScreenFrame({
+        frameId: createDevelopmentScreenFrameStreamFrameId(args.frame.frameId, sentCount),
+        sequence: args.frame.sequence + sentCount
+      });
+      sentCount += 1;
+
+      return sentCount >= args.stream.count ? "done" : "sent";
+    }
+  );
+}
+
 export function scheduleDevelopmentInputEventSend(
   runtime: Pick<AgentShellRuntime, "getViewerStatus" | "sendInputEvent">,
   args: AgentShellDevInputEventArgs,
@@ -101,6 +150,124 @@ export function scheduleDevelopmentInputEventSend(
 
     return "done";
   });
+}
+
+function scheduleDevelopmentRemoteInteractionStreamAsync(
+  afterMs: number,
+  intervalMs: number,
+  options: RemoteInteractionCliOptions,
+  attempt: () => Promise<RemoteInteractionStreamAttemptResult>
+): RemoteInteractionCliHandle {
+  assertAgentShellSchedulerDelayMs(afterMs);
+  assertAgentShellPositiveSchedulerDelayMs(intervalMs);
+
+  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_REMOTE_INTERACTION_POLL_INTERVAL_MS;
+  assertAgentShellPositiveSchedulerDelayMs(pollIntervalMs);
+
+  const output = options.output ?? process.stderr;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const stop = () => {
+    if (stopped) {
+      return;
+    }
+
+    stopped = true;
+    if (timer) {
+      clearTimeout(timer);
+    }
+  };
+
+  const schedule = (delayMs: number) => {
+    timer = setTimeout(() => {
+      if (stopped) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          const result = await attempt();
+          if (stopped) {
+            return;
+          }
+
+          switch (result) {
+            case "waiting":
+              schedule(pollIntervalMs);
+              return;
+            case "sent":
+              schedule(intervalMs);
+              return;
+            case "done":
+              stop();
+              return;
+          }
+        } catch (error) {
+          output.write(`${formatAgentShellCliError(error)}\n`);
+          stop();
+        }
+      })();
+    }, delayMs);
+  };
+
+  schedule(afterMs);
+
+  return { stop };
+}
+
+function scheduleDevelopmentRemoteInteractionAsync(
+  afterMs: number,
+  options: RemoteInteractionCliOptions,
+  attempt: () => Promise<"waiting" | "done">
+): RemoteInteractionCliHandle {
+  assertAgentShellSchedulerDelayMs(afterMs);
+
+  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_REMOTE_INTERACTION_POLL_INTERVAL_MS;
+  assertAgentShellPositiveSchedulerDelayMs(pollIntervalMs);
+
+  const output = options.output ?? process.stderr;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const stop = () => {
+    if (stopped) {
+      return;
+    }
+
+    stopped = true;
+    if (timer) {
+      clearTimeout(timer);
+    }
+  };
+
+  const schedule = (delayMs: number) => {
+    timer = setTimeout(() => {
+      if (stopped) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          if ((await attempt()) === "done") {
+            stop();
+            return;
+          }
+
+          if (!stopped) {
+            schedule(pollIntervalMs);
+          }
+        } catch (error) {
+          output.write(`${formatAgentShellCliError(error)}\n`);
+          stop();
+        }
+      })();
+    }, delayMs);
+  };
+
+  schedule(afterMs);
+
+  return { stop };
 }
 
 function scheduleDevelopmentRemoteInteractionStream(

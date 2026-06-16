@@ -2,7 +2,7 @@
 
 WinBridge is a consent-first Windows-to-Windows remote assistance project.
 
-The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, a non-native agent shell, and an isolated Windows screen capture adapter. It does **not** wire real screen capture into a remote session, implement input injection, unattended access, or production deployment yet.
+The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, a non-native agent shell, and a Windows screen capture adapter wired into an explicit consent-bound host development frame source. It does **not** implement viewer desktop rendering, input injection, unattended access, or production deployment yet.
 
 ## Safety Scope
 
@@ -67,12 +67,13 @@ Windows Vitest worker exits with the recognized transient IPC channel-closed
 failure, the runner retries that test file once; ordinary test failures are not
 retried.
 
-The `@winbridge/windows-capture` package is a reviewed native boundary for
-future MVP host viewing. It performs no capture at import or construction time,
-requires an explicit active visible `screen:view` grant, rejects non-Windows and
+The `@winbridge/windows-capture` package is a reviewed native boundary for MVP
+host viewing. It performs no capture at import or construction time, requires an
+explicit active visible `screen:view` grant, rejects non-Windows and
 expired/disconnected/invisible grants before native calls, and returns a bounded
-PNG frame only to the immediate caller. It is not yet connected to agent-shell
-streaming or viewer rendering.
+PNG frame only to the immediate caller. The host agent shell can now opt into
+this adapter with `--dev-screen-frame-source windows-capture`; viewer desktop
+rendering remains future work.
 
 Run the development relay:
 
@@ -185,7 +186,7 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 The prompt shows the host the observed viewer peer id, validated viewer display name when available, bounded viewer device id/platform metadata when a trusted viewer `hello` includes it, requested permission names, permission count, and the validated request reason or `unavailable` before accepting input. It does not display remote self-asserted `trustLevel` values as verified trust context. It accepts only exact `approve` or `deny` responses before the host consent timeout expires. Prompt mode defaults to a 60000 ms timeout; use `--host-consent-timeout-ms 30000` with `--host-consent-prompt true` to configure a shorter or longer bounded wait. Static `--host-decision approve|deny` remains for deterministic automation and is mutually exclusive with `--host-consent-prompt true`. The displayed viewer identity is development peer metadata, not production account authentication, and it does not grant permissions or bypass consent.
 
-This still does not capture the screen or send input. It only sends session authorization protocol messages and exposes local secret-safe host indicator events plus bounded viewer status snapshots for development UI wiring. Signaling payloads must be JSON-compatible objects; JavaScript-only values that JSON would drop or coerce are rejected before forwarding.
+This baseline consent loop still does not capture the screen or send input. It only sends session authorization protocol messages and exposes local secret-safe host indicator events plus bounded viewer status snapshots for development UI wiring. Signaling payloads must be JSON-compatible objects; JavaScript-only values that JSON would drop or coerce are rejected before forwarding.
 
 Exercise the consent-bound development signal path with a static viewer probe:
 
@@ -214,7 +215,16 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-decision appro
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
-`--dev-screen-frame-after-ms` is host-only. It waits until the host runtime has an active visible authorization with `screen:view`, then sends exactly one development `screen-frame` message through `sendScreenFrame()`. By default it sends a tiny static PNG marker; optional `--dev-screen-frame-id`, `--dev-screen-frame-format`, `--dev-screen-frame-width`, `--dev-screen-frame-height`, and `--dev-screen-frame-data-base64` values are bounded and validated before runtime startup. This path does not read files, capture the real screen, start a native Windows capture adapter, or expose raw frame bytes in events, logs, or audit records.
+`--dev-screen-frame-after-ms` is host-only. It waits until the host runtime has an active visible authorization with `screen:view`, then sends exactly one development `screen-frame` message. By default `--dev-screen-frame-source static` sends a tiny static PNG marker through `sendScreenFrame()`; optional `--dev-screen-frame-id`, `--dev-screen-frame-format`, `--dev-screen-frame-width`, `--dev-screen-frame-height`, and `--dev-screen-frame-data-base64` values are bounded and validated before runtime startup. The static source does not read files, capture the real screen, start a native Windows capture adapter, or expose raw frame bytes in events, logs, or audit records.
+
+To exercise the Windows capture source on a Windows host:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --dev-screen-frame-after-ms 1000 --dev-screen-frame-source windows-capture
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
+```
+
+`--dev-screen-frame-source windows-capture` is host-only. It waits for active visible unexpired `screen:view` authorization, verified peer routing, open socket, connected viewer, and metadata-only local capture audit before invoking the Windows capture adapter. The captured PNG then goes through the existing `sendScreenFrame()` authorization, routing, audit-before-send, socket, and redaction gates, so pause, revoke, expiration, disconnect, audit failure, adapter failure, or runtime rejection fails closed. Capture source rejects static payload options such as `--dev-screen-frame-data-base64`; it does not render a viewer desktop, inject OS input, sync clipboard, transfer files, collect diagnostics, install services, configure startup persistence, elevate privileges, run unattended, bypass Windows prompts, or hide capture from the host.
 
 To exercise bounded frame cadence on the same consent-bound path:
 
@@ -223,7 +233,7 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-decision appro
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
-`--dev-screen-frame-count` and `--dev-screen-frame-interval-ms` make the host send a finite stream of static development frames. Count must be an exact integer from `1` through `1000`; multi-frame streams require a positive exact interval. Each frame uses a deterministic derived frame id and increasing sequence, and every send still goes through `sendScreenFrame()` authorization, routing, audit-before-send, and redaction gates. Authorization loss, disconnect, runtime rejection, or local shutdown stops the stream. This still does not capture the real screen, read arbitrary frame files, render a viewer desktop, or start native Windows APIs.
+`--dev-screen-frame-count` and `--dev-screen-frame-interval-ms` make the host send a finite stream of static or Windows-captured development frames. Count must be an exact integer from `1` through `1000`; multi-frame streams require a positive exact interval. Each frame uses a deterministic derived frame id and increasing sequence. Static frames go through `sendScreenFrame()` authorization, routing, audit-before-send, and redaction gates. Windows-captured streams additionally wait for each async capture/send attempt to finish before scheduling the next frame and stop on authorization loss, disconnect, audit failure, adapter failure, runtime rejection, or local shutdown. This still does not read arbitrary frame files or render a viewer desktop.
 
 Exercise a consent-bound development input message:
 

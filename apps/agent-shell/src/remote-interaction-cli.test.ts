@@ -2,6 +2,8 @@ import { Writable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentShellDevInputEventArgs, AgentShellDevScreenFrameArgs } from "./args.js";
 import {
+  scheduleDevelopmentCapturedScreenFrameSend,
+  scheduleDevelopmentCapturedScreenFrameStream,
   scheduleDevelopmentInputEventSend,
   scheduleDevelopmentScreenFrameSend,
   scheduleDevelopmentScreenFrameStream
@@ -10,6 +12,7 @@ import type { AgentShellRuntime } from "./runtime.js";
 
 const frameArgs: AgentShellDevScreenFrameArgs = {
   afterMs: 10,
+  source: "static",
   frame: {
     frameId: "frame_cli_1",
     sequence: 0,
@@ -18,6 +21,11 @@ const frameArgs: AgentShellDevScreenFrameArgs = {
     height: 1,
     dataBase64: "eA=="
   }
+};
+
+const capturedFrameArgs: AgentShellDevScreenFrameArgs = {
+  ...frameArgs,
+  source: "windows-capture"
 };
 
 const inputArgs: AgentShellDevInputEventArgs = {
@@ -72,9 +80,48 @@ describe("development remote interaction CLI scheduler", () => {
       ).toThrow("Agent shell scheduler delay must be a bounded integer");
       expect(runtime.getHostStatus).not.toHaveBeenCalled();
       expect(runtime.sendScreenFrame).not.toHaveBeenCalled();
+      expect(runtime.captureAndSendScreenFrame).not.toHaveBeenCalled();
       expect(runtime.sendInputEvent).not.toHaveBeenCalled();
       expect(runtime.send).not.toHaveBeenCalled();
       expect(output.text()).toBe("");
+    }
+  });
+
+  it("waits for active visible host authorization and captures one screen frame", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntimeSpy();
+      const output = createCapturingOutput();
+
+      scheduleDevelopmentCapturedScreenFrameSend(runtime, capturedFrameArgs, {
+        output,
+        pollIntervalMs: 5
+      });
+
+      await vi.advanceTimersByTimeAsync(10);
+      expect(runtime.getHostStatus).toHaveBeenCalledTimes(1);
+      expect(runtime.captureAndSendScreenFrame).not.toHaveBeenCalled();
+
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "active",
+        visibleToHost: true,
+        authorizationStatus: "active",
+        authorizationId: "authz_cli_capture_1",
+        permissionCount: 1
+      });
+      await vi.advanceTimersByTimeAsync(5);
+
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledTimes(1);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledWith({
+        frameId: "frame_cli_1",
+        sequence: 0
+      });
+      expect(runtime.sendScreenFrame).not.toHaveBeenCalled();
+      expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+      expect(runtime.send).not.toHaveBeenCalled();
+      expect(output.text()).toBe("");
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -118,6 +165,67 @@ describe("development remote interaction CLI scheduler", () => {
       expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(1);
 
       handle.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("streams captured frames without overlapping async captures", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntimeSpy();
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "active",
+        visibleToHost: true,
+        authorizationStatus: "active",
+        authorizationId: "authz_cli_capture_stream_1",
+        permissionCount: 1
+      });
+      const output = createCapturingOutput();
+      const firstCapture = createDeferred<void>();
+      vi.mocked(runtime.captureAndSendScreenFrame)
+        .mockReturnValueOnce(firstCapture.promise)
+        .mockResolvedValue(undefined);
+
+      scheduleDevelopmentCapturedScreenFrameStream(
+        runtime,
+        {
+          ...capturedFrameArgs,
+          afterMs: 0,
+          stream: {
+            count: 2,
+            intervalMs: 5
+          }
+        },
+        { output, pollIntervalMs: 2 }
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledTimes(1);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenLastCalledWith({
+        frameId: "frame_cli_1_0",
+        sequence: 0
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledTimes(1);
+
+      firstCapture.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(4);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledTimes(2);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenLastCalledWith({
+        frameId: "frame_cli_1_1",
+        sequence: 1
+      });
+
+      await vi.advanceTimersByTimeAsync(50);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledTimes(2);
+      expect(runtime.sendScreenFrame).not.toHaveBeenCalled();
+      expect(output.text()).toBe("");
     } finally {
       vi.useRealTimers();
     }
@@ -204,6 +312,53 @@ describe("development remote interaction CLI scheduler", () => {
       expect(runtime.sendScreenFrame).toHaveBeenCalledTimes(3);
       expect(runtime.sendInputEvent).not.toHaveBeenCalled();
       expect(runtime.send).not.toHaveBeenCalled();
+      expect(output.text()).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops a captured frame stream after authorization loss", async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntimeSpy();
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "active",
+        visibleToHost: true,
+        authorizationStatus: "active",
+        authorizationId: "authz_cli_capture_stream_2",
+        permissionCount: 1
+      });
+      const output = createCapturingOutput();
+
+      scheduleDevelopmentCapturedScreenFrameStream(
+        runtime,
+        {
+          ...capturedFrameArgs,
+          afterMs: 0,
+          stream: {
+            count: 3,
+            intervalMs: 5
+          }
+        },
+        { output, pollIntervalMs: 2 }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledTimes(1);
+
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "paused",
+        visibleToHost: true,
+        authorizationStatus: "paused",
+        authorizationId: "authz_cli_capture_stream_2",
+        permissionCount: 1
+      });
+      await vi.advanceTimersByTimeAsync(5);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledTimes(1);
+      expect(runtime.sendScreenFrame).not.toHaveBeenCalled();
+      expect(runtime.sendInputEvent).not.toHaveBeenCalled();
       expect(output.text()).toBe("");
     } finally {
       vi.useRealTimers();
@@ -333,10 +488,47 @@ describe("development remote interaction CLI scheduler", () => {
 
         expect(runtime.getHostStatus).toHaveBeenCalled();
         expect(runtime.sendScreenFrame).not.toHaveBeenCalled();
+        expect(runtime.captureAndSendScreenFrame).not.toHaveBeenCalled();
         expect(runtime.sendInputEvent).not.toHaveBeenCalled();
         expect(runtime.send).not.toHaveBeenCalled();
         expect(output.text()).toBe("");
       }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("formats captured frame failures without raw exception text", async () => {
+    vi.useFakeTimers();
+    try {
+      const rawErrorMessage = "capture failed with raw-screen-content at C:\\Users\\Nur\\secret";
+      const runtime = createRuntimeSpy();
+      vi.mocked(runtime.getHostStatus).mockReturnValue({
+        state: "active",
+        visibleToHost: true,
+        authorizationStatus: "active",
+        authorizationId: "authz_cli_capture_2",
+        permissionCount: 1
+      });
+      vi.mocked(runtime.captureAndSendScreenFrame).mockRejectedValue(new Error(rawErrorMessage));
+      const output = createCapturingOutput();
+
+      scheduleDevelopmentCapturedScreenFrameSend(
+        runtime,
+        { ...capturedFrameArgs, afterMs: 0 },
+        { output }
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(output.text()).toContain(
+        `[winbridge-agent] error messageBytes=${Buffer.byteLength(rawErrorMessage)}`
+      );
+      expect(output.text()).not.toContain(rawErrorMessage);
+      expect(output.text()).not.toContain("raw-screen-content");
+      expect(output.text()).not.toContain("C:\\Users\\Nur");
+
+      await vi.advanceTimersByTimeAsync(50);
+      expect(runtime.captureAndSendScreenFrame).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
@@ -452,10 +644,26 @@ function createRuntimeSpy(): AgentShellRuntime {
     revokePermission: vi.fn(),
     resume: vi.fn(),
     terminate: vi.fn(),
+    captureAndSendScreenFrame: vi.fn(),
     sendScreenFrame: vi.fn(),
     sendInputEvent: vi.fn(),
     send: vi.fn()
   };
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T | PromiseLike<T>): void;
+  reject(reason?: unknown): void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
 }
 
 function createCapturingOutput(): Writable & { text(): string } {
