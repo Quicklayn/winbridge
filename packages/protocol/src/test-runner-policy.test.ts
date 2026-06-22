@@ -5,7 +5,8 @@ import {
   prioritizeTestFiles,
   runTestFile,
   shouldRetryVitestRun,
-  VITEST_SERIAL_FLAGS
+  VITEST_SERIAL_FLAGS,
+  VITEST_THREAD_FALLBACK_FLAGS
 } from "../../../scripts/run-tests-lib.mjs";
 
 describe("local test runner policy", () => {
@@ -52,6 +53,15 @@ describe("local test runner policy", () => {
     expect(args).toContain("--minWorkers");
     expect(args).toContain("--no-file-parallelism");
     expect(args).not.toContain("--no-isolate");
+  });
+
+  it("defines a serial thread fallback without disabling isolation", () => {
+    expect(VITEST_THREAD_FALLBACK_FLAGS).toContain("--pool");
+    expect(VITEST_THREAD_FALLBACK_FLAGS).toContain("threads");
+    expect(VITEST_THREAD_FALLBACK_FLAGS).toContain("--maxWorkers");
+    expect(VITEST_THREAD_FALLBACK_FLAGS).toContain("--minWorkers");
+    expect(VITEST_THREAD_FALLBACK_FLAGS).toContain("--no-file-parallelism");
+    expect(VITEST_THREAD_FALLBACK_FLAGS).not.toContain("--no-isolate");
   });
 
   it("prioritizes runtime integration suites before other tests", () => {
@@ -125,9 +135,36 @@ describe("local test runner policy", () => {
       }
     });
 
-    expect(result).toEqual({ status: 1, attempts: 2 });
-    expect(calls).toHaveLength(2);
+    expect(result).toEqual({ status: 1, attempts: 3 });
+    expect(calls).toHaveLength(3);
     expect(stderr.text()).toContain("retrying once");
+    expect(stderr.text()).toContain("falling back to thread pool");
+  });
+
+  it("falls back to threads when repeated fork runs hit transient IPC failures", () => {
+    const calls = [];
+    const stderr = createWritableCapture();
+
+    const result = runTestFile("packages/protocol/src/messages.test.ts", {
+      streams: { stdout: createWritableCapture(), stderr },
+      spawn(command, args, options) {
+        calls.push({ command, args, options });
+
+        if (calls.length < 3) {
+          return { status: 1, stdout: "", stderr: "Serialized Error: { code: 'ERR_IPC_CHANNEL_CLOSED' }" };
+        }
+
+        return { status: 0, stdout: "thread fallback passed", stderr: "" };
+      }
+    });
+
+    expect(result).toEqual({ status: 0, attempts: 3 });
+    expect(calls).toHaveLength(3);
+    expect(calls[0].args).toContain("forks");
+    expect(calls[1].args).toContain("forks");
+    expect(calls[2].args).toContain("threads");
+    expect(stderr.text()).toContain("retrying once");
+    expect(stderr.text()).toContain("falling back to thread pool");
   });
 
   it("reports startup errors from a transient retry attempt", () => {

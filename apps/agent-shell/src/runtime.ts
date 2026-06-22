@@ -3,8 +3,14 @@ import WebSocket, { type RawData } from "ws";
 import type { AuditSink } from "@winbridge/audit-log";
 import {
   createWindowsScreenCaptureAdapter,
-  type WindowsScreenCaptureAdapter
+  type WindowsScreenCaptureAdapter,
+  type WindowsScreenCaptureFormat
 } from "@winbridge/windows-capture";
+import {
+  createWindowsInputAdapter,
+  type WindowsInputAdapter
+} from "@winbridge/windows-input";
+import type { ViewerScreenFrameOutputSink } from "./screen-frame-output.js";
 import {
   createDeviceIdentity,
   createMessageBase,
@@ -82,8 +88,11 @@ export type AgentShellRuntimeOptions = {
   hostDisconnectAfterMs?: number;
   hostDisconnectReason?: string;
   hostSignalProbeAck?: boolean;
+  hostApplyInput?: boolean;
   viewerSignalProbeAfterMs?: number;
   screenCapture?: WindowsScreenCaptureAdapter;
+  windowsInput?: WindowsInputAdapter;
+  viewerScreenFrameOutputSink?: ViewerScreenFrameOutputSink;
   auditSink?: AuditSink;
   logger?: {
     log(message: string): void;
@@ -296,6 +305,10 @@ const RUNTIME_VIEWER_SIGNAL_PROBE_ERROR_MESSAGE =
   "Runtime viewer signal probe requires a viewer runtime with requested screen:view permission";
 const RUNTIME_HOST_SIGNAL_PROBE_ACK_ERROR_MESSAGE =
   "Runtime host signal probe acknowledgement is only valid for host runtimes";
+const RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE =
+  "Runtime host input application requires an explicit host runtime with a local audit sink";
+const RUNTIME_VIEWER_SCREEN_FRAME_OUTPUT_ERROR_MESSAGE =
+  "Runtime viewer screen-frame output requires a viewer runtime with requested screen:view permission and a local audit sink";
 const RUNTIME_HOST_WORKFLOW_OPTIONS_ERROR_MESSAGE =
   "Runtime host workflow options are only valid for host runtimes";
 const AGENT_SHELL_RUNTIME_ERROR_MESSAGE = "Agent shell runtime error";
@@ -380,6 +393,7 @@ type AgentShellSessionState = {
   observedPeerDeviceIdentity?: DeviceIdentity;
   localDeviceIdentity?: DeviceIdentity;
   helloSent: boolean;
+  viewerAuthorizationRequestSent: boolean;
   hostAuthorization?: RuntimeAuthorizationSnapshot;
   hostWorkflowState?: HostWorkflowState;
   viewerAuthorization?: RuntimeAuthorizationSnapshot;
@@ -425,6 +439,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
     remotePeerDisconnected: false,
     recipientAvailable: false,
     helloSent: false,
+    viewerAuthorizationRequestSent: false,
     viewerSignalProbeGeneration: 0
   };
 
@@ -514,11 +529,11 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
           );
           logRuntimeLoggerMessageBestEffort(
             logger,
-            "[winbridge-agent] Viewer desktop rendering and remote input are not implemented."
+            "[winbridge-agent] Development MVP uses explicit host consent, finite capture, loopback viewer surface, and host input opt-in."
           );
           logRuntimeLoggerMessageBestEffort(
             logger,
-            "[winbridge-agent] This shell only exercises the consent/session protocol."
+            "[winbridge-agent] Production desktop UI, unattended access, clipboard sync, and file transfer are not implemented."
           );
 
           const deviceIdentity = createDeviceIdentity({
@@ -793,6 +808,7 @@ function resetConnectionScopedSessionState(sessionState: AgentShellSessionState)
   sessionState.observedPeerDeviceIdentity = undefined;
   sessionState.localDeviceIdentity = undefined;
   sessionState.helloSent = false;
+  sessionState.viewerAuthorizationRequestSent = false;
   sessionState.hostAuthorization = undefined;
   sessionState.hostWorkflowState = undefined;
   sessionState.viewerAuthorization = undefined;
@@ -905,6 +921,17 @@ async function handleMessage(
     return;
   }
 
+  try {
+    persistInboundScreenFrameOutput(options, envelope);
+    const inputApplication = applyInboundWindowsInput(options, sessionState, envelope);
+    if (inputApplication) {
+      await inputApplication;
+    }
+  } catch (error) {
+    reportRuntimeError(options, error);
+    return;
+  }
+
   emitRuntimeEventBestEffort(options, { direction: "received", message: redactReceivedEventMessage(envelope) });
   logRuntimeMessageBestEffort(options, `[winbridge-agent] ${summarizeProtocolMessage(envelope)}`);
 
@@ -936,10 +963,6 @@ async function handleMessage(
     if (envelope.type === "relay-ready" && envelope.roomSize >= 2) {
       sessionState.recipientAvailable = true;
       sendHelloOnce(socket, options, sessionState);
-
-      if (options.role === "viewer") {
-        sendViewerAuthorizationRequest(socket, options);
-      }
     }
 
     if (envelope.type === "hello") {
@@ -949,6 +972,7 @@ async function handleMessage(
       sessionState.observedPeerDisplayName = envelope.displayName;
       sessionState.observedPeerDeviceIdentity = envelope.deviceIdentity;
       sendHelloOnce(socket, options, sessionState);
+      sendViewerAuthorizationRequestOnce(socket, options, sessionState);
     }
 
     if (envelope.type === "session-authorization-request" && options.role === "host") {
@@ -1528,7 +1552,7 @@ async function captureAndSendDevelopmentScreenFrame(
       frameId: input.frameId,
       sequence: input.sequence,
       capturedAt: frame.capturedAt,
-      format: "image/png",
+      format: protocolScreenFrameFormatForCapture(frame.format),
       width: frame.width,
       height: frame.height,
       dataBase64: frame.dataBase64
@@ -1536,6 +1560,17 @@ async function captureAndSendDevelopmentScreenFrame(
   } catch (error) {
     reportRuntimeError(options, error);
     throw createSanitizedRuntimeError();
+  }
+}
+
+function protocolScreenFrameFormatForCapture(
+  format: WindowsScreenCaptureFormat
+): AgentShellScreenFrameEnvelope["format"] {
+  switch (format) {
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
   }
 }
 
@@ -1647,6 +1682,81 @@ function persistWindowsScreenCaptureAudit(
       authorizationStatus: snapshot.status,
       frameId: input.frameId,
       sequence: input.sequence,
+      visibleToHost: snapshot.visibleToHost,
+      permissionCount: snapshot.permissions.length
+    }
+  });
+}
+
+function applyInboundWindowsInput(
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  message: ProtocolEnvelope
+): Promise<unknown> | undefined {
+  if (message.type !== "input-event" || !options.hostApplyInput) {
+    return;
+  }
+
+  if (options.auditSink === undefined) {
+    throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
+  }
+
+  const authorization = getAuthorizedWindowsInputAuthorization(options, sessionState, message);
+  persistWindowsInputApplicationAudit(options, authorization, message);
+  const inputAdapter = options.windowsInput ?? createWindowsInputAdapter();
+  return inputAdapter.applyInputEvent(
+    {
+      authorizationId: authorization.authorizationId,
+      authorizationStatus: "active",
+      visibleToHost: authorization.visibleToHost,
+      permissions: authorization.permissions,
+      peerConnected: !sessionState.localPeerDisconnected && !sessionState.remotePeerDisconnected,
+      expiresAt: authorization.expiresAt
+    },
+    message
+  );
+}
+
+function getAuthorizedWindowsInputAuthorization(
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState,
+  message: AgentShellInputEventEnvelope
+): VisibleRuntimeAuthorizationSnapshot {
+  if (options.role !== "host") {
+    throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
+  }
+
+  const requiredPermission = inputEventRequiredPermission(message.event);
+  const snapshot = sessionState.hostAuthorization;
+  if (
+    !hasActiveRemoteInteractionAuthorization(snapshot, requiredPermission) ||
+    snapshot.authorizationId !== message.authorizationId
+  ) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
+  }
+
+  if (snapshot.remotePeerId !== sessionState.observedPeerId || message.fromPeerId !== snapshot.remotePeerId) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_ROUTING_ERROR_MESSAGE);
+  }
+
+  return snapshot;
+}
+
+function persistWindowsInputApplicationAudit(
+  options: AgentShellRuntimeOptions,
+  snapshot: VisibleRuntimeAuthorizationSnapshot,
+  message: AgentShellInputEventEnvelope
+): void {
+  writeDevelopmentAuditRecord(options, {
+    action: "agent-shell.remote-interaction.input-event.applied",
+    outcome: "accepted",
+    detail: {
+      authorizationId: snapshot.authorizationId,
+      authorizationStatus: snapshot.status,
+      eventId: message.eventId,
+      sequence: message.sequence,
+      inputKind: message.event.kind,
+      inputPayloadByteLength: Buffer.byteLength(stringifyJson(message.event), "utf8"),
       visibleToHost: snapshot.visibleToHost,
       permissionCount: snapshot.permissions.length
     }
@@ -1770,6 +1880,26 @@ function persistRemoteInteractionSendAudit(
     outcome: "accepted",
     detail: remoteInteractionAuditDetail(message)
   });
+}
+
+function persistInboundScreenFrameOutput(
+  options: AgentShellRuntimeOptions,
+  message: ProtocolEnvelope
+): void {
+  if (message.type !== "screen-frame" || options.viewerScreenFrameOutputSink === undefined) {
+    return;
+  }
+
+  if (options.auditSink === undefined) {
+    throw new Error(RUNTIME_VIEWER_SCREEN_FRAME_OUTPUT_ERROR_MESSAGE);
+  }
+
+  writeDevelopmentAuditRecord(options, {
+    action: "agent-shell.remote-interaction.screen-frame.output-written",
+    outcome: "accepted",
+    detail: remoteInteractionAuditDetail(message)
+  });
+  options.viewerScreenFrameOutputSink.writeFrame(message);
 }
 
 function remoteInteractionAuditDetail(
@@ -2107,6 +2237,23 @@ function sendViewerAuthorizationRequest(
     requestedPermissions,
     ...(options.requestReason === undefined ? {} : { reason: options.requestReason })
   });
+}
+
+function sendViewerAuthorizationRequestOnce(
+  socket: WebSocket | undefined,
+  options: AgentShellRuntimeOptions,
+  sessionState: AgentShellSessionState
+): void {
+  if (
+    options.role !== "viewer" ||
+    sessionState.viewerAuthorizationRequestSent ||
+    sessionState.observedPeerRole !== "host"
+  ) {
+    return;
+  }
+
+  sendViewerAuthorizationRequest(socket, options);
+  sessionState.viewerAuthorizationRequestSent = true;
 }
 
 async function handleHostAuthorizationRequest(
@@ -2756,7 +2903,9 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
     options.viewerSignalProbeAfterMs
   ]);
   assertRuntimeViewerSignalProbe(options);
+  assertRuntimeViewerScreenFrameOutput(options);
   assertRuntimeHostSignalProbeAck(options);
+  assertRuntimeHostInputApplication(options);
   assertRuntimeWorkflowReasons([
     options.decisionReason,
     options.requestReason,
@@ -3019,6 +3168,20 @@ function assertRuntimeViewerSignalProbe(options: AgentShellRuntimeOptions): void
   }
 }
 
+function assertRuntimeViewerScreenFrameOutput(options: AgentShellRuntimeOptions): void {
+  if (options.viewerScreenFrameOutputSink === undefined) {
+    return;
+  }
+
+  if (
+    options.role !== "viewer" ||
+    !options.requestedPermissions?.includes(SIGNAL_REQUIRED_PERMISSION) ||
+    options.auditSink === undefined
+  ) {
+    throw new Error(RUNTIME_VIEWER_SCREEN_FRAME_OUTPUT_ERROR_MESSAGE);
+  }
+}
+
 function assertRuntimeHostSignalProbeAck(options: AgentShellRuntimeOptions): void {
   if (options.hostSignalProbeAck === undefined) {
     return;
@@ -3026,6 +3189,32 @@ function assertRuntimeHostSignalProbeAck(options: AgentShellRuntimeOptions): voi
 
   if (typeof options.hostSignalProbeAck !== "boolean" || options.role !== "host") {
     throw new Error(RUNTIME_HOST_SIGNAL_PROBE_ACK_ERROR_MESSAGE);
+  }
+}
+
+function assertRuntimeHostInputApplication(options: AgentShellRuntimeOptions): void {
+  if (options.hostApplyInput === undefined && options.windowsInput === undefined) {
+    return;
+  }
+
+  if (options.role !== "host" || typeof options.hostApplyInput !== "boolean") {
+    throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
+  }
+
+  if (!options.hostApplyInput) {
+    if (options.windowsInput !== undefined) {
+      throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
+    }
+
+    return;
+  }
+
+  if (options.auditSink === undefined) {
+    throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
+  }
+
+  if (options.windowsInput !== undefined && typeof options.windowsInput.applyInputEvent !== "function") {
+    throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
   }
 }
 
@@ -3048,6 +3237,8 @@ function assertRuntimeViewerHasNoHostWorkflowOptions(options: AgentShellRuntimeO
     options.hostTerminateAfterMs !== undefined ||
     options.hostTerminateReason !== undefined ||
     options.hostDisconnectAfterMs !== undefined ||
+    options.hostApplyInput !== undefined ||
+    options.windowsInput !== undefined ||
     options.decisionReason !== undefined
   ) {
     throw new Error(RUNTIME_HOST_WORKFLOW_OPTIONS_ERROR_MESSAGE);

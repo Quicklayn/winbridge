@@ -13,32 +13,49 @@ missing, inactive, invisible, permissionless, disconnected, expired, non-Windows
 or malformed grants before invoking a native command runner.
 
 #### Scenario: Capture runs with active visible grant
+
 - **WHEN** the adapter is called on Windows with an active visible unexpired grant that includes `screen:view` and a connected peer
 - **THEN** it invokes the native command runner exactly once
-- **AND** it returns a bounded PNG frame with width, height, captured timestamp, byte length, and base64 data
+- **AND** it returns a bounded JPEG or PNG frame with width, height, captured timestamp, byte length, and base64 data
 
 #### Scenario: Capture lacks visible grant
+
 - **WHEN** the adapter is called with a missing, inactive, invisible, expired, permissionless, disconnected, malformed, or non-Windows grant
 - **THEN** it fails before invoking native capture, writing files, sending protocol messages, emitting audit records, logging screen contents, hiding the session, or bypassing consent
 
 #### Scenario: Capture is attempted on non-Windows platform
+
 - **WHEN** the adapter is called with a platform context other than Windows
 - **THEN** it rejects before invoking PowerShell, native APIs, protocol sends, file writes, service behavior, startup persistence, elevation, or prompt bypass
 
 ### Requirement: Windows screen capture output is bounded and metadata-safe
 
 The Windows screen capture adapter SHALL validate native capture output before
-returning it. Output MUST be PNG-only, width and height MUST be positive bounded
-integers, encoded payload size MUST stay within the configured frame byte limit,
-and diagnostics MUST NOT expose raw frame bytes, encoded frame data, screenshots,
-screen contents, credentials, tokens, pairing codes, private reasons, or full
-secrets.
+returning it. Output MUST be JPEG or PNG, width and height MUST be positive
+bounded integers, encoded payload size MUST stay within the configured frame
+byte limit, and diagnostics MUST NOT expose raw frame bytes, encoded frame data,
+screenshots, screen contents, credentials, tokens, pairing codes, private
+reasons, or full secrets. The default reviewed native PowerShell runner MUST
+emit a JPEG preview that is downscaled or quality-reduced as needed to fit the
+configured encoded payload limit before returning to TypeScript validation.
+
+#### Scenario: Native runner returns bounded JPEG output
+
+- **WHEN** the native command runner returns valid JSON with JPEG format, safe dimensions, valid base64, a JPEG signature, and encoded data within the configured bound
+- **THEN** the adapter accepts the frame and reports the `jpeg` format to the caller
+
+#### Scenario: Native runner returns bounded PNG output
+
+- **WHEN** the native command runner returns valid JSON with PNG format, safe dimensions, valid base64, a PNG signature, and encoded data within the configured bound
+- **THEN** the adapter accepts the frame and reports the `png` format to the caller
 
 #### Scenario: Native runner returns malformed output
-- **WHEN** the native command runner returns invalid JSON, unsupported format, invalid dimensions, invalid base64, empty image data, or oversized image data
+
+- **WHEN** the native command runner returns invalid JSON, unsupported format, invalid dimensions, invalid base64, empty image data, mismatched image signature, or oversized image data
 - **THEN** the adapter rejects before returning a frame, writing files, sending protocol messages, hiding the session, or exposing raw screen contents in diagnostics
 
 #### Scenario: Native runner fails
+
 - **WHEN** the native command runner fails, times out, or reports an error
 - **THEN** the adapter reports only bounded generic failure metadata
 - **AND** it MUST NOT expose raw command output, screenshots, screen contents, credentials, tokens, pairing codes, private reasons, or full secrets
@@ -61,3 +78,4 @@ capture from the host.
 - **WHEN** an explicit one-shot capture succeeds
 - **THEN** the adapter returns the captured frame to the immediate caller only
 - **AND** it MUST NOT start a loop, reconnect peers, send the frame, persist the frame, render a viewer, inject input, alter host controls, or bypass revocation
+

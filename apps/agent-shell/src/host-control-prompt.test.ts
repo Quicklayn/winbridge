@@ -21,6 +21,14 @@ describe("interactive host control prompt", () => {
       action: "revoke",
       permission: "screen:view"
     });
+    expect(parseHostControlCommand("revoke input:pointer")).toEqual({
+      action: "revoke",
+      permission: "input:pointer"
+    });
+    expect(parseHostControlCommand("revoke input:keyboard")).toEqual({
+      action: "revoke",
+      permission: "input:keyboard"
+    });
   });
 
   it("rejects malformed or unsafe command lines", () => {
@@ -54,14 +62,20 @@ describe("interactive host control prompt", () => {
   it("dispatches accepted non-terminal commands through runtime controls", async () => {
     const runtime = createRuntimeSpy();
     const output = createCapturingOutput();
-    const input = PassThrough.from(["pause\n", "resume\n", "revoke screen:view\n"]);
+    const input = PassThrough.from([
+      "pause\n",
+      "resume\n",
+      "revoke screen:view\n",
+      "revoke input:pointer\n"
+    ]);
 
     startInteractiveHostControlPrompt(runtime, { input, output });
-    await waitForText(output, (text) => countMatches(text, "host control accepted") === 3);
+    await waitForText(output, (text) => countMatches(text, "host control accepted") === 4);
 
     expect(runtime.pause).toHaveBeenCalledTimes(1);
     expect(runtime.resume).toHaveBeenCalledTimes(1);
     expect(runtime.revokePermission).toHaveBeenCalledWith("screen:view");
+    expect(runtime.revokePermission).toHaveBeenCalledWith("input:pointer");
     expect(runtime.terminate).not.toHaveBeenCalled();
     expect(runtime.disconnect).not.toHaveBeenCalled();
     expect(runtime.leave).not.toHaveBeenCalled();
@@ -166,7 +180,9 @@ describe("interactive host control prompt", () => {
     expect(runtime.disconnect).not.toHaveBeenCalled();
     expect(runtime.leave).not.toHaveBeenCalled();
     expect(runtime.send).not.toHaveBeenCalled();
-    expect(output.text()).toContain("commands=help,status,pause,resume,revoke screen:view,terminate,disconnect");
+    expect(output.text()).toContain(
+      "commands=help,status,pause,resume,revoke screen:view,revoke input:pointer,revoke input:keyboard,terminate,disconnect"
+    );
     expect(output.text()).not.toContain("123-456");
     expect(output.text()).not.toContain("Viewer Support");
     expect(output.text()).not.toContain("raw-token");
@@ -372,7 +388,7 @@ describe("interactive host control prompt", () => {
 
   it("formats host help as a bounded static command list", () => {
     expect(formatHostControlHelp()).toBe(
-      "[winbridge-agent] host control help commands=help,status,pause,resume,revoke screen:view,terminate,disconnect\n"
+      "[winbridge-agent] host control help commands=help,status,pause,resume,revoke screen:view,revoke input:pointer,revoke input:keyboard,terminate,disconnect\n"
     );
   });
 

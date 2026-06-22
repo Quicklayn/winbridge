@@ -4,40 +4,6 @@
 
 This repository builds **WinBridge**, a consent-first Windows-to-Windows remote assistance product.
 
-## Token Budget Guard
-
-Token budget protection is the highest-priority project workflow constraint for
-agent work in this repository. It does not override the safety policy below, but
-it can stop or narrow any development task before more tokens are spent.
-
-Hard limit:
-
-- Daily agent-token usage for this project MUST stay below `100000000` tokens.
-- A single work cycle MUST stay below `2000000` tokens. If the current cycle
-  reaches or exceeds this limit, stop work immediately and hand off status.
-- Agent work MUST stop when known daily project usage reaches the configured
-  daily limit.
-- Agent work MUST stop at `13:00 UTC` when work on this project is in progress.
-  Do not start or continue autonomous project work at or after this cutoff unless
-  the user explicitly gives a new instruction after the cutoff.
-- Every substantial status or handoff SHOULD report known daily budget state,
-  or explicitly say that provider-side daily project usage data is unavailable.
-  For long-running work, also report known cycle usage.
-
-Use `npm run token:guard` before substantial autonomous work when daily token
-usage figures are available in the environment:
-
-- `WINBRIDGE_TOKEN_USAGE_DAILY`
-- `WINBRIDGE_TOKEN_USAGE_CYCLE`
-
-Optional overrides:
-
-- `WINBRIDGE_TOKEN_LIMIT_DAILY` defaults to `100000000`.
-- `WINBRIDGE_TOKEN_LIMIT_CYCLE` defaults to `2000000`.
-- `WINBRIDGE_WORK_CUTOFF_UTC_HOUR` defaults to `13`.
-- `WINBRIDGE_TOKEN_GUARD_ALLOW_UNKNOWN=1` turns missing provider-side daily usage
-  into warnings for short, explicitly bounded manual work only.
-
 This project is dual-use. All work MUST keep the product in the legitimate remote assistance category:
 
 - The host user explicitly approves each session.

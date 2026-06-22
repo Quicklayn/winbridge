@@ -55,8 +55,11 @@ const RELAY_DISCONNECT_AUDIT_FAILED_WARNING =
 const RELAY_HEARTBEAT_TIMEOUT_AUDIT_FAILED_WARNING =
   "[winbridge-relay] Heartbeat timeout audit failed before peer termination";
 const RELAY_RUNTIME_ALREADY_STARTED_ERROR_MESSAGE = "Relay runtime is already started";
+const RELAY_BIND_HOST_ERROR_MESSAGE =
+  "WINBRIDGE_RELAY_BIND_HOST must be one of: 127.0.0.1, localhost, 0.0.0.0";
 const RELAY_SHARED_TOKEN_ERROR_MESSAGE =
   "WINBRIDGE_RELAY_SHARED_TOKEN must be non-blank, already trimmed, 1024 UTF-8 bytes or less, contain no ASCII control characters, and contain no Unicode bidi or zero-width formatting controls";
+const VALID_RELAY_BIND_HOSTS = new Set(["127.0.0.1", "localhost", "0.0.0.0"]);
 const SAFE_RELAY_REJECTION_REASONS = new Set([
   GENERIC_RELAY_REJECTION_REASON,
   RELAY_MESSAGE_TOO_LARGE_REASON,
@@ -84,6 +87,7 @@ const SAFE_RELAY_REJECTION_REASONS = new Set([
 
 export type RelayRuntimeOptions = {
   port?: number;
+  bindHost?: string;
   sharedToken?: string;
   rooms?: RoomRegistry;
   auditSink?: AuditSink;
@@ -127,6 +131,7 @@ type RelayDeliveryOutcome = {
 
 export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRuntime {
   const port = normalizeRelayPort(options.port === undefined ? 8787 : options.port);
+  const bindHost = normalizeRelayBindHost(options.bindHost ?? "127.0.0.1");
   const sharedToken = normalizeRelaySharedToken(options.sharedToken);
   const pairingConfig = normalizeRelayPairingConfig({
     ...createRelayPairingConfig(),
@@ -434,7 +439,7 @@ export function createRelayRuntime(options: RelayRuntimeOptions = {}): RelayRunt
 
       startState = "starting";
       try {
-        await listen(server, wss, port);
+        await listen(server, wss, port, bindHost);
         startState = "started";
       } catch (error) {
         startState = "idle";
@@ -1102,6 +1107,12 @@ export function createRelayPortConfig(
   );
 }
 
+export function createRelayBindHostConfig(
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  return normalizeRelayBindHost(env.WINBRIDGE_RELAY_BIND_HOST ?? "127.0.0.1");
+}
+
 export function createRelaySharedTokenConfig(
   env: NodeJS.ProcessEnv = process.env
 ): string | undefined {
@@ -1110,6 +1121,21 @@ export function createRelaySharedTokenConfig(
   }
 
   return normalizeRelaySharedToken(env.WINBRIDGE_RELAY_SHARED_TOKEN);
+}
+
+function normalizeRelayBindHost(bindHost: unknown): string {
+  if (
+    typeof bindHost !== "string" ||
+    bindHost.trim().length === 0 ||
+    bindHost !== bindHost.trim() ||
+    hasAsciiControlCharacter(bindHost) ||
+    hasUnsafeTokenFormatCharacter(bindHost) ||
+    !VALID_RELAY_BIND_HOSTS.has(bindHost)
+  ) {
+    throw new Error(RELAY_BIND_HOST_ERROR_MESSAGE);
+  }
+
+  return bindHost;
 }
 
 function normalizeRelaySharedToken(sharedToken: unknown): string | undefined {
@@ -1278,7 +1304,7 @@ function pairingDeniedAuditDetail(reason: string) {
   };
 }
 
-function listen(server: Server, wss: WebSocketServer, port: number): Promise<void> {
+function listen(server: Server, wss: WebSocketServer, port: number, bindHost: string): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const cleanup = () => {
@@ -1308,7 +1334,7 @@ function listen(server: Server, wss: WebSocketServer, port: number): Promise<voi
     server.once("error", onError);
     server.once("listening", onListening);
     wss.once("error", onError);
-    server.listen(port, "127.0.0.1");
+    server.listen(port, bindHost);
   });
 }
 

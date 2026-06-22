@@ -1,10 +1,11 @@
 import { once } from "node:events";
-import { readFileSync, rmSync, mkdtempSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, mkdtempSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileAuditSink, MemoryAuditSink, type AuditSink } from "@winbridge/audit-log";
 import type { WindowsScreenCaptureAdapter } from "@winbridge/windows-capture";
+import type { WindowsInputAdapter } from "@winbridge/windows-input";
 import {
   createMessageBase,
   encodeProtocolEnvelope,
@@ -23,6 +24,7 @@ import {
   scheduleDevelopmentScreenFrameSend,
   scheduleDevelopmentScreenFrameStream
 } from "./remote-interaction-cli.js";
+import { FileViewerScreenFrameOutputSink } from "./screen-frame-output.js";
 import {
   createAgentShellErrorDiagnostic,
   createAgentShellRuntime,
@@ -200,6 +202,24 @@ describe("agent shell consent workflow", () => {
     expect(logs.join("\n")).not.toContain("raw-startup-logger-token");
   });
 
+  it("logs current development MVP startup capabilities without stale unavailable wording", async () => {
+    const logs: string[] = [];
+
+    await startRelayAndHost({
+      hostLogger: captureLogger(logs)
+    });
+
+    expect(logs).toContain(
+      "[winbridge-agent] Development MVP uses explicit host consent, finite capture, loopback viewer surface, and host input opt-in."
+    );
+    expect(logs).toContain(
+      "[winbridge-agent] Production desktop UI, unattended access, clipboard sync, and file transfer are not implemented."
+    );
+    expect(logs.join("\n")).not.toContain("Viewer desktop rendering is not implemented");
+    expect(logs.join("\n")).not.toContain("remote input are not implemented");
+    expect(logs.join("\n")).not.toContain("only exercises the consent/session protocol");
+  });
+
   it("rejects malformed runtime host decisions before relay startup", () => {
     expect(() =>
       createAgentShellRuntime(createRuntimeOptions({
@@ -336,6 +356,11 @@ describe("agent shell consent workflow", () => {
         "Runtime requested permissions are only valid for viewer runtimes"
       ],
       [
+        "host viewer screen-frame output sink",
+        { viewerScreenFrameOutputSink: { writeFrame: () => undefined } },
+        "Runtime viewer screen-frame output"
+      ],
+      [
         "viewer request reason without requested permissions",
         {
           role: "viewer",
@@ -345,6 +370,60 @@ describe("agent shell consent workflow", () => {
           requestReason: "Need support"
         },
         "Runtime requested permissions are only valid for viewer runtimes"
+      ],
+      [
+        "viewer screen-frame output sink without screen view request",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: [],
+          auditSink: new MemoryAuditSink(),
+          viewerScreenFrameOutputSink: { writeFrame: () => undefined }
+        },
+        "Runtime viewer screen-frame output"
+      ],
+      [
+        "viewer screen-frame output sink without local audit sink",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          requestedPermissions: ["screen:view"],
+          viewerScreenFrameOutputSink: { writeFrame: () => undefined }
+        },
+        "Runtime viewer screen-frame output"
+      ],
+      [
+        "host input application without local audit sink",
+        { hostApplyInput: true },
+        "Runtime host input application"
+      ],
+      [
+        "viewer host input application flag",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          hostApplyInput: false
+        },
+        "Runtime host input application"
+      ],
+      [
+        "input adapter without explicit host input application",
+        {
+          auditSink: new MemoryAuditSink(),
+          windowsInput: { applyInputEvent: async () => ({
+            authorizationId: "authz_input_1",
+            eventId: "input_1",
+            inputKind: "pointer-move",
+            appliedAt: new Date().toISOString()
+          }) }
+        },
+        "Runtime host input application"
       ],
       [
         "non-array host grant scope",
@@ -1715,6 +1794,78 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify([sentFrame, receivedFrame, auditRecord])).not.toContain("raw-screen-content");
   });
 
+  it("writes authorized inbound screen frames to an explicit viewer output file after audit", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const viewerAuditSink = new MemoryAuditSink();
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-viewer-frame-"));
+    const framePath = join(tempDir, "latest.png");
+
+    try {
+      const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+        hostAuditSink,
+        hostDecision: "approve",
+        visibleToHost: true
+      });
+      await startViewer(
+        relay.url(),
+        ["screen:view"],
+        viewerEvents,
+        silentLogger,
+        viewerAuditSink,
+        "Viewer",
+        { viewerScreenFrameOutputSink: new FileViewerScreenFrameOutputSink(framePath) }
+      );
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+      await waitForReceivedActiveAuthorizationId(viewerEvents);
+      const rawFrame = "viewer-output-raw-screen-content-private-marker";
+      const frameData = Buffer.from(rawFrame).toString("base64");
+
+      host.sendScreenFrame({
+        authorizationId,
+        frameId: "frame_viewer_output_1",
+        sequence: 2,
+        capturedAt: new Date().toISOString(),
+        format: "image/png",
+        width: 800,
+        height: 600,
+        dataBase64: frameData
+      });
+
+      const receivedFrame = await waitForMessage(
+        viewerEvents,
+        (message) => message.type === "screen-frame" && message.frameId === "frame_viewer_output_1"
+      );
+      const outputAuditRecord = viewerAuditSink.records().find(
+        (record) => record.action === "agent-shell.remote-interaction.screen-frame.output-written"
+      );
+
+      expect(readFileSync(framePath)).toEqual(Buffer.from(rawFrame));
+      expect(receivedFrame).toMatchObject({
+        type: "screen-frame",
+        authorizationId,
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        dataBase64: {
+          redacted: "[REDACTED]",
+          byteLength: Buffer.byteLength(frameData, "utf8")
+        }
+      });
+      expect(outputAuditRecord?.detail).toMatchObject({
+        authorizationId,
+        frameId: "frame_viewer_output_1",
+        sequence: 2,
+        format: "image/png",
+        width: 800,
+        height: 600,
+        frameDataByteLength: Buffer.byteLength(frameData, "utf8")
+      });
+      expect(JSON.stringify([viewerEvents, hostEvents, viewerAuditSink.records(), hostAuditSink.records()])).not.toContain(frameData);
+      expect(JSON.stringify([viewerEvents, hostEvents, viewerAuditSink.records(), hostAuditSink.records()])).not.toContain(rawFrame);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("sends authorized development pointer and keyboard input with metadata-only events and audit", async () => {
     const viewerAuditSink = new MemoryAuditSink();
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -1818,17 +1969,313 @@ describe("agent shell consent workflow", () => {
       })
     ]);
     const serialized = JSON.stringify([
-      sentPointer,
-      sentKeyboard,
-      receivedPointer,
-      receivedKeyboard,
-      auditActions
+      sentPointer.event,
+      sentKeyboard.event,
+      receivedPointer.event,
+      receivedKeyboard.event,
+      auditActions.map((record) => record.detail)
     ]);
     expect(serialized).not.toContain("0.42");
     expect(serialized).not.toContain("0.24");
     expect(serialized).not.toContain("KeyA");
     expect(serialized).not.toContain("control");
     expect(serialized).not.toContain("shift");
+  });
+
+  it("applies authorized inbound pointer and keyboard input after host audit", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const auditSeenBeforeApply: boolean[] = [];
+    const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>(async (grant, input) => {
+      auditSeenBeforeApply.push(
+        hostAuditSink.records().some(
+          (record) =>
+            record.action === "agent-shell.remote-interaction.input-event.applied" &&
+            record.detail.eventId === input.eventId
+        )
+      );
+
+      return {
+        authorizationId: input.authorizationId,
+        eventId: input.eventId,
+        inputKind: input.event.kind,
+        appliedAt: new Date().toISOString()
+      };
+    });
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostApplyInput: true,
+      hostDecision: "approve",
+      hostWindowsInput: { applyInputEvent },
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["input:pointer", "input:keyboard"], viewerEvents);
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_apply_pointer_1",
+      sequence: 1,
+      occurredAt: new Date().toISOString(),
+      event: {
+        kind: "pointer-move",
+        x: 0.42,
+        y: 0.24,
+        buttons: 1
+      }
+    });
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_apply_keyboard_1",
+      sequence: 2,
+      occurredAt: new Date().toISOString(),
+      event: {
+        kind: "key-down",
+        key: "KeyA",
+        code: "KeyA",
+        modifiers: ["control", "shift"]
+      }
+    });
+
+    const receivedPointer = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "input-event" && message.eventId === "input_apply_pointer_1"
+    );
+    const receivedKeyboard = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "input-event" && message.eventId === "input_apply_keyboard_1"
+    );
+    const applyAuditRecords = hostAuditSink.records().filter(
+      (record) => record.action === "agent-shell.remote-interaction.input-event.applied"
+    );
+
+    expect(applyInputEvent).toHaveBeenCalledTimes(2);
+    expect(applyInputEvent).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        authorizationId,
+        authorizationStatus: "active",
+        visibleToHost: true,
+        permissions: ["input:pointer", "input:keyboard"],
+        peerConnected: true,
+        expiresAt: expect.any(String)
+      }),
+      expect.objectContaining({
+        authorizationId,
+        eventId: "input_apply_pointer_1",
+        event: expect.objectContaining({ kind: "pointer-move" })
+      })
+    );
+    expect(applyInputEvent).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        authorizationId,
+        authorizationStatus: "active",
+        visibleToHost: true,
+        permissions: ["input:pointer", "input:keyboard"],
+        peerConnected: true,
+        expiresAt: expect.any(String)
+      }),
+      expect.objectContaining({
+        authorizationId,
+        eventId: "input_apply_keyboard_1",
+        event: expect.objectContaining({ kind: "key-down" })
+      })
+    );
+    expect(auditSeenBeforeApply).toEqual([true, true]);
+    expect(applyAuditRecords.map((record) => record.detail)).toEqual([
+      expect.objectContaining({
+        authorizationId,
+        authorizationStatus: "active",
+        eventId: "input_apply_pointer_1",
+        sequence: 1,
+        inputKind: "pointer-move",
+        visibleToHost: true,
+        permissionCount: 2
+      }),
+      expect.objectContaining({
+        authorizationId,
+        authorizationStatus: "active",
+        eventId: "input_apply_keyboard_1",
+        sequence: 2,
+        inputKind: "key-down",
+        visibleToHost: true,
+        permissionCount: 2
+      })
+    ]);
+    expect(receivedPointer).toMatchObject({
+      type: "input-event",
+      eventId: "input_apply_pointer_1",
+      event: {
+        redacted: "[REDACTED]",
+        kind: "pointer-move",
+        byteLength: expect.any(Number)
+      }
+    });
+    expect(receivedKeyboard).toMatchObject({
+      type: "input-event",
+      eventId: "input_apply_keyboard_1",
+      event: {
+        redacted: "[REDACTED]",
+        kind: "key-down",
+        byteLength: expect.any(Number)
+      }
+    });
+    const serialized = JSON.stringify([
+      receivedPointer.event,
+      receivedKeyboard.event,
+      applyAuditRecords.map((record) => record.detail)
+    ]);
+    expect(serialized).not.toContain("0.42");
+    expect(serialized).not.toContain("0.24");
+    expect(serialized).not.toContain("KeyA");
+    expect(serialized).not.toContain("control");
+    expect(serialized).not.toContain("shift");
+  });
+
+  it("keeps inbound input metadata-only when host input application is disabled", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["input:pointer"], viewerEvents);
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_metadata_only_1",
+      sequence: 1,
+      event: {
+        kind: "pointer-move",
+        x: 0.31,
+        y: 0.62
+      }
+    });
+
+    const receivedInput = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "input-event" && message.eventId === "input_metadata_only_1"
+    );
+    await delay(100);
+
+    expect(hostAuditSink.records().some((record) => record.action === "agent-shell.remote-interaction.input-event.applied")).toBe(false);
+    const serialized = JSON.stringify([
+      receivedInput.event,
+      hostAuditSink.records().map((record) => record.detail)
+    ]);
+    expect(serialized).not.toContain("0.31");
+    expect(serialized).not.toContain("0.62");
+  });
+
+  it("blocks host input adapter invocation when input application audit fails", async () => {
+    const backingSink = new MemoryAuditSink();
+    const rawAuditFailure = "input application audit failed with raw-key-data raw-token";
+    const failingSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.remote-interaction.input-event.applied") {
+          throw new Error(rawAuditFailure);
+        }
+
+        return backingSink.write(input);
+      }
+    };
+    const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>();
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostApplyInput: true,
+      hostDecision: "approve",
+      hostWindowsInput: { applyInputEvent },
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["input:keyboard"], viewerEvents);
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_apply_audit_blocked",
+      sequence: 1,
+      event: {
+        kind: "key-down",
+        key: "KeyZ",
+        code: "KeyZ",
+        modifiers: ["control"]
+      }
+    });
+
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    await delay(100);
+    expect(errorEvent).toMatchObject({
+      direction: "error",
+      error: new Error("Agent shell runtime error"),
+      messageBytes: rawAuditFailure.length
+    });
+    expect(applyInputEvent).not.toHaveBeenCalled();
+    expect(hostEvents.some((event) => event.direction === "received" && event.message.type === "input-event")).toBe(false);
+    expect(backingSink.records().some((record) => record.action === "agent-shell.remote-interaction.input-event.applied")).toBe(false);
+    expect(JSON.stringify([hostEvents, backingSink.records()])).not.toContain(rawAuditFailure);
+    expect(JSON.stringify([hostEvents, backingSink.records()])).not.toContain("KeyZ");
+    expect(JSON.stringify([hostEvents, backingSink.records()])).not.toContain("control");
+    expect(JSON.stringify([hostEvents, backingSink.records()])).not.toContain("raw-token");
+  });
+
+  it("redacts host input adapter failures and withholds trusted received events", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const rawAdapterFailure = "windows input failed with KeyZ raw-token";
+    const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>(async () => {
+      throw new Error(rawAdapterFailure);
+    });
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostApplyInput: true,
+      hostDecision: "approve",
+      hostWindowsInput: { applyInputEvent },
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["input:keyboard"], viewerEvents);
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_apply_adapter_failed",
+      sequence: 1,
+      event: {
+        kind: "key-down",
+        key: "KeyZ",
+        code: "KeyZ",
+        modifiers: ["control"]
+      }
+    });
+
+    const errorEvent = await waitForRuntimeError(hostEvents);
+    await delay(100);
+    expect(errorEvent).toMatchObject({
+      direction: "error",
+      error: new Error("Agent shell runtime error"),
+      messageBytes: rawAdapterFailure.length
+    });
+    expect(applyInputEvent).toHaveBeenCalledTimes(1);
+    expect(hostAuditSink.records()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "agent-shell.remote-interaction.input-event.applied",
+          detail: expect.objectContaining({
+            authorizationId,
+            eventId: "input_apply_adapter_failed",
+            inputKind: "key-down"
+          })
+        })
+      ])
+    );
+    expect(hostEvents.some((event) => event.direction === "received" && event.message.type === "input-event")).toBe(false);
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain(rawAdapterFailure);
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain("KeyZ");
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain("control");
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain("raw-token");
   });
 
   it("schedules host CLI development screen frames through runtime gates", async () => {
@@ -1904,7 +2351,7 @@ describe("agent shell consent workflow", () => {
     const capturePrimaryScreen = vi.fn(async (grant) => ({
       authorizationId: grant.authorizationId,
       capturedAt: new Date().toISOString(),
-      format: "png" as const,
+      format: "jpeg" as const,
       width: 2,
       height: 2,
       dataBase64: frameData,
@@ -1969,7 +2416,7 @@ describe("agent shell consent workflow", () => {
         toPeerId: "viewer-1",
         frameId: "frame_cli_capture_1",
         sequence: 0,
-        format: "image/png",
+        format: "image/jpeg",
         width: 2,
         height: 2,
         dataBase64: {
@@ -2134,7 +2581,7 @@ describe("agent shell consent workflow", () => {
     const capturePrimaryScreen = vi.fn(async (grant) => ({
       authorizationId: grant.authorizationId,
       capturedAt: new Date().toISOString(),
-      format: "png" as const,
+      format: "jpeg" as const,
       width: 2,
       height: 2,
       dataBase64: frameData,
@@ -2204,13 +2651,15 @@ describe("agent shell consent workflow", () => {
           type: "screen-frame",
           authorizationId,
           frameId: "frame_cli_capture_stream_0",
-          sequence: 0
+          sequence: 0,
+          format: "image/jpeg"
         }),
         expect.objectContaining({
           type: "screen-frame",
           authorizationId,
           frameId: "frame_cli_capture_stream_1",
-          sequence: 1
+          sequence: 1,
+          format: "image/jpeg"
         })
       ]);
       expect(receivedFrames).toEqual([
@@ -2580,6 +3029,139 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain("raw-key-data");
   });
 
+  it("blocks viewer output file writes when output audit persistence fails", async () => {
+    const backingSink = new MemoryAuditSink();
+    const rawAuditFailure = "viewer output audit failed with raw-screen-content raw-token";
+    const failingSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.remote-interaction.screen-frame.output-written") {
+          throw new Error(rawAuditFailure);
+        }
+
+        return backingSink.write(input);
+      }
+    };
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-viewer-frame-audit-"));
+    const framePath = join(tempDir, "latest.png");
+
+    try {
+      const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+        hostDecision: "approve",
+        visibleToHost: true
+      });
+      await startViewer(
+        relay.url(),
+        ["screen:view"],
+        viewerEvents,
+        silentLogger,
+        failingSink,
+        "Viewer",
+        { viewerScreenFrameOutputSink: new FileViewerScreenFrameOutputSink(framePath) }
+      );
+      const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+      await waitForReceivedActiveAuthorizationId(viewerEvents);
+      const rawFrame = "viewer-output-audit-blocked-raw-screen-content";
+      const frameData = Buffer.from(rawFrame).toString("base64");
+
+      host.sendScreenFrame({
+        authorizationId,
+        frameId: "frame_output_audit_blocked",
+        sequence: 1,
+        capturedAt: new Date().toISOString(),
+        format: "image/png",
+        width: 640,
+        height: 360,
+        dataBase64: frameData
+      });
+
+      const errorEvent = await waitForRuntimeError(viewerEvents);
+      await delay(100);
+
+      expect(errorEvent).toMatchObject({
+        direction: "error",
+        error: new Error("Agent shell runtime error"),
+        messageBytes: rawAuditFailure.length
+      });
+      expect(existsSync(framePath)).toBe(false);
+      expect(
+        viewerEvents.some(
+          (event) =>
+            event.direction === "received" &&
+            event.message.type === "screen-frame" &&
+            event.message.frameId === "frame_output_audit_blocked"
+        )
+      ).toBe(false);
+      expect(backingSink.records().some((record) => record.action === "agent-shell.remote-interaction.screen-frame.output-written")).toBe(false);
+      expect(JSON.stringify([viewerEvents, backingSink.records()])).not.toContain(rawAuditFailure);
+      expect(JSON.stringify([viewerEvents, backingSink.records()])).not.toContain(rawFrame);
+      expect(JSON.stringify([viewerEvents, backingSink.records()])).not.toContain(frameData);
+      expect(JSON.stringify([viewerEvents, backingSink.records()])).not.toContain("raw-token");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("blocks trusted viewer receive events when output file replacement fails", async () => {
+    const viewerAuditSink = new MemoryAuditSink();
+    const rawOutputFailure = "viewer output replace failed with raw-screen-content raw-token";
+    const failingOutputSink = {
+      writeFrame: vi.fn(() => {
+        throw new Error(rawOutputFailure);
+      })
+    };
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      visibleToHost: true
+    });
+    await startViewer(
+      relay.url(),
+      ["screen:view"],
+      viewerEvents,
+      silentLogger,
+      viewerAuditSink,
+      "Viewer",
+      { viewerScreenFrameOutputSink: failingOutputSink }
+    );
+    const authorizationId = await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    const rawFrame = "viewer-output-replace-blocked-raw-screen-content";
+    const frameData = Buffer.from(rawFrame).toString("base64");
+
+    host.sendScreenFrame({
+      authorizationId,
+      frameId: "frame_output_replace_blocked",
+      sequence: 1,
+      capturedAt: new Date().toISOString(),
+      format: "image/png",
+      width: 640,
+      height: 360,
+      dataBase64: frameData
+    });
+
+    const errorEvent = await waitForRuntimeError(viewerEvents);
+    await delay(100);
+
+    expect(failingOutputSink.writeFrame).toHaveBeenCalledTimes(1);
+    expect(errorEvent).toMatchObject({
+      direction: "error",
+      error: new Error("Agent shell runtime error"),
+      messageBytes: rawOutputFailure.length
+    });
+    expect(
+      viewerEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "screen-frame" &&
+          event.message.frameId === "frame_output_replace_blocked"
+      )
+    ).toBe(false);
+    expect(viewerAuditSink.records().some((record) => record.action === "agent-shell.remote-interaction.screen-frame.output-written")).toBe(true);
+    expect(JSON.stringify([viewerEvents, viewerAuditSink.records()])).not.toContain(rawOutputFailure);
+    expect(JSON.stringify([viewerEvents, viewerAuditSink.records()])).not.toContain(rawFrame);
+    expect(JSON.stringify([viewerEvents, viewerAuditSink.records()])).not.toContain(frameData);
+    expect(JSON.stringify([viewerEvents, viewerAuditSink.records()])).not.toContain("raw-token");
+  });
+
   it("blocks Windows capture before adapter invocation when capture audit fails", async () => {
     const backingSink = new MemoryAuditSink();
     const rawAuditFailure = "capture audit failed with raw-screen-content raw-token";
@@ -2758,8 +3340,13 @@ describe("agent shell consent workflow", () => {
 
     for (const scenario of staleScenarios) {
       const hostLogs: string[] = [];
+      const hostAuditSink = new MemoryAuditSink();
+      const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>();
       const { relay, hostEvents } = await startRelayAndHost({
         ...scenario.options,
+        hostApplyInput: true,
+        hostAuditSink,
+        hostWindowsInput: { applyInputEvent },
         hostLogger: captureLogger(hostLogs)
       });
       const rawViewer = await startRawViewer(relay.url());
@@ -2791,6 +3378,11 @@ describe("agent shell consent workflow", () => {
           hostEvents.filter((event) => event.direction === "received" && event.message.type === "input-event"),
           scenario.name
         ).toHaveLength(receivedInputCountBefore);
+        expect(applyInputEvent, scenario.name).not.toHaveBeenCalled();
+        expect(
+          hostAuditSink.records().some((record) => record.action === "agent-shell.remote-interaction.input-event.applied"),
+          scenario.name
+        ).toBe(false);
         const serializedHostEvents = JSON.stringify(hostEvents);
         const serializedHostLogs = hostLogs.join("\n");
         expect(hostLogs.join("\n"), scenario.name).toContain("ignored unsafe inbound protocol message bytes=");
@@ -2809,8 +3401,13 @@ describe("agent shell consent workflow", () => {
 
     {
       const hostLogs: string[] = [];
+      const hostAuditSink = new MemoryAuditSink();
+      const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>();
       const { relay, hostEvents } = await startRelayAndHost({
+        hostApplyInput: true,
+        hostAuditSink,
         hostDecision: "approve",
+        hostWindowsInput: { applyInputEvent },
         hostLogger: captureLogger(hostLogs),
         visibleToHost: true
       });
@@ -2835,6 +3432,8 @@ describe("agent shell consent workflow", () => {
         await delay(100);
 
         expect(hostEvents.some((event) => event.direction === "received" && event.message.type === "input-event")).toBe(false);
+        expect(applyInputEvent).not.toHaveBeenCalled();
+        expect(hostAuditSink.records().some((record) => record.action === "agent-shell.remote-interaction.input-event.applied")).toBe(false);
         expect(hostLogs.join("\n")).toContain("ignored unsafe inbound protocol message bytes=");
         expect(hostLogs.join("\n")).not.toContain("input_blocked_missing_permission");
         expect(hostLogs.join("\n")).not.toContain("KeyZ");
@@ -2850,6 +3449,9 @@ describe("agent shell consent workflow", () => {
 
   it("ignores inbound development screen frames after stale or misbound viewer authorization", async () => {
     const viewerLogs: string[] = [];
+    const viewerAuditSink = new MemoryAuditSink();
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-viewer-frame-stale-"));
+    const framePath = join(tempDir, "latest.png");
     const authorizationId = "authz_viewer_remote_frame_binding";
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
     const blockedFrameData = Buffer.from("blocked-inbound-screen-frame-content").toString("base64");
@@ -2941,7 +3543,10 @@ describe("agent shell consent workflow", () => {
         lifecycleServer.url,
         ["screen:view"],
         viewerEvents,
-        captureLogger(viewerLogs)
+        captureLogger(viewerLogs),
+        viewerAuditSink,
+        "Viewer",
+        { viewerScreenFrameOutputSink: new FileViewerScreenFrameOutputSink(framePath) }
       );
 
       await waitForReceivedActiveAuthorizationId(viewerEvents);
@@ -2954,6 +3559,8 @@ describe("agent shell consent workflow", () => {
       expect(viewerLogs.join("\n")).not.toContain("frame_blocked_wrong_target");
       expect(viewerLogs.join("\n")).not.toContain("frame_blocked_paused");
       expect(viewerLogs.join("\n")).not.toContain(blockedFrameData);
+      expect(existsSync(framePath)).toBe(false);
+      expect(viewerAuditSink.records().some((record) => record.action === "agent-shell.remote-interaction.screen-frame.output-written")).toBe(false);
       expect(JSON.stringify(viewerEvents)).not.toContain("frame_blocked_wrong_auth");
       expect(JSON.stringify(viewerEvents)).not.toContain("frame_blocked_wrong_target");
       expect(JSON.stringify(viewerEvents)).not.toContain("frame_blocked_paused");
@@ -2962,6 +3569,7 @@ describe("agent shell consent workflow", () => {
     } finally {
       await viewer?.stop();
       await lifecycleServer.stop();
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -8196,7 +8804,7 @@ describe("agent shell consent workflow", () => {
     const { relay, host, viewerEvents } = await startRelayAndHost({
       hostDecision: "approve",
       hostPauseAfterMs: 10,
-      hostResumeAfterMs: 50,
+      hostResumeAfterMs: 500,
       visibleToHost: true
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -8726,9 +9334,9 @@ describe("agent shell consent workflow", () => {
 
   it("does not send expired state after final permission revocation", async () => {
     const { relay, viewerEvents } = await startRelayAndHost({
-      authorizationTtlMs: 30,
+      authorizationTtlMs: 250,
       hostDecision: "approve",
-      hostRevokeAfterMs: 10,
+      hostRevokeAfterMs: 25,
       hostRevokePermission: "screen:view",
       visibleToHost: true
     });
@@ -8740,7 +9348,7 @@ describe("agent shell consent workflow", () => {
         message.type === "session-authorization-state" &&
         message.status === "revoked"
     );
-    await delay(60);
+    await delay(300);
 
     expect(
       viewerEvents.some(
@@ -16293,6 +16901,7 @@ async function startRelayAndHost(options: {
   hostDisplayName?: string;
   hostDecisionProvider?: HostDecisionProvider;
   hostConsentTimeoutMs?: number;
+  hostApplyInput?: boolean;
   hostGrantPermissions?: Permission[];
   hostLogger?: TestLogger;
   hostOnEvent?: (event: AgentShellEvent) => void;
@@ -16305,6 +16914,7 @@ async function startRelayAndHost(options: {
   hostRevokePermission?: Permission;
   hostRevokeReason?: string;
   hostScreenCapture?: WindowsScreenCaptureAdapter;
+  hostWindowsInput?: WindowsInputAdapter;
   hostSignalProbeAck?: boolean;
   hostTerminateAfterMs?: number;
   hostTerminateReason?: string;
@@ -16337,6 +16947,7 @@ async function startRelayAndHost(options: {
     hostDecision: options.hostDecision ?? "none",
     hostDecisionProvider: options.hostDecisionProvider,
     hostConsentTimeoutMs: options.hostConsentTimeoutMs,
+    hostApplyInput: options.hostApplyInput,
     hostGrantPermissions: options.hostGrantPermissions,
     hostDisconnectAfterMs: options.hostDisconnectAfterMs,
     hostDisconnectReason: options.hostDisconnectReason,
@@ -16350,6 +16961,7 @@ async function startRelayAndHost(options: {
     hostRevokePermission: options.hostRevokePermission,
     hostRevokeReason: options.hostRevokeReason,
     screenCapture: options.hostScreenCapture,
+    windowsInput: options.hostWindowsInput,
     hostSignalProbeAck: options.hostSignalProbeAck,
     hostTerminateAfterMs: options.hostTerminateAfterMs,
     hostTerminateReason: options.hostTerminateReason,
@@ -16374,7 +16986,10 @@ async function startViewer(
   logger: TestLogger = silentLogger,
   auditSink?: AuditSink,
   displayName = "Viewer",
-  options: Pick<AgentShellRuntimeOptions, "requestReason" | "viewerSignalProbeAfterMs"> = {}
+  options: Pick<
+    AgentShellRuntimeOptions,
+    "requestReason" | "viewerScreenFrameOutputSink" | "viewerSignalProbeAfterMs"
+  > = {}
 ): Promise<AgentShellRuntime> {
   const viewer = createAgentShellRuntime({
     role: "viewer",
@@ -16386,6 +17001,7 @@ async function startViewer(
     deviceId: "dev_viewer_1",
     requestedPermissions,
     requestReason: options.requestReason,
+    viewerScreenFrameOutputSink: options.viewerScreenFrameOutputSink,
     viewerSignalProbeAfterMs: options.viewerSignalProbeAfterMs,
     auditSink,
     logger,

@@ -13,6 +13,30 @@ describe("interactive viewer control prompt", () => {
     expect(parseViewerControlCommand("help")).toEqual({ action: "help" });
     expect(parseViewerControlCommand("status")).toEqual({ action: "status" });
     expect(parseViewerControlCommand("disconnect")).toEqual({ action: "disconnect" });
+    expect(parseViewerControlCommand("pointer-move 0.5 1")).toEqual({
+      action: "input",
+      event: { kind: "pointer-move", x: 0.5, y: 1 }
+    });
+    expect(parseViewerControlCommand("pointer-down 0 0.25 primary")).toEqual({
+      action: "input",
+      event: { kind: "pointer-down", x: 0, y: 0.25, button: "primary" }
+    });
+    expect(parseViewerControlCommand("pointer-up 0 0.25 secondary")).toEqual({
+      action: "input",
+      event: { kind: "pointer-up", x: 0, y: 0.25, button: "secondary" }
+    });
+    expect(parseViewerControlCommand("pointer-wheel 0.5 0.5 0 -120")).toEqual({
+      action: "input",
+      event: { kind: "pointer-wheel", x: 0.5, y: 0.5, deltaX: 0, deltaY: -120 }
+    });
+    expect(parseViewerControlCommand("key-down KeyA shift,control")).toEqual({
+      action: "input",
+      event: { kind: "key-down", key: "KeyA", modifiers: ["shift", "control"] }
+    });
+    expect(parseViewerControlCommand("key-up Enter")).toEqual({
+      action: "input",
+      event: { kind: "key-up", key: "Enter", modifiers: [] }
+    });
   });
 
   it("rejects malformed or unsafe command lines", () => {
@@ -34,6 +58,22 @@ describe("interactive viewer control prompt", () => {
       "resume",
       "terminate",
       "revoke screen:view",
+      "pointer-move 0.5",
+      "pointer-move 0.5 0.5 raw-token",
+      "pointer-move 0.50 0.5",
+      "pointer-move -0.1 0.5",
+      "pointer-move 1.1 0.5",
+      "pointer-down 0.5 0.5 primary raw-token",
+      "pointer-down 0.5 0.5 left",
+      "pointer-wheel 0.5 0.5 0 0",
+      "pointer-wheel 0.5 0.5 4097 0",
+      "key-down",
+      "key-down KeyA shift,shift",
+      "key-down KeyA shift,raw-token",
+      "key-down A",
+      "key-down KeyA raw-token extra",
+      "type hello",
+      "{\"kind\":\"key-down\",\"key\":\"KeyA\"}",
       "raw-token"
     ]) {
       expect(parseViewerControlCommand(line)).toBeUndefined();
@@ -60,6 +100,7 @@ describe("interactive viewer control prompt", () => {
 
     expect(runtime.getViewerStatus).toHaveBeenCalledTimes(1);
     expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.getHostStatus).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
@@ -99,6 +140,7 @@ describe("interactive viewer control prompt", () => {
 
     expect(runtime.getViewerStatus).toHaveBeenCalledTimes(1);
     expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
     expect(runtime.send).not.toHaveBeenCalled();
     expect(output.text()).toContain("state=inactive");
     expect(output.text()).toContain("visibleToHost=false");
@@ -127,6 +169,7 @@ describe("interactive viewer control prompt", () => {
 
     expect(runtime.getViewerStatus).toHaveBeenCalledTimes(1);
     expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.getHostStatus).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
@@ -158,6 +201,7 @@ describe("interactive viewer control prompt", () => {
 
     expect(runtime.getViewerStatus).not.toHaveBeenCalled();
     expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.getHostStatus).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
@@ -167,6 +211,8 @@ describe("interactive viewer control prompt", () => {
     expect(runtime.disconnect).not.toHaveBeenCalled();
     expect(runtime.send).not.toHaveBeenCalled();
     expect(output.text()).toContain("commands=help,status,disconnect");
+    expect(output.text()).toContain("pointer-move x y");
+    expect(output.text()).toContain("key-down key [modifiers]");
     expect(output.text()).not.toContain("screen:view");
     expect(output.text()).not.toContain("123-456");
     expect(output.text()).not.toContain("Viewer Support");
@@ -186,6 +232,7 @@ describe("interactive viewer control prompt", () => {
     expect(runtime.leave).toHaveBeenCalledTimes(1);
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
     expect(runtime.getHostStatus).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
     expect(runtime.resume).not.toHaveBeenCalled();
@@ -213,6 +260,7 @@ describe("interactive viewer control prompt", () => {
 
       expect(runtime.leave).toHaveBeenCalledTimes(1);
       expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+      expect(runtime.sendInputEvent).not.toHaveBeenCalled();
       expect(runtime.stop).not.toHaveBeenCalled();
       expect(runtime.getHostStatus).not.toHaveBeenCalled();
       expect(runtime.pause).not.toHaveBeenCalled();
@@ -251,6 +299,7 @@ describe("interactive viewer control prompt", () => {
 
       expect(runtime.leave).toHaveBeenCalledTimes(1);
       expect(runtime.getViewerStatus).toHaveBeenCalledTimes(1);
+      expect(runtime.sendInputEvent).not.toHaveBeenCalled();
       expect(runtime.stop).not.toHaveBeenCalled();
       expect(runtime.getHostStatus).not.toHaveBeenCalled();
       expect(runtime.pause).not.toHaveBeenCalled();
@@ -269,9 +318,147 @@ describe("interactive viewer control prompt", () => {
     }
   });
 
+  it("sends pointer input through the viewer runtime after active visible authorization", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue({
+      state: "active",
+      authorizationStatus: "active",
+      authorizationId: "authz_viewer_control_input_1",
+      expiresAt: "2026-06-14T12:00:00.000Z",
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    const output = createCapturingOutput();
+
+    startInteractiveViewerControlPrompt(runtime, {
+      input: PassThrough.from(["pointer-move 0.5 0.25\n"]),
+      output
+    });
+    await waitForText(output, (text) => text.includes("viewer control accepted action=input"));
+
+    expect(runtime.getViewerStatus).toHaveBeenCalledTimes(1);
+    expect(runtime.sendInputEvent).toHaveBeenCalledTimes(1);
+    expect(runtime.sendInputEvent).toHaveBeenCalledWith({
+      authorizationId: "authz_viewer_control_input_1",
+      eventId: "viewer_control_input_0",
+      sequence: 0,
+      event: { kind: "pointer-move", x: 0.5, y: 0.25 }
+    });
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.send).not.toHaveBeenCalled();
+    expect(output.text()).toContain("kind=pointer-move");
+    expect(output.text()).not.toContain("0.5");
+    expect(output.text()).not.toContain("0.25");
+    expect(output.text()).not.toContain("raw-token");
+  });
+
+  it("sends keyboard input through the viewer runtime without exposing key values", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue({
+      state: "active",
+      authorizationStatus: "active",
+      authorizationId: "authz_viewer_control_input_2",
+      expiresAt: "2026-06-14T12:00:00.000Z",
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    const output = createCapturingOutput();
+
+    startInteractiveViewerControlPrompt(runtime, {
+      input: PassThrough.from(["key-down KeyA alt,shift\n", "key-up KeyA\n"]),
+      output
+    });
+    await waitForText(output, (text) => countMatches(text, "viewer control accepted action=input") === 2);
+
+    expect(runtime.getViewerStatus).toHaveBeenCalledTimes(2);
+    expect(runtime.sendInputEvent).toHaveBeenCalledTimes(2);
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(1, {
+      authorizationId: "authz_viewer_control_input_2",
+      eventId: "viewer_control_input_0",
+      sequence: 0,
+      event: { kind: "key-down", key: "KeyA", modifiers: ["alt", "shift"] }
+    });
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(2, {
+      authorizationId: "authz_viewer_control_input_2",
+      eventId: "viewer_control_input_1",
+      sequence: 1,
+      event: { kind: "key-up", key: "KeyA", modifiers: [] }
+    });
+    expect(output.text()).toContain("kind=key-down");
+    expect(output.text()).toContain("kind=key-up");
+    expect(output.text()).not.toContain("KeyA");
+    expect(output.text()).not.toContain("alt");
+    expect(output.text()).not.toContain("shift");
+    expect(output.text()).not.toContain("raw-token");
+  });
+
+  it("rejects input commands without active visible authorization before sending", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0,
+      localInactiveCause: "local-leave"
+    });
+    const output = createCapturingOutput();
+
+    startInteractiveViewerControlPrompt(runtime, {
+      input: PassThrough.from(["pointer-down 0.5 0.5 primary\n"]),
+      output
+    });
+    await waitForText(output, (text) => text.includes("[winbridge-agent] error messageBytes="));
+
+    expect(runtime.getViewerStatus).toHaveBeenCalledTimes(1);
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.send).not.toHaveBeenCalled();
+    expect(output.text()).not.toContain("0.5");
+    expect(output.text()).not.toContain("primary");
+    expect(output.text()).not.toContain("raw-token");
+  });
+
+  it("keeps the prompt available after sanitized input send failures", async () => {
+    const rawErrorMessage = "input send failed with raw-token at C:\\Users\\Nur\\secret";
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue({
+      state: "active",
+      authorizationStatus: "active",
+      authorizationId: "authz_viewer_control_input_3",
+      expiresAt: "2026-06-14T12:00:00.000Z",
+      visibleToHost: true,
+      permissionCount: 1
+    });
+    vi.mocked(runtime.sendInputEvent).mockImplementation(() => {
+      throw new Error(rawErrorMessage);
+    });
+    const output = createCapturingOutput();
+    const input = new PassThrough();
+
+    const handle = startInteractiveViewerControlPrompt(runtime, { input, output });
+    try {
+      input.write("pointer-up 0.5 0.5 primary\n");
+      await waitForText(output, (text) => text.includes("[winbridge-agent] error messageBytes="));
+      input.write("status\n");
+      await waitForText(output, (text) => text.includes("[winbridge-agent] viewer status"));
+
+      expect(runtime.sendInputEvent).toHaveBeenCalledTimes(1);
+      expect(runtime.getViewerStatus).toHaveBeenCalledTimes(2);
+      expect(runtime.leave).not.toHaveBeenCalled();
+      expect(output.text()).toContain(`[winbridge-agent] error messageBytes=${Buffer.byteLength(rawErrorMessage)}`);
+      expect(output.text()).not.toContain(rawErrorMessage);
+      expect(output.text()).not.toContain("raw-token");
+      expect(output.text()).not.toContain("C:\\Users\\Nur");
+      expect(output.text()).not.toContain("0.5");
+      expect(output.text()).not.toContain("primary");
+    } finally {
+      handle.stop();
+      input.end();
+    }
+  });
+
   it("formats viewer help as a bounded static command list", () => {
     expect(formatViewerControlHelp()).toBe(
-      "[winbridge-agent] viewer control help commands=help,status,disconnect\n"
+      "[winbridge-agent] viewer control help commands=help,status,disconnect,pointer-move x y,pointer-down x y button,pointer-up x y button,pointer-wheel x y deltaX deltaY,key-down key [modifiers],key-up key [modifiers]\n"
     );
   });
 
@@ -285,14 +472,22 @@ describe("interactive viewer control prompt", () => {
       "disconnect raw-token\n",
       "help raw-token\n",
       "revoke screen:view\n",
+      "pointer-move 0.5\n",
+      "pointer-down 0.5 0.5 left\n",
+      "pointer-wheel 0.5 0.5 0 0\n",
+      "key-down KeyA shift,shift\n",
+      "key-down A\n",
+      "type hello\n",
+      "{\"kind\":\"key-down\",\"key\":\"KeyA\"}\n",
       "raw-token\n"
     ]);
 
     startInteractiveViewerControlPrompt(runtime, { input, output });
-    await waitForText(output, (text) => countMatches(text, "viewer control rejected") === 7);
+    await waitForText(output, (text) => countMatches(text, "viewer control rejected") === 14);
 
     expect(runtime.getViewerStatus).not.toHaveBeenCalled();
     expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
     expect(runtime.resume).not.toHaveBeenCalled();
@@ -320,6 +515,7 @@ describe("interactive viewer control prompt", () => {
 
     expect(runtime.getViewerStatus).not.toHaveBeenCalled();
     expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(runtime.pause).not.toHaveBeenCalled();
     expect(runtime.resume).not.toHaveBeenCalled();

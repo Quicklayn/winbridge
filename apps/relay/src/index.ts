@@ -1,4 +1,5 @@
 import {
+  createRelayBindHostConfig,
   createRelayPairingConfig,
   createRelayPortConfig,
   createRelayRuntime,
@@ -9,6 +10,7 @@ import { reportRelayCliError } from "./cli-diagnostics.js";
 try {
   const runtime = createRelayRuntime({
     port: createRelayPortConfig(process.env),
+    bindHost: createRelayBindHostConfig(process.env),
     sharedToken: createRelaySharedTokenConfig(process.env),
     pairing: createRelayPairingConfig(process.env)
   });

@@ -1,0 +1,27 @@
+## MODIFIED Requirements
+
+### Requirement: MVP doctor validates local readiness without side effects
+
+`npm run mvp:doctor` SHALL validate local MVP readiness before a two-PC trial
+without starting relay, host, viewer, browser, capture, input, services,
+startup persistence, unattended access, or network listeners. The doctor SHALL
+check the local Windows platform, supported Node runtime, required root scripts,
+required workspace manifests, and required static MVP source entrypoints. Its
+success output SHALL include bounded readiness lines for platform, Node,
+scripts, workspaces, entrypoints, and visible-consent safety. Its failure output
+SHALL use bounded reason codes only and MUST NOT include raw paths, tokens,
+pairing codes, credentials, screen contents, keystrokes, or full secrets.
+
+#### Scenario: Doctor passes with required entrypoints
+- **WHEN** the user runs `npm run mvp:doctor` on a Windows machine with the supported Node runtime, required scripts, required workspace manifests, and required MVP entrypoint files
+- **THEN** it reports readiness for platform, Node, scripts, workspaces, entrypoints, and visible-consent safety
+- **AND** it does not start relay, host, viewer, browser, capture, input, services, startup persistence, unattended access, or network listeners
+
+#### Scenario: Doctor fails when an entrypoint is missing
+- **WHEN** a required MVP source entrypoint file is missing
+- **THEN** the doctor exits with a bounded `missing-entrypoint` reason
+- **AND** the output MUST NOT include the missing path, tokens, pairing codes, credentials, screen contents, keystrokes, or full secrets
+
+#### Scenario: Doctor rejects unsupported local prerequisites
+- **WHEN** the local platform, Node runtime, root scripts, workspace manifests, or source entrypoints are unsupported or incomplete
+- **THEN** the doctor fails closed with a bounded reason code before starting relay, host, viewer, browser, capture, input, services, startup persistence, unattended access, or network listeners

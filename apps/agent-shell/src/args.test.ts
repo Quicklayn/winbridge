@@ -133,6 +133,48 @@ describe("agent shell arguments", () => {
     expect(parseArgs(["host", "--host-signal-probe-ack", "false"], {}, 42).hostSignalProbeAck).toBe(false);
   });
 
+  it("parses host input application only with explicit host opt-in and local audit", () => {
+    expect(parseArgs(["host"], {}, 42).hostApplyInput).toBeUndefined();
+    expect(
+      parseArgs(
+        ["host", "--audit-log", "logs/host-audit.jsonl", "--host-apply-input", "true"],
+        {},
+        42
+      ).hostApplyInput
+    ).toBe(true);
+    expect(parseArgs(["host", "--host-apply-input", "false"], {}, 42).hostApplyInput).toBe(false);
+    expect(
+      parseArgs(
+        ["host", "--host-apply-input", "true"],
+        { WINBRIDGE_AGENT_AUDIT_LOG_PATH: "logs/env-host-audit.jsonl" },
+        42
+      ).hostApplyInput
+    ).toBe(true);
+  });
+
+  it("rejects host input application on viewers or without local audit", () => {
+    expect(() => parseArgs(["host", "--host-apply-input", "true"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+    expect(() =>
+      parseArgs(
+        ["viewer", "--audit-log", "logs/viewer-audit.jsonl", "--host-apply-input", "true"],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+    expect(() =>
+      parseArgs(
+        ["viewer", "--audit-log", "logs/viewer-audit.jsonl", "--host-apply-input", "false"],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+    expect(() =>
+      parseArgs(["host", "--audit-log", "logs/host-audit.jsonl", "--host-apply-input", "yes"], {}, 42)
+    ).toThrow(AgentShellUsageError);
+  });
+
   it("parses explicit host grant scope for static and interactive approvals", () => {
     expect(
       parseArgs(["host", "--host-decision", "approve", "--grant", "screen:view"], {}, 42)
@@ -162,6 +204,162 @@ describe("agent shell arguments", () => {
         42
       ).viewerSignalProbeAfterMs
     ).toBe(1000);
+  });
+
+  it("parses viewer screen-frame output mode with local audit", () => {
+    const args = parseArgs(
+      [
+        "viewer",
+        "--request",
+        "screen:view",
+        "--audit-log",
+        "logs/viewer-audit.jsonl",
+        "--viewer-screen-frame-output",
+        "frames/latest.png"
+      ],
+      {},
+      42
+    );
+
+    expect(args.viewerScreenFrameOutputPath).toBe("frames/latest.png");
+    expect(args.auditLogPath).toBe("logs/viewer-audit.jsonl");
+    expect(
+      parseArgs(
+        ["viewer", "--request", "screen:view", "--viewer-screen-frame-output", "frames/latest.png"],
+        { WINBRIDGE_AGENT_AUDIT_LOG_PATH: "logs/env-viewer-audit.jsonl" },
+        42
+      ).viewerScreenFrameOutputPath
+    ).toBe("frames/latest.png");
+  });
+
+  it("parses viewer local control surface only with explicit frame output", () => {
+    const args = parseArgs(
+      [
+        "viewer",
+        "--request",
+        "screen:view,input:pointer",
+        "--audit-log",
+        "logs/viewer-audit.jsonl",
+        "--viewer-screen-frame-output",
+        "frames/latest.png",
+        "--viewer-control-surface-port",
+        "35987"
+      ],
+      {},
+      42
+    );
+
+    expect(args.viewerControlSurfacePort).toBe(35987);
+    expect(args.viewerScreenFrameOutputPath).toBe("frames/latest.png");
+  });
+
+  it("rejects viewer local control surface without explicit frame output", () => {
+    expect(() =>
+      parseArgs(
+        [
+          "viewer",
+          "--request",
+          "screen:view",
+          "--audit-log",
+          "logs/viewer-audit.jsonl",
+          "--viewer-control-surface-port",
+          "35987"
+        ],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+  });
+
+  it("rejects malformed viewer local control surface ports", () => {
+    for (const port of ["0", "1023", "65536", "1.5", "-1", "35987 "]) {
+      expect(() =>
+        parseArgs(
+          [
+            "viewer",
+            "--request",
+            "screen:view",
+            "--audit-log",
+            "logs/viewer-audit.jsonl",
+            "--viewer-screen-frame-output",
+            "frames/latest.png",
+            "--viewer-control-surface-port",
+            port
+          ],
+          {},
+          42
+        )
+      ).toThrow(AgentShellUsageError);
+    }
+  });
+
+  it("rejects viewer screen-frame output without screen-view request or local audit", () => {
+    expect(() =>
+      parseArgs(
+        [
+          "viewer",
+          "--audit-log",
+          "logs/viewer-audit.jsonl",
+          "--viewer-screen-frame-output",
+          "frames/latest.png"
+        ],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+    expect(() =>
+      parseArgs(
+        ["viewer", "--request", "input:pointer", "--audit-log", "logs/viewer-audit.jsonl", "--viewer-screen-frame-output", "frames/latest.png"],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+    expect(() =>
+      parseArgs(
+        ["viewer", "--request", "screen:view", "--viewer-screen-frame-output", "frames/latest.png"],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+  });
+
+  it("rejects malformed viewer screen-frame output paths without exposing raw path text", () => {
+    for (const outputPath of [
+      "",
+      "   ",
+      " frames/latest-private-marker.png",
+      "frames/latest-private-marker.png ",
+      "frames/latest-private-marker\n.png",
+      "frames/latest-private-marker\u202e.png",
+      "frames/latest-private-marker\u200b.png",
+      "NUL",
+      String.raw`\\.\pipe\latest-private-marker`,
+      "frames/latest-private-marker.png:hidden",
+      `frames/${"latest-private-marker".repeat(60)}.png`
+    ]) {
+      try {
+        parseArgs(
+          [
+            "viewer",
+            "--request",
+            "screen:view",
+            "--audit-log",
+            "logs/viewer-audit.jsonl",
+            "--viewer-screen-frame-output",
+            outputPath
+          ],
+          {},
+          42
+        );
+        throw new Error("Expected viewer screen-frame output path to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(AgentShellUsageError);
+        expect((error as Error).message).not.toContain("latest-private-marker");
+        if (outputPath.trim().length > 0) {
+          expect((error as Error).message).not.toContain(outputPath);
+        }
+      }
+    }
   });
 
   it("parses viewer status print mode for viewer runtimes without requested permissions", () => {
@@ -256,6 +454,8 @@ describe("agent shell arguments", () => {
       AgentShellUsageError
     );
     for (const [option, value] of [
+      ["viewer-screen-frame-output", "frames/latest.png"],
+      ["viewer-control-surface-port", "35987"],
       ["dev-input-after-ms", "0"],
       ["dev-input-kind", "pointer-move"],
       ["dev-input-event-id", "input_cli_1"],
@@ -847,7 +1047,18 @@ describe("agent shell arguments", () => {
     ).toThrow(AgentShellUsageError);
   });
 
-  it("rejects interactive host control prompt for viewer or concurrent consent prompt", () => {
+  it("allows interactive host control prompt after host consent prompt sequencing", () => {
+    const args = parseArgs(
+      ["host", "--host-control-prompt", "true", "--host-consent-prompt", "true"],
+      {},
+      42
+    );
+
+    expect(args.hostControlPrompt).toBe(true);
+    expect(args.hostConsentPrompt).toBe(true);
+  });
+
+  it("rejects interactive host control prompt for viewer or one-shot host status conflict", () => {
     expect(() => parseArgs(["viewer", "--host-control-prompt", "true"], {}, 42)).toThrow(
       AgentShellUsageError
     );
@@ -856,14 +1067,22 @@ describe("agent shell arguments", () => {
     );
     expect(() =>
       parseArgs(
-        ["host", "--host-control-prompt", "true", "--host-consent-prompt", "true"],
+        ["host", "--host-control-prompt", "true", "--host-status-after-ms", "0"],
         {},
         42
       )
     ).toThrow(AgentShellUsageError);
     expect(() =>
       parseArgs(
-        ["host", "--host-control-prompt", "true", "--host-status-after-ms", "0"],
+        [
+          "host",
+          "--host-control-prompt",
+          "true",
+          "--host-consent-prompt",
+          "true",
+          "--host-status-after-ms",
+          "0"
+        ],
         {},
         42
       )

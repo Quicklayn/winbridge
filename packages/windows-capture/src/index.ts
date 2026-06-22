@@ -6,6 +6,8 @@ import {
 } from "@winbridge/protocol";
 
 export const DEFAULT_WINDOWS_CAPTURE_MAX_DATA_BASE64_BYTES = 48 * 1024;
+export const DEFAULT_WINDOWS_CAPTURE_PREVIEW_MAX_WIDTH = 1280;
+export const DEFAULT_WINDOWS_CAPTURE_PREVIEW_MAX_HEIGHT = 720;
 export const DEFAULT_WINDOWS_CAPTURE_TIMEOUT_MS = 5_000;
 export const MAX_WINDOWS_CAPTURE_TIMEOUT_MS = 2_147_483_647;
 export const WINDOWS_SCREEN_CAPTURE_GRANT_ERROR_MESSAGE =
@@ -26,10 +28,12 @@ export type WindowsScreenCaptureGrant = Readonly<{
   expiresAt: string;
 }>;
 
+export type WindowsScreenCaptureFormat = "jpeg" | "png";
+
 export type WindowsScreenCaptureFrame = Readonly<{
   authorizationId: string;
   capturedAt: string;
-  format: "png";
+  format: WindowsScreenCaptureFormat;
   width: number;
   height: number;
   dataBase64: string;
@@ -38,6 +42,7 @@ export type WindowsScreenCaptureFrame = Readonly<{
 
 export type WindowsScreenCaptureNativeRequest = Readonly<{
   timeoutMs: number;
+  maxDataBase64Bytes: number;
   maxOutputBytes: number;
 }>;
 
@@ -58,7 +63,7 @@ export type WindowsScreenCaptureAdapter = Readonly<{
 }>;
 
 type NativeCaptureOutput = Readonly<{
-  format: "png";
+  format: WindowsScreenCaptureFormat;
   width: number;
   height: number;
   dataBase64: string;
@@ -66,30 +71,97 @@ type NativeCaptureOutput = Readonly<{
 
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_SCREEN_DIMENSION = 16_384;
+const JPEG_SIGNATURE = [0xff, 0xd8, 0xff] as const;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const;
-const POWERSHELL_CAPTURE_SCRIPT = `
+const JPEG_QUALITY_LEVELS = [70, 55, 40, 30, 20] as const;
+const PREVIEW_DIMENSION_SCALES = [1, 0.75, 0.5, 0.35, 0.25, 0.18, 0.12] as const;
+
+function createPowerShellCaptureScript(options: {
+  readonly maxDataBase64Bytes: number;
+  readonly previewMaxWidth: number;
+  readonly previewMaxHeight: number;
+}): string {
+  return `
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+$maxDataBase64Bytes = ${options.maxDataBase64Bytes}
+$maxPreviewWidth = ${options.previewMaxWidth}
+$maxPreviewHeight = ${options.previewMaxHeight}
+$qualities = @(${JPEG_QUALITY_LEVELS.join(", ")})
+$dimensionScales = @(${PREVIEW_DIMENSION_SCALES.join(", ")})
 $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-$bitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
-$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-$stream = New-Object System.IO.MemoryStream
+$sourceBitmap = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+$sourceGraphics = [System.Drawing.Graphics]::FromImage($sourceBitmap)
 try {
-  $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
-  $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
-  $bytes = $stream.ToArray()
-  [pscustomobject]@{
-    format = "png"
-    width = $bounds.Width
-    height = $bounds.Height
-    dataBase64 = [Convert]::ToBase64String($bytes)
-  } | ConvertTo-Json -Compress
+  $sourceGraphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+  $jpegCodec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq "image/jpeg" } | Select-Object -First 1
+  if ($null -eq $jpegCodec) {
+    throw "JPEG encoder unavailable"
+  }
+
+  $baseScale = [Math]::Min($maxPreviewWidth / [double]$bounds.Width, $maxPreviewHeight / [double]$bounds.Height)
+  if ($baseScale -gt 1) {
+    $baseScale = 1
+  }
+  $baseWidth = [Math]::Max(1, [int][Math]::Round($bounds.Width * $baseScale))
+  $baseHeight = [Math]::Max(1, [int][Math]::Round($bounds.Height * $baseScale))
+  $encoded = $null
+
+  foreach ($dimensionScale in $dimensionScales) {
+    $targetWidth = [Math]::Max(1, [int][Math]::Round($baseWidth * [double]$dimensionScale))
+    $targetHeight = [Math]::Max(1, [int][Math]::Round($baseHeight * [double]$dimensionScale))
+    $targetBitmap = New-Object System.Drawing.Bitmap $targetWidth, $targetHeight
+    $targetGraphics = [System.Drawing.Graphics]::FromImage($targetBitmap)
+    try {
+      $targetGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+      $targetGraphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+      $targetGraphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+      $targetGraphics.DrawImage($sourceBitmap, 0, 0, $targetWidth, $targetHeight)
+
+      foreach ($quality in $qualities) {
+        $stream = New-Object System.IO.MemoryStream
+        $encoderParameters = [System.Drawing.Imaging.EncoderParameters]::new(1)
+        $encoderParameter = [System.Drawing.Imaging.EncoderParameter]::new([System.Drawing.Imaging.Encoder]::Quality, [int64]$quality)
+        try {
+          $encoderParameters.Param[0] = $encoderParameter
+          $targetBitmap.Save($stream, $jpegCodec, $encoderParameters)
+          $dataBase64 = [Convert]::ToBase64String($stream.ToArray())
+          if ($dataBase64.Length -le $maxDataBase64Bytes) {
+            $encoded = [pscustomobject]@{
+              format = "jpeg"
+              width = $targetWidth
+              height = $targetHeight
+              dataBase64 = $dataBase64
+            }
+            break
+          }
+        } finally {
+          $encoderParameter.Dispose()
+          $encoderParameters.Dispose()
+          $stream.Dispose()
+        }
+      }
+    } finally {
+      $targetGraphics.Dispose()
+      $targetBitmap.Dispose()
+    }
+
+    if ($null -ne $encoded) {
+      break
+    }
+  }
+
+  if ($null -eq $encoded) {
+    throw "Unable to fit JPEG preview"
+  }
+
+  $encoded | ConvertTo-Json -Compress
 } finally {
-  $stream.Dispose()
-  $graphics.Dispose()
-  $bitmap.Dispose()
+  $sourceGraphics.Dispose()
+  $sourceBitmap.Dispose()
 }
 `;
+}
 
 export function createWindowsScreenCaptureAdapter(
   options: WindowsScreenCaptureAdapterOptions = {}
@@ -113,6 +185,7 @@ export function createWindowsScreenCaptureAdapter(
       assertCaptureGrant(grant, platform, now());
       const output = await runNativeCapture(runner, {
         timeoutMs,
+        maxDataBase64Bytes,
         maxOutputBytes: maxDataBase64Bytes + 4096
       });
       const frame = parseNativeCaptureOutput(output, maxDataBase64Bytes);
@@ -134,8 +207,39 @@ export async function capturePrimaryScreen(
   return createWindowsScreenCaptureAdapter(options).capturePrimaryScreen(grant);
 }
 
-export function createPowerShellPrimaryScreenCaptureCommand(): readonly string[] {
-  return ["-NoProfile", "-NonInteractive", "-Command", POWERSHELL_CAPTURE_SCRIPT];
+export function createPowerShellPrimaryScreenCaptureCommand(
+  options: {
+    readonly maxDataBase64Bytes?: number;
+    readonly previewMaxWidth?: number;
+    readonly previewMaxHeight?: number;
+  } = {}
+): readonly string[] {
+  const maxDataBase64Bytes = validateBoundedPositiveSafeInteger(
+    options.maxDataBase64Bytes ?? DEFAULT_WINDOWS_CAPTURE_MAX_DATA_BASE64_BYTES,
+    DEFAULT_WINDOWS_CAPTURE_MAX_DATA_BASE64_BYTES,
+    WINDOWS_SCREEN_CAPTURE_OUTPUT_ERROR_MESSAGE
+  );
+  const previewMaxWidth = validateBoundedPositiveSafeInteger(
+    options.previewMaxWidth ?? DEFAULT_WINDOWS_CAPTURE_PREVIEW_MAX_WIDTH,
+    MAX_SCREEN_DIMENSION,
+    WINDOWS_SCREEN_CAPTURE_OUTPUT_ERROR_MESSAGE
+  );
+  const previewMaxHeight = validateBoundedPositiveSafeInteger(
+    options.previewMaxHeight ?? DEFAULT_WINDOWS_CAPTURE_PREVIEW_MAX_HEIGHT,
+    MAX_SCREEN_DIMENSION,
+    WINDOWS_SCREEN_CAPTURE_OUTPUT_ERROR_MESSAGE
+  );
+
+  return [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    createPowerShellCaptureScript({
+      maxDataBase64Bytes,
+      previewMaxWidth,
+      previewMaxHeight
+    })
+  ];
 }
 
 async function runNativeCapture(
@@ -155,7 +259,9 @@ function runPowerShellPrimaryScreenCapture(
   return new Promise((resolve, reject) => {
     execFile(
       "powershell.exe",
-      [...createPowerShellPrimaryScreenCaptureCommand()],
+      [...createPowerShellPrimaryScreenCaptureCommand({
+        maxDataBase64Bytes: request.maxDataBase64Bytes
+      })],
       {
         timeout: request.timeoutMs,
         maxBuffer: request.maxOutputBytes
@@ -210,14 +316,14 @@ function parseNativeCaptureOutput(
 
     const { format, width, height, dataBase64 } = parsed;
     if (
-      format !== "png" ||
+      !isSupportedNativeCaptureFormat(format) ||
       !isScreenDimension(width) ||
       !isScreenDimension(height) ||
       typeof dataBase64 !== "string" ||
       dataBase64.length === 0 ||
       !BASE64_PATTERN.test(dataBase64) ||
       Buffer.byteLength(dataBase64, "utf8") > maxDataBase64Bytes ||
-      !hasPngSignature(dataBase64)
+      !hasImageSignature(format, dataBase64)
     ) {
       throw new Error(WINDOWS_SCREEN_CAPTURE_OUTPUT_ERROR_MESSAGE);
     }
@@ -236,17 +342,29 @@ function isScreenDimension(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= MAX_SCREEN_DIMENSION;
 }
 
+function isSupportedNativeCaptureFormat(value: unknown): value is WindowsScreenCaptureFormat {
+  return value === "jpeg" || value === "png";
+}
+
 function isFutureIsoDate(value: string, now: Date): boolean {
   const expiresAtMs = Date.parse(value);
   return Number.isFinite(expiresAtMs) && expiresAtMs > now.getTime();
 }
 
-function hasPngSignature(dataBase64: string): boolean {
+function hasImageSignature(format: WindowsScreenCaptureFormat, dataBase64: string): boolean {
   const data = Buffer.from(dataBase64, "base64");
+
+  if (format === "jpeg") {
+    if (data.length < JPEG_SIGNATURE.length) {
+      return false;
+    }
+
+    return JPEG_SIGNATURE.every((byte, index) => data[index] === byte);
+  }
+
   if (data.length < PNG_SIGNATURE.length) {
     return false;
   }
-
   return PNG_SIGNATURE.every((byte, index) => data[index] === byte);
 }
 

@@ -22,6 +22,12 @@ const validGrant: WindowsScreenCaptureGrant = {
 };
 
 const validNativeOutput = JSON.stringify({
+  format: "jpeg",
+  width: 2,
+  height: 1,
+  dataBase64: "/9j/4AAQSkZJRg=="
+});
+const validPngNativeOutput = JSON.stringify({
   format: "png",
   width: 2,
   height: 1,
@@ -29,7 +35,7 @@ const validNativeOutput = JSON.stringify({
 });
 
 describe("windows screen capture adapter", () => {
-  it("captures a bounded PNG frame when the visible grant is active", async () => {
+  it("captures a bounded JPEG frame when the visible grant is active", async () => {
     const runner = vi.fn<WindowsScreenCaptureNativeRunner>().mockResolvedValue(validNativeOutput);
     const frame = await capturePrimaryScreen(validGrant, {
       runner,
@@ -40,16 +46,33 @@ describe("windows screen capture adapter", () => {
     expect(runner).toHaveBeenCalledTimes(1);
     expect(runner).toHaveBeenCalledWith({
       timeoutMs: 5000,
+      maxDataBase64Bytes: 49152,
       maxOutputBytes: 53248
     });
     expect(frame).toEqual({
       authorizationId: "authz_screen_123",
       capturedAt: "2026-06-16T05:00:00.000Z",
+      format: "jpeg",
+      width: 2,
+      height: 1,
+      dataBase64: "/9j/4AAQSkZJRg==",
+      dataBase64Bytes: 16
+    });
+  });
+
+  it("keeps bounded PNG native output compatible", async () => {
+    const runner = vi.fn<WindowsScreenCaptureNativeRunner>().mockResolvedValue(validPngNativeOutput);
+    const frame = await capturePrimaryScreen(validGrant, {
+      runner,
+      platform: "win32",
+      now: () => now
+    });
+
+    expect(frame).toMatchObject({
       format: "png",
       width: 2,
       height: 1,
-      dataBase64: "iVBORw0KGgo=",
-      dataBase64Bytes: 12
+      dataBase64: "iVBORw0KGgo="
     });
   });
 
@@ -155,10 +178,10 @@ describe("windows screen capture adapter", () => {
   it("rejects oversized encoded frame data", async () => {
     const runner = vi.fn<WindowsScreenCaptureNativeRunner>().mockResolvedValue(
       JSON.stringify({
-        format: "png",
+        format: "jpeg",
         width: 1,
         height: 1,
-        dataBase64: "AAAA"
+        dataBase64: "/9j/"
       })
     );
 
@@ -172,10 +195,10 @@ describe("windows screen capture adapter", () => {
     ).rejects.toThrow(WINDOWS_SCREEN_CAPTURE_OUTPUT_ERROR_MESSAGE);
   });
 
-  it("rejects base64 data that is not a PNG frame", async () => {
+  it("rejects base64 data that is not a JPEG frame", async () => {
     const runner = vi.fn<WindowsScreenCaptureNativeRunner>().mockResolvedValue(
       JSON.stringify({
-        format: "png",
+        format: "jpeg",
         width: 1,
         height: 1,
         dataBase64: "QUJDREVGR0g="
@@ -214,5 +237,6 @@ describe("windows screen capture adapter", () => {
     expect(createPowerShellPrimaryScreenCaptureCommand().join(" ")).not.toMatch(
       /ExecutionPolicy|Bypass|Invoke-Expression/
     );
+    expect(createPowerShellPrimaryScreenCaptureCommand().join(" ")).toContain('format = "jpeg"');
   });
 });

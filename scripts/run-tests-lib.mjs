@@ -2,10 +2,21 @@ import { spawnSync } from "node:child_process";
 import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-export const DEFAULT_TEST_ROOTS = ["apps", "packages"];
+export const DEFAULT_TEST_ROOTS = ["apps", "packages", "scripts"];
 export const VITEST_SERIAL_FLAGS = [
   "--pool",
   "forks",
+  "--maxWorkers",
+  "1",
+  "--minWorkers",
+  "1",
+  "--no-file-parallelism",
+  "--reporter",
+  "dot"
+];
+export const VITEST_THREAD_FALLBACK_FLAGS = [
+  "--pool",
+  "threads",
   "--maxWorkers",
   "1",
   "--minWorkers",
@@ -66,8 +77,8 @@ export function prioritizeTestFiles(files) {
   });
 }
 
-export function buildVitestArgs(testFile, vitestBin = defaultVitestBin()) {
-  return [vitestBin, "run", testFile, ...VITEST_SERIAL_FLAGS];
+export function buildVitestArgs(testFile, vitestBin = defaultVitestBin(), vitestFlags = VITEST_SERIAL_FLAGS) {
+  return [vitestBin, "run", testFile, ...vitestFlags];
 }
 
 export function isTransientVitestIpcFailure(output) {
@@ -101,7 +112,7 @@ export function runVitest(testFile, options = {}) {
   const vitestBin = options.vitestBin ?? defaultVitestBin(cwd);
   const spawn = options.spawn ?? spawnSync;
 
-  return spawn(vitestCommand, buildVitestArgs(testFile, vitestBin), {
+  return spawn(vitestCommand, buildVitestArgs(testFile, vitestBin, options.vitestFlags), {
     cwd,
     encoding: "utf8",
     maxBuffer: options.maxBuffer ?? DEFAULT_MAX_BUFFER_BYTES,
@@ -127,6 +138,21 @@ export function runTestFile(testFile, options = {}) {
     if (result.error) {
       stderr.write(`Failed to start Vitest for ${testFile}: ${result.error.message}\n`);
       return { status: 1, attempts: 2 };
+    }
+
+    if (shouldRetryVitestRun(result)) {
+      stderr.write(
+        `Vitest retry hit transient IPC failure for ${testFile}; falling back to thread pool.\n`
+      );
+      result = runVitest(testFile, { ...options, vitestFlags: VITEST_THREAD_FALLBACK_FLAGS });
+      replaySpawnOutput(result, options.streams);
+
+      if (result.error) {
+        stderr.write(`Failed to start Vitest for ${testFile}: ${result.error.message}\n`);
+        return { status: 1, attempts: 3 };
+      }
+
+      return { status: result.status ?? 1, attempts: 3 };
     }
 
     return { status: result.status ?? 1, attempts: 2 };

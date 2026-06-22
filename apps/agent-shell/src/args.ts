@@ -24,6 +24,7 @@ import {
   type AgentShellScreenFrameInput,
   type HostDecision
 } from "./runtime.js";
+import { assertViewerScreenFrameOutputPath } from "./screen-frame-output.js";
 
 export type AgentShellDevScreenFrameArgs = Readonly<{
   afterMs: number;
@@ -59,6 +60,7 @@ export type AgentShellArgs = {
   hostStatusAfterMs?: number;
   viewerControlPrompt: boolean;
   hostSignalProbeAck?: boolean;
+  hostApplyInput?: boolean;
   hostConsentTimeoutMs?: number;
   visibleToHost: boolean;
   authorizationTtlMs?: number;
@@ -74,6 +76,8 @@ export type AgentShellArgs = {
   hostDisconnectAfterMs?: number;
   hostDisconnectReason?: string;
   viewerSignalProbeAfterMs?: number;
+  viewerScreenFrameOutputPath?: string;
+  viewerControlSurfacePort?: number;
   viewerStatusAfterMs?: number;
   viewerDisconnectAfterMs?: number;
   devScreenFrame?: AgentShellDevScreenFrameArgs;
@@ -81,7 +85,7 @@ export type AgentShellArgs = {
 };
 
 export const AGENT_SHELL_USAGE =
-  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000] [--dev-screen-frame-after-ms 1000] [--dev-screen-frame-source static|windows-capture] [--dev-screen-frame-id frame_cli_1] [--dev-screen-frame-format image/png] [--dev-screen-frame-width 1] [--dev-screen-frame-height 1] [--dev-screen-frame-data-base64 base64] [--dev-screen-frame-count 3] [--dev-screen-frame-interval-ms 1000] [--dev-input-after-ms 1000] [--dev-input-kind pointer-move|pointer-down|pointer-up|pointer-wheel|key-down|key-up] [--dev-input-event-id input_cli_1] [--dev-pointer-x 0.5] [--dev-pointer-y 0.5] [--dev-pointer-button primary] [--dev-pointer-buttons 1] [--dev-pointer-delta-x 0] [--dev-pointer-delta-y 1] [--dev-key KeyA] [--dev-code KeyA] [--dev-modifiers shift,control]";
+  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-apply-input true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-screen-frame-output latest-frame.png] [--viewer-control-surface-port 35987] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000] [--dev-screen-frame-after-ms 1000] [--dev-screen-frame-source static|windows-capture] [--dev-screen-frame-id frame_cli_1] [--dev-screen-frame-format image/png] [--dev-screen-frame-width 1] [--dev-screen-frame-height 1] [--dev-screen-frame-data-base64 base64] [--dev-screen-frame-count 3] [--dev-screen-frame-interval-ms 1000] [--dev-input-after-ms 1000] [--dev-input-kind pointer-move|pointer-down|pointer-up|pointer-wheel|key-down|key-up] [--dev-input-event-id input_cli_1] [--dev-pointer-x 0.5] [--dev-pointer-y 0.5] [--dev-pointer-button primary] [--dev-pointer-buttons 1] [--dev-pointer-delta-x 0] [--dev-pointer-delta-y 1] [--dev-key KeyA] [--dev-code KeyA] [--dev-modifiers shift,control]";
 
 const DEFAULT_DEV_SCREEN_FRAME_DATA_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -116,6 +120,7 @@ const knownOptions = new Set([
   "host-status-after-ms",
   "viewer-control-prompt",
   "host-signal-probe-ack",
+  "host-apply-input",
   "host-consent-timeout-ms",
   "visible-session",
   "authorization-ttl-ms",
@@ -131,6 +136,8 @@ const knownOptions = new Set([
   "disconnect-after-ms",
   "disconnect-reason",
   "viewer-signal-probe-after-ms",
+  "viewer-screen-frame-output",
+  "viewer-control-surface-port",
   "viewer-status-after-ms",
   "viewer-disconnect-after-ms",
   "dev-screen-frame-after-ms",
@@ -159,6 +166,8 @@ const knownOptions = new Set([
 const hostRejectedViewerWorkflowOptions = [
   "request",
   "request-reason",
+  "viewer-screen-frame-output",
+  "viewer-control-surface-port",
   "dev-input-after-ms",
   "dev-input-kind",
   "dev-input-event-id",
@@ -181,6 +190,7 @@ const viewerRejectedHostWorkflowOptions = [
   "host-control-prompt",
   "host-status-after-ms",
   "host-signal-probe-ack",
+  "host-apply-input",
   "visible-session",
   "authorization-ttl-ms",
   "revoke-after-ms",
@@ -295,6 +305,25 @@ export function parseArgs(
     requestedPermissions,
     options.get("viewer-signal-probe-after-ms")
   );
+  const auditLogPath = parseOptionalAuditLogPath(
+    options.get("audit-log") ?? env.WINBRIDGE_AGENT_AUDIT_LOG_PATH
+  );
+  const hostApplyInput = parseHostApplyInput(
+    role,
+    auditLogPath,
+    options.get("host-apply-input")
+  );
+  const viewerScreenFrameOutputPath = parseViewerScreenFrameOutputPath(
+    role,
+    requestedPermissions,
+    auditLogPath,
+    options.get("viewer-screen-frame-output")
+  );
+  const viewerControlSurfacePort = parseViewerControlSurfacePort(
+    role,
+    viewerScreenFrameOutputPath,
+    options.get("viewer-control-surface-port")
+  );
   const viewerStatusAfterMs = parseViewerStatusAfterMs(
     role,
     options.get("viewer-status-after-ms")
@@ -321,9 +350,7 @@ export function parseArgs(
     displayName: parseDisplayName(options.get("name") ?? `${role} ${processId}`),
     token: parseOptionalToken(options.get("token")),
     deviceId: parseDeviceId(options.get("device") ?? `dev_${role}_${processId}`),
-    auditLogPath: parseOptionalAuditLogPath(
-      options.get("audit-log") ?? env.WINBRIDGE_AGENT_AUDIT_LOG_PATH
-    ),
+    auditLogPath,
     requestedPermissions,
     requestReason,
     hostGrantPermissions,
@@ -333,6 +360,7 @@ export function parseArgs(
     hostStatusAfterMs,
     viewerControlPrompt,
     hostSignalProbeAck,
+    hostApplyInput,
     hostConsentTimeoutMs: parseHostConsentTimeoutMs(
       hostConsentPrompt,
       options.get("host-consent-timeout-ms")
@@ -351,6 +379,8 @@ export function parseArgs(
     hostDisconnectAfterMs: parseOptionalTimerDelayMs(options.get("disconnect-after-ms")),
     hostDisconnectReason: parseHostDisconnectReason(role, options.get("disconnect-reason")),
     viewerSignalProbeAfterMs,
+    viewerScreenFrameOutputPath,
+    viewerControlSurfacePort,
     viewerStatusAfterMs,
     viewerDisconnectAfterMs,
     devScreenFrame,
@@ -599,10 +629,6 @@ function parseHostControlPrompt(
     throw new AgentShellUsageError();
   }
 
-  if (enabled && hostConsentPrompt) {
-    throw new AgentShellUsageError();
-  }
-
   if (enabled && hostStatusAfterMs !== undefined) {
     throw new AgentShellUsageError();
   }
@@ -656,6 +682,23 @@ function parseHostSignalProbeAck(role: SessionRole, raw: string | undefined): bo
   return enabled;
 }
 
+function parseHostApplyInput(
+  role: SessionRole,
+  auditLogPath: string | undefined,
+  raw: string | undefined
+): boolean | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  const enabled = parseBooleanFlag(raw, false);
+  if (role !== "host" || (enabled && auditLogPath === undefined)) {
+    throw new AgentShellUsageError();
+  }
+
+  return enabled;
+}
+
 function parseHostConsentTimeoutMs(
   hostConsentPrompt: boolean,
   raw: string | undefined
@@ -697,6 +740,44 @@ function parseViewerSignalProbeAfterMs(
   }
 
   return delayMs;
+}
+
+function parseViewerScreenFrameOutputPath(
+  role: SessionRole,
+  requestedPermissions: Permission[],
+  auditLogPath: string | undefined,
+  raw: string | undefined
+): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (role !== "viewer" || !requestedPermissions.includes("screen:view") || auditLogPath === undefined) {
+    throw new AgentShellUsageError();
+  }
+
+  try {
+    assertViewerScreenFrameOutputPath(raw);
+    return raw;
+  } catch {
+    throw new AgentShellUsageError();
+  }
+}
+
+function parseViewerControlSurfacePort(
+  role: SessionRole,
+  viewerScreenFrameOutputPath: string | undefined,
+  raw: string | undefined
+): number | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (role !== "viewer" || viewerScreenFrameOutputPath === undefined) {
+    throw new AgentShellUsageError();
+  }
+
+  return parseIntegerOption(raw, 1024, 65535);
 }
 
 function parseRequestReason(

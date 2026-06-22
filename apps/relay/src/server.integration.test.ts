@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket, { type ClientOptions, type RawData } from "ws";
 import { SlidingWindowRateLimiter } from "./rate-limit.js";
 import {
+  createRelayBindHostConfig,
   createRelayPairingConfig,
   createRelayPortConfig,
   createRelayRuntime,
@@ -5559,11 +5560,41 @@ describe("relay runtime integration", () => {
     expect(createRelayPortConfig({ WINBRIDGE_RELAY_PORT: "8788" })).toBe(8788);
   });
 
+  it("parses development relay bind host environment configuration", () => {
+    expect(createRelayBindHostConfig({})).toBe("127.0.0.1");
+    expect(createRelayBindHostConfig({ WINBRIDGE_RELAY_BIND_HOST: "127.0.0.1" })).toBe("127.0.0.1");
+    expect(createRelayBindHostConfig({ WINBRIDGE_RELAY_BIND_HOST: "localhost" })).toBe("localhost");
+    expect(createRelayBindHostConfig({ WINBRIDGE_RELAY_BIND_HOST: "0.0.0.0" })).toBe("0.0.0.0");
+  });
+
+  it("starts with explicit all-interface relay bind host while keeping loopback diagnostics", async () => {
+    const runtime = await startRuntime({ bindHost: "0.0.0.0" });
+
+    expect(runtime.url()).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+  });
+
   it("rejects malformed development relay port configuration", () => {
     for (const port of ["", "abc", "8787abc", "-1", "1.5", "65536"]) {
       expect(() => createRelayPortConfig({ WINBRIDGE_RELAY_PORT: port })).toThrow(
         "WINBRIDGE_RELAY_PORT"
       );
+    }
+  });
+
+  it("rejects malformed development relay bind host configuration without echoing values", () => {
+    for (const bindHost of ["", " 0.0.0.0", "192.168.1.10", "::", "raw-token-host"]) {
+      let thrown: unknown;
+      try {
+        createRelayBindHostConfig({ WINBRIDGE_RELAY_BIND_HOST: bindHost });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(Error);
+      expect((thrown as Error).message).toContain("WINBRIDGE_RELAY_BIND_HOST");
+      if (bindHost === "raw-token-host") {
+        expect((thrown as Error).message).not.toContain(bindHost);
+      }
     }
   });
 

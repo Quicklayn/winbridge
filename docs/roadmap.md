@@ -25,14 +25,20 @@
 - Agent-shell development `screen-frame` CLI exerciser for one-shot metadata-redacted transport checks.
 - Agent-shell finite frame stream loop for metadata-redacted cadence and authorization-loss checks.
 - Agent-shell Windows capture source wired through metadata-only capture audit and existing consent-bound `screen-frame` gates.
+- Agent-shell viewer output file for latest authorized inbound frame, gated by local audit and metadata-only diagnostics.
 - Bandwidth and quality controls.
 - Pause/resume.
 - Timeout and reconnect behavior.
 
 ## Phase 3: Windows Native Host
 
-- Windows capture adapter after a dedicated OpenSpec design and security review.
+- Windows input adapter package boundary after a dedicated OpenSpec design and
+  security review.
+- Agent-shell development host input application wired through metadata-only
+  input audit and existing consent-bound `input-event` gates.
 - Production native capture UX/media pipeline beyond the development agent-shell source.
+- Production host input application UX and hardening beyond the development
+  agent-shell opt-in path.
 - Visible host status surface.
 - Disconnect hotkey or tray control.
 - Permission enforcement.
@@ -41,8 +47,16 @@
 ## Phase 4: Windows Viewer
 
 - Viewer UI.
-- Viewer local status surface.
-- Remote pointer/keyboard UX after a dedicated OpenSpec design and security review specify host-granted input permission, revocation, and audit gates.
+- Agent-shell loopback-only local viewer control surface for development MVP
+  frame display and explicit input sends through existing consent-bound gates.
+- Root MVP command kit for printing a validated visible relay/host/viewer
+  launch sequence without starting background processes.
+- Production viewer local status surface.
+- Production remote pointer/keyboard UX after production host/viewer control
+  surfaces, revocation, visibility, audit, and abuse-case handling are
+  specified.
+- Agent-shell interactive viewer control prompt for explicit one-event
+  pointer/keyboard command sends through existing consent-bound input gates.
 - Agent-shell development `input-event` CLI exerciser for one-shot metadata-redacted transport checks.
 - Permission request UX.
 - Session logs.

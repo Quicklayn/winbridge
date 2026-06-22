@@ -11,6 +11,9 @@
       "path": "packages/windows-capture"
     },
     {
+      "path": "packages/windows-input"
+    },
+    {
       "path": "apps/relay"
     },
     {

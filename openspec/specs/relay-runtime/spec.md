@@ -4,35 +4,30 @@
 Defines the managed development relay lifecycle, shared CLI/test runtime behavior, and test hooks for security-relevant relay events.
 ## Requirements
 ### Requirement: Managed relay lifecycle
-The development relay SHALL expose a managed runtime with explicit start and stop operations. The managed runtime SHALL reject malformed injected port configuration before creating a listener or opening a listening socket. The managed runtime SHALL emit accepted development-mode startup audit records only after the listener has successfully started, and SHALL reject duplicate active start attempts before opening another listener attempt, writing another startup audit record, or logging another development-mode warning.
 
-#### Scenario: Runtime starts on ephemeral port
-- **WHEN** tests start the relay runtime with port `0`
-- **THEN** the runtime listens on an available local port and reports its WebSocket URL
+The relay runtime SHALL start one WebSocket listener on a bounded configured
+port and bind host, report a bounded local URL for development diagnostics, and
+stop that listener on request. The default bind host SHALL be loopback-only.
+Binding to all IPv4 interfaces SHALL require explicit opt-in through a bounded
+configuration value. Malformed or unsupported bind hosts MUST fail before
+listener startup, peer registration, pairing ticket creation, message
+forwarding, capture, input, service, startup persistence, privilege, or
+unattended behavior.
 
-#### Scenario: Runtime stops
-- **WHEN** tests stop the relay runtime
-- **THEN** the WebSocket server and HTTP server are closed
+#### Scenario: Relay defaults to loopback bind
+- **WHEN** the relay starts without bind-host configuration
+- **THEN** it binds to `127.0.0.1`
+- **AND** it does not expose the listener on non-loopback interfaces by default
 
-#### Scenario: Runtime rejects malformed port configuration
-- **WHEN** the relay is configured with a malformed, negative, fractional, non-finite, or out-of-range injected port value
-- **THEN** it rejects the configuration before creating a listener, opening a listening socket, or accepting peer connections
+#### Scenario: Relay explicitly binds for LAN development
+- **WHEN** the relay starts with `WINBRIDGE_RELAY_BIND_HOST=0.0.0.0`
+- **THEN** it binds the listener to `0.0.0.0`
+- **AND** pairing, token, rate-limit, and protocol validation requirements still apply before any peer action
 
-#### Scenario: Development-mode start audit follows successful listener bind
-- **WHEN** the relay runtime starts without a shared token and the listener binds successfully
-- **THEN** the runtime emits exactly one accepted `relay.start.development-mode` audit event for that start
-
-#### Scenario: Failed listener bind does not emit accepted start audit
-- **WHEN** the relay runtime starts without a shared token and the listener bind fails
-- **THEN** the runtime MUST NOT emit an accepted `relay.start.development-mode` audit event for that failed start
-
-#### Scenario: Startup audit failure closes listener
-- **WHEN** the relay runtime starts without a shared token and accepted startup audit emission fails after the listener binds
-- **THEN** the runtime rejects startup and closes the listener before accepting peer connections
-
-#### Scenario: Duplicate active start is rejected before start side effects
-- **WHEN** `start()` is called again while the same relay runtime is already starting or started
-- **THEN** the runtime rejects the duplicate start before opening another listener attempt, writing another startup audit event, or logging another development-mode warning
+#### Scenario: Relay rejects unsafe bind hosts
+- **WHEN** the bind-host configuration is blank, untrimmed, malformed, unsupported, or secret-bearing
+- **THEN** the relay fails before listener startup
+- **AND** diagnostics MUST NOT echo raw bind-host values, tokens, pairing codes, credentials, screen contents, keystrokes, or full secrets
 
 ### Requirement: Shared CLI and test implementation
 The relay CLI and integration tests SHALL use the same runtime implementation.
@@ -800,3 +795,4 @@ The relay runtime SHALL forward schema-valid MVP remote interaction envelopes on
 #### Scenario: Relay forwarding remains non-authorizing
 - **WHEN** the relay forwards a schema-valid `screen-frame` or `input-event`
 - **THEN** relay forwarding MUST NOT approve authorization, activate host visibility, grant permissions, start capture, apply input, reconnect peers, suppress host visibility, install services, configure startup persistence, collect credentials, elevate privileges, hide the session, or bypass Windows prompts
+

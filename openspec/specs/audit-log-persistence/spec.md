@@ -4,11 +4,26 @@
 Defines local development JSONL audit persistence and write-failure behavior for relay and agent-shell audit sinks.
 ## Requirements
 ### Requirement: JSONL file audit sink
-The system SHALL provide a development file audit sink that appends one schema-valid audit record as JSON per line.
+
+The system SHALL provide a development file audit sink that appends one
+schema-valid audit record as JSON per line. For a safe configured file path, the
+file audit sink SHALL create the configured file's parent directory recursively
+before appending the JSONL record. Directory creation or append failures MUST
+surface to the caller instead of silently dropping audit records or falling back
+to non-file audit behavior.
 
 #### Scenario: File sink writes records
+
 - **WHEN** two audit records are written to the file sink
 - **THEN** the audit file contains two JSON lines in write order
+
+#### Scenario: File sink creates parent directories
+
+- **WHEN** a file audit sink writes an audit record to a safe nested local path
+  whose parent directory does not exist
+- **THEN** it creates the parent directory recursively before appending the
+  JSONL record
+- **AND** the persisted record remains schema-valid and redacted
 
 ### Requirement: File audit detail JSON compatibility
 The file audit sink SHALL reject audit records whose detail metadata contains non-JSON values before appending to the JSONL audit file.
@@ -291,3 +306,4 @@ The system SHALL reject configured file audit paths that start with Windows devi
 #### Scenario: Ordinary audit path remains valid
 - **WHEN** a file audit sink is constructed with a safe ordinary path such as `logs/audit.jsonl`, `C:\logs\audit.jsonl`, or `D:/logs/audit.jsonl`
 - **THEN** path validation accepts the value when all other audit path requirements pass
+

@@ -37,7 +37,7 @@ const HOST_CONTROL_REJECTED_MESSAGE = "[winbridge-agent] host control rejected";
 const HOST_CONTROL_STOPPED_MESSAGE = "[winbridge-agent] host control prompt stopped\n";
 const HOST_CONTROL_STATUS_PREFIX = "[winbridge-agent] host status";
 const HOST_CONTROL_HELP_TEXT =
-  "[winbridge-agent] host control help commands=help,status,pause,resume,revoke screen:view,terminate,disconnect\n";
+  "[winbridge-agent] host control help commands=help,status,pause,resume,revoke screen:view,revoke input:pointer,revoke input:keyboard,terminate,disconnect\n";
 
 export function startInteractiveHostControlPrompt(
   runtime: AgentShellRuntime,

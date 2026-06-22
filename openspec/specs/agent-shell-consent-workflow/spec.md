@@ -729,33 +729,14 @@ The managed agent shell SHALL record local peer disconnected state when its WebS
 - **AND** public sends remain subject to the normal recipient, authority, authorization, and socket-open gates for the new connection
 
 ### Requirement: Runtime error diagnostics are secret-safe
-The agent shell SHALL surface runtime, startup, and socket failures without exposing raw exception messages, raw diagnostic logger error text, tokens, pairing codes, credentials, protocol payload fragments, private reason text, file paths, keystrokes, screenshots, screen contents, or input contents in local runtime events or logs. Runtime, startup, and socket diagnostic logger failures MUST be best-effort observability failures only and MUST NOT grant permissions, activate host visibility, start capture, send input, reconnect peers, send protocol messages other than the normal startup join message that would have been sent without the logger failure, hide the session from the host, or bypass consent workflows.
 
-#### Scenario: Audit sink failure event is redacted
-- **WHEN** the configured host workflow audit sink throws an error while writing a record
-- **THEN** the host shell MUST emit a local runtime `error` event with a generic error message and secret-safe metadata, and MUST NOT expose the raw exception message
+The agent shell SHALL surface runtime, startup, and socket failures without exposing raw exception messages, raw diagnostic logger error text, tokens, pairing codes, credentials, protocol payload fragments, private reason text, file paths, keystrokes, screenshots, screen contents, or input contents in local runtime events or logs. Runtime, startup, and socket diagnostic logger failures MUST be best-effort observability failures only and MUST NOT grant permissions, activate host visibility, start capture, send input, reconnect peers, send protocol messages other than the normal startup join message that would have been sent without the logger failure, hide the session from the host, or bypass consent workflows. Startup informational capability logs SHALL use static metadata-only wording that does not claim the development MVP viewer surface or explicit host input path are unavailable after those features are configured elsewhere in the runtime.
 
-#### Scenario: Runtime error log is redacted
-- **WHEN** the agent shell logs a runtime callback failure
-- **THEN** the log MUST include only summary metadata such as raw message byte length and MUST NOT include the raw exception message
+#### Scenario: Startup capability log describes the development MVP path
 
-#### Scenario: Socket error log is redacted
-- **WHEN** the agent shell logs a WebSocket error
-- **THEN** the log MUST include only summary metadata such as raw message byte length and MUST NOT include the raw socket error message
-
-#### Scenario: Socket error logger failure is contained
-- **WHEN** the agent shell observes a WebSocket socket error
-- **AND** the diagnostic logger fails while reporting the sanitized socket error log line
-- **THEN** the logger failure MUST NOT escape the socket error callback
-- **AND** local runtime events and logs MUST NOT expose raw socket error text, raw logger error text, tokens, pairing codes, protocol payloads, credentials, file paths, private reasons, keystrokes, screenshots, screen contents, or input contents
-- **AND** the logger failure MUST NOT grant permissions, activate host visibility, start capture, send input, reconnect peers, send protocol messages, hide the session from the host, or bypass consent workflows
-
-#### Scenario: Startup logger failure is contained
 - **WHEN** the agent shell WebSocket opens during runtime startup
-- **AND** the diagnostic logger fails while reporting startup informational log lines
-- **THEN** the logger failure MUST NOT escape the WebSocket open callback or prevent the normal startup `join-session` message from being sent
-- **AND** local runtime events and logs MUST NOT expose raw logger error text, tokens, pairing codes, protocol payloads, credentials, file paths, private reasons, keystrokes, screenshots, screen contents, or input contents
-- **AND** the logger failure MUST NOT grant permissions, activate host visibility, start capture, send input, reconnect peers, send consent decisions, send lifecycle messages, send control messages, send signal messages, hide the session from the host, or bypass consent workflows
+- **THEN** the startup informational logs include static bounded wording for the development MVP viewer surface and explicit host input path
+- **AND** those logs MUST NOT include relay tokens, pairing codes, credentials, protocol payload fragments, local file paths, screen contents, input contents, or full secrets
 
 ### Requirement: Agent shell CLI unexpected errors are secret-safe
 The agent shell CLI SHALL report unexpected startup and shutdown failures without exposing raw exception messages, stack traces, local file paths, relay tokens, pairing codes, credentials, protocol payload fragments, private workflow reason text, keystrokes, screenshots, screen contents, or input contents.
@@ -1605,7 +1586,7 @@ The host agent shell SHALL support an opt-in interactive consent path that asks 
 - **AND** prompt text MUST NOT expose raw protocol payloads, tokens, pairing codes, private reasons, signal payloads, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, input contents, credentials, or unvalidated identity values
 
 ### Requirement: Host control prompt CLI validation
-The agent shell SHALL reject malformed, viewer-mode, or ambiguous host control prompt CLI configuration before starting the runtime. Host control prompt validation SHALL allow exact `true` or `false` values only for host runtimes and MUST reject host control prompt mode when interactive host consent prompt mode is also enabled.
+The agent shell SHALL reject malformed, viewer-mode, or ambiguous host control prompt CLI configuration before starting the runtime. Host control prompt validation SHALL allow exact `true` or `false` values only for host runtimes. Host control prompt mode MAY be combined with interactive host consent prompt mode only when the CLI delays control prompt startup until after active visible host authorization; it MUST still be rejected when combined with one-shot host status mode.
 
 #### Scenario: Host control prompt value is explicit
 - **WHEN** the agent shell is started with `--host-control-prompt`
@@ -1615,12 +1596,17 @@ The agent shell SHALL reject malformed, viewer-mode, or ambiguous host control p
 - **WHEN** a viewer shell is started with `--host-control-prompt true`
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
-#### Scenario: Host control prompt is mutually exclusive with host consent prompt
+#### Scenario: Host control prompt can follow interactive host consent
 - **WHEN** a host shell is started with both `--host-control-prompt true` and `--host-consent-prompt true`
+- **THEN** CLI validation succeeds without starting the host control prompt before relay startup
+- **AND** the host control prompt MUST NOT start until an interactive approval produces an active visible host indicator
+
+#### Scenario: Host control prompt remains mutually exclusive with one-shot host status
+- **WHEN** a host shell is started with both `--host-control-prompt true` and `--host-status-after-ms 0`
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
 ### Requirement: Interactive host control prompt
-The host agent shell SHALL support an opt-in development host control prompt that accepts exact local commands for pause, resume, permission revocation, termination, and local disconnect. Accepted commands MUST call the managed runtime direct host controls rather than constructing workflow protocol messages directly. The prompt MUST NOT authorize screen capture, input, clipboard access, file transfer, diagnostics, reconnect, hidden sessions, stealth persistence, or consent bypass.
+The host agent shell SHALL support an opt-in development host control prompt that accepts exact local commands for pause, resume, permission revocation, termination, and local disconnect. Accepted commands MUST call the managed runtime direct host controls rather than constructing workflow protocol messages directly. When combined with interactive host consent prompt mode, the host control prompt SHALL start only after an approved active visible authorization is reported by the runtime. The prompt MUST NOT authorize screen capture, input, clipboard access, file transfer, diagnostics, reconnect, hidden sessions, stealth persistence, or consent bypass.
 
 #### Scenario: Host control prompt accepts lifecycle commands
 - **WHEN** host control prompt mode is enabled
@@ -1631,6 +1617,18 @@ The host agent shell SHALL support an opt-in development host control prompt tha
 - **WHEN** host control prompt mode is enabled
 - **AND** the host operator enters exact command `revoke screen:view`
 - **THEN** the CLI validates `screen:view` as a canonical permission token and invokes managed runtime `revokePermission("screen:view")`
+
+#### Scenario: Host control prompt starts after interactive approval
+- **WHEN** host control prompt mode and interactive host consent prompt mode are both enabled
+- **AND** the host approves a viewer request that activates a visible authorization
+- **THEN** the CLI starts the host control prompt exactly once after the active visible host indicator event
+- **AND** it MUST NOT start a second host control prompt for later pause, resume, or repeated active indicator events
+
+#### Scenario: Host control prompt does not start after denial or timeout
+- **WHEN** host control prompt mode and interactive host consent prompt mode are both enabled
+- **AND** the host denies, cancels, times out, enters an invalid response, or the requesting viewer disconnects before approved active visible authorization
+- **THEN** the CLI does not start the host control prompt
+- **AND** it MUST NOT send session-control, permission-revoked, authorization-state, disconnect, or audit-event messages because of the absent prompt
 
 #### Scenario: Host control prompt rejects malformed commands
 - **WHEN** host control prompt mode receives a blank, unsupported, whitespace-padded, malformed, or invalid-permission command
@@ -2014,12 +2012,12 @@ The host disconnect reason SHALL be used only as the local host WebSocket close 
 - **AND** it MUST NOT contain the raw configured disconnect reason
 
 ### Requirement: Viewer control prompt CLI validation
-The agent shell SHALL support an opt-in `--viewer-control-prompt true|false` CLI flag for viewer runtimes. Viewer control prompt configuration MUST be rejected before runtime startup when it is malformed, supplied for a host runtime, or enabled together with one-shot viewer status or viewer local disconnect timers. Viewer control prompt configuration MUST NOT require requested permissions or active authorization because it only reads local viewer status or stops the local viewer runtime.
+The agent shell SHALL support an opt-in `--viewer-control-prompt true|false` CLI flag for viewer runtimes. Viewer control prompt configuration MUST be rejected before runtime startup when it is malformed, supplied for a host runtime, or enabled together with one-shot viewer status or viewer local disconnect timers. Viewer control prompt configuration MUST NOT require requested permissions or active authorization at startup because `help`, `status`, and `disconnect` remain valid local commands without input permission. Input commands entered after startup MUST fail closed at command time unless the viewer currently has active visible authorization with the required `input:pointer` or `input:keyboard` permission.
 
 #### Scenario: Viewer control prompt is accepted for viewer runtimes
 - **WHEN** a viewer shell is started with `--viewer-control-prompt true`
 - **THEN** CLI validation succeeds and the runtime MAY start normally
-- **AND** the prompt does not require `--request`
+- **AND** the prompt does not require `--request` at startup
 
 #### Scenario: Viewer control prompt is rejected for host runtimes
 - **WHEN** a host shell is started with `--viewer-control-prompt true`
@@ -2029,8 +2027,24 @@ The agent shell SHALL support an opt-in `--viewer-control-prompt true|false` CLI
 - **WHEN** a viewer shell is started with `--viewer-control-prompt true` and either `--viewer-status-after-ms` or `--viewer-disconnect-after-ms`
 - **THEN** it exits through bounded usage handling before connecting to the relay or sending any protocol message
 
+#### Scenario: Viewer control prompt input command lacks authorization
+- **WHEN** viewer control prompt mode receives an input command before the viewer has active visible authorization with the matching input permission
+- **THEN** the command fails closed before local sent event emission, socket write, host input application, native adapter calls, reconnection, hidden session behavior, or consent bypass
+- **AND** prompt output MUST remain metadata-only and MUST NOT echo the raw command line
+
 ### Requirement: Viewer control prompt local commands
-The interactive viewer control prompt SHALL accept only exact `status` and `disconnect` command lines. The `status` command MUST print the existing bounded viewer status snapshot, including optional authorization expiration metadata while active or paused, and MUST NOT invoke lifecycle controls or public sends. The `disconnect` command MUST stop only the local viewer runtime and MUST NOT construct or send `peer-disconnected`, lifecycle, signal, control, or workflow audit messages. Malformed commands MUST be rejected without echoing raw command text.
+The interactive viewer control prompt SHALL accept only exact `status`, `disconnect`, and bounded one-event input command lines. The `status` command MUST print the existing bounded viewer status snapshot, including optional authorization expiration metadata while active or paused, and MUST NOT invoke lifecycle controls or public sends. The `disconnect` command MUST stop only the local viewer runtime and MUST NOT construct or send `peer-disconnected`, lifecycle, signal, control, input, or workflow audit messages. Input commands MUST represent exactly one protocol-supported pointer or keyboard event and MUST send it only through the managed runtime `sendInputEvent()` path after reading current viewer status with an active visible authorization id. Malformed commands MUST be rejected without echoing raw command text.
+
+Accepted input command forms are:
+
+- `pointer-move <x> <y>`
+- `pointer-down <x> <y> <primary|secondary|middle|back|forward>`
+- `pointer-up <x> <y> <primary|secondary|middle|back|forward>`
+- `pointer-wheel <x> <y> <deltaX> <deltaY>`
+- `key-down <KeyName> [alt,control,meta,shift]`
+- `key-up <KeyName> [alt,control,meta,shift]`
+
+Pointer coordinates MUST be finite normalized decimal values from `0` through `1`. Wheel deltas MUST be exact bounded integers and at least one delta MUST be non-zero. Keyboard names MUST be supported protocol key names, and modifiers MUST be unique exact comma-separated modifier tokens. The prompt MUST NOT accept free-form text buffers, paste payloads, command macros, raw JSON, or repeated-key capture.
 
 #### Scenario: Viewer control prompt prints status
 - **WHEN** viewer control prompt mode receives exact command `status`
@@ -2040,16 +2054,34 @@ The interactive viewer control prompt SHALL accept only exact `status` and `disc
 #### Scenario: Viewer control prompt disconnects locally
 - **WHEN** viewer control prompt mode receives exact command `disconnect`
 - **THEN** it stops the local viewer runtime
-- **AND** it MUST NOT emit authorization, lifecycle, signal, control, `peer-disconnected`, or workflow audit messages because of the command
+- **AND** it MUST NOT emit authorization, lifecycle, signal, control, input, `peer-disconnected`, or workflow audit messages because of the command
+
+#### Scenario: Viewer control prompt sends pointer input
+- **WHEN** viewer control prompt mode receives an exact pointer input command while the current viewer status is active and visible with an authorization id that grants `input:pointer`
+- **THEN** it invokes the managed runtime input send path with one pointer event bound to that authorization id
+- **AND** the runtime's existing routing, permission, socket, disconnect, audit-before-send, and redaction gates remain authoritative
+- **AND** prompt output MUST NOT expose pointer coordinates, button values, raw command text, tokens, pairing codes, credentials, private reasons, or full secrets
+
+#### Scenario: Viewer control prompt sends keyboard input
+- **WHEN** viewer control prompt mode receives an exact keyboard input command while the current viewer status is active and visible with an authorization id that grants `input:keyboard`
+- **THEN** it invokes the managed runtime input send path with one keyboard event bound to that authorization id
+- **AND** the runtime's existing routing, permission, socket, disconnect, audit-before-send, and redaction gates remain authoritative
+- **AND** prompt output MUST NOT expose key values, modifier values, raw command text, keylogging buffers, tokens, pairing codes, credentials, private reasons, or full secrets
 
 #### Scenario: Viewer control prompt rejects malformed commands
-- **WHEN** viewer control prompt mode receives whitespace-padded, case-varied, suffixed, or unknown command input
-- **THEN** it rejects the command before reading runtime status, stopping the runtime, invoking host lifecycle controls, or sending protocol messages
+- **WHEN** viewer control prompt mode receives whitespace-padded, case-varied, suffixed, unknown, unsupported-button, duplicate-modifier, unsafe-coordinate, unsafe-delta, free-form-text, macro-shaped, or raw-JSON command input
+- **THEN** it rejects the command before reading runtime status, stopping the runtime, invoking host lifecycle controls, sending input, or sending protocol messages
 - **AND** prompt output MUST NOT echo the raw command line
+
+#### Scenario: Viewer control prompt input send fails
+- **WHEN** viewer control prompt mode receives a syntactically valid input command but runtime authorization, routing, socket, disconnect, audit, or send gates reject it
+- **THEN** the prompt reports only sanitized bounded failure metadata and continues accepting later valid commands
+- **AND** it MUST NOT expose pointer coordinates, button values, key values, modifier values, raw command text, keylogging buffers, tokens, pairing codes, credentials, private reasons, command output, or full secrets
 
 #### Scenario: Viewer control prompt safety boundary
 - **WHEN** viewer control prompt mode starts, accepts a command, rejects a command, fails, or stops
-- **THEN** it MUST NOT start screen capture, send input, sync clipboard, transfer files, install services, configure startup persistence, collect credentials, hide the session from the host, reconnect peers, invoke host controls, suppress host visibility, or bypass consent workflows
+- **THEN** it MUST NOT capture keyboard input outside exact submitted command lines, start screen capture, sync clipboard, transfer files, install services, configure startup persistence, collect credentials, hide the session from the host, reconnect peers, invoke host controls, suppress host visibility, or bypass consent workflows
+- **AND** input commands MUST NOT send more than one protocol input event per accepted command
 
 ### Requirement: Managed viewer local leave control
 The managed agent shell runtime SHALL expose an explicit viewer-only local leave operation. The leave operation MUST close only the local viewer relay connection, clear connection-scoped local viewer authorization state, and MUST NOT require requested permissions or active authorization. It MUST NOT invoke host lifecycle controls, construct or send `peer-disconnected`, emit workflow audit events, grant permissions, start signaling, change host authorization lifecycle state, reconnect peers, or expose screen, input, clipboard, file-transfer, diagnostics, token, pairing, credential, private-reason, display-name, signal-payload, or raw protocol data.
@@ -2076,12 +2108,27 @@ The managed agent shell runtime SHALL expose an explicit viewer-only local leave
 - **AND** the same viewer-only and no-forged-message safety boundary applies
 
 ### Requirement: Host control prompt help command
-The interactive host control prompt SHALL support an exact read-only `help` command. The help command MUST print only a bounded static list of accepted host control prompt commands and MUST NOT call runtime status snapshots, pause, resume, revoke, terminate, disconnect, viewer leave, public send, or any direct protocol-construction path. Help output MUST remain secret-safe and MUST NOT echo raw command lines, permission names beyond the literal documented placeholder and example, peer ids, display names, private reasons, protocol payloads, tokens, pairing codes, signal payloads, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, or input contents.
+The interactive host control prompt SHALL support an exact read-only `help`
+command. The help command MUST print only a bounded static list of accepted host
+control prompt commands, including the exact MVP revoke command forms
+`revoke screen:view`, `revoke input:pointer`, and `revoke input:keyboard`, and
+MUST NOT widen the accepted permission vocabulary beyond existing host control
+parser validation. The help command MUST NOT call runtime status snapshots,
+pause, resume, revoke, terminate, disconnect, viewer leave, public send, or any
+direct protocol-construction path. Help output MUST remain secret-safe and MUST
+NOT echo raw command lines, permission names beyond the literal documented
+accepted command forms, peer ids, display names, private reasons, protocol
+payloads, tokens, pairing codes, signal payloads, keystrokes, screenshots,
+screen contents, clipboard contents, file-transfer contents, diagnostics dumps,
+or input contents.
 
 #### Scenario: Host control prompt prints help
 - **WHEN** host control prompt mode receives exact command `help`
 - **THEN** it prints a bounded static help line listing exact accepted commands
-- **AND** it does not read runtime status, invoke host lifecycle controls, invoke viewer leave, or call public runtime sends
+- **AND** the help line includes `revoke screen:view`, `revoke input:pointer`,
+  and `revoke input:keyboard`
+- **AND** it does not read runtime status, invoke host lifecycle controls,
+  invoke viewer leave, or call public runtime sends
 
 #### Scenario: Host control prompt rejects malformed help commands
 - **WHEN** host control prompt mode receives whitespace-padded, case-varied, or suffixed help input
@@ -2093,16 +2140,16 @@ The interactive host control prompt SHALL support an exact read-only `help` comm
 - **THEN** it MUST NOT start screen capture, send input, sync clipboard, transfer files, install services, configure startup persistence, collect credentials, hide the session from the host, reconnect peers, suppress host visibility, or bypass consent workflows
 
 ### Requirement: Viewer control prompt help command
-The interactive viewer control prompt SHALL support an exact read-only `help` command. The help command MUST print only a bounded static list of accepted viewer control prompt commands and MUST NOT call runtime status snapshots, viewer leave, host lifecycle controls, public send, or any direct protocol-construction path. Help output MUST remain secret-safe and MUST NOT echo raw command lines, peer ids, display names, private reasons, protocol payloads, tokens, pairing codes, signal payloads, permission names, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, or input contents.
+The interactive viewer control prompt SHALL support an exact read-only `help` command. The help command MUST print only a bounded static list of accepted viewer control prompt command forms and MUST NOT call runtime status snapshots, viewer leave, host lifecycle controls, input sends, public send, or any direct protocol-construction path. Help output MUST remain secret-safe and MUST NOT echo raw command lines, peer ids, display names, private reasons, protocol payloads, tokens, pairing codes, signal payloads, permission names, keystrokes, screenshots, screen contents, clipboard contents, file-transfer contents, diagnostics dumps, input contents, pointer coordinates, button values, key values, modifier values, or full secrets.
 
 #### Scenario: Viewer control prompt prints help
 - **WHEN** viewer control prompt mode receives exact command `help`
-- **THEN** it prints a bounded static help line listing exact accepted commands
-- **AND** it does not read runtime status, invoke viewer leave, invoke host lifecycle controls, or call public runtime sends
+- **THEN** it prints a bounded static help line listing exact accepted command forms
+- **AND** it does not read runtime status, invoke viewer leave, invoke host lifecycle controls, call input sends, or call public runtime sends
 
 #### Scenario: Viewer control prompt rejects malformed help commands
 - **WHEN** viewer control prompt mode receives whitespace-padded, case-varied, or suffixed help input
-- **THEN** it rejects the command before reading runtime status, invoking viewer leave, invoking host lifecycle controls, or sending protocol messages
+- **THEN** it rejects the command before reading runtime status, invoking viewer leave, invoking host lifecycle controls, sending input, or sending protocol messages
 - **AND** prompt output MUST NOT echo the raw command line
 
 #### Scenario: Viewer help command safety boundary
@@ -3152,6 +3199,55 @@ The agent shell CLI SHALL expose a viewer-only non-native development operation 
 - **WHEN** a viewer CLI process is started with malformed development input configuration such as unsafe delay, unknown input kind, invalid pointer coordinate, invalid button, invalid key/code/modifier value, role-mismatched use, missing required input permission, or keylogging-buffer-shaped data
 - **THEN** it exits through bounded usage handling before opening a relay connection, sending protocol messages, writing audit records, invoking host input side effects, invoking native adapters, or exposing raw input details
 
+### Requirement: Agent shell applies inbound Windows input only after explicit host opt-in
+
+The agent shell SHALL expose a host-only opt-in runtime configuration for
+applying accepted inbound `input-event` messages through the Windows input
+adapter. The runtime MUST keep native input application disabled by default. On
+an opted-in host, native input MUST be invoked only after the inbound
+`input-event` passes existing sender role, sender peer id, session id, target
+peer id, authorization id, visible active unexpired authorization state, and
+required `input:pointer` or `input:keyboard` permission checks. The runtime MUST
+write metadata-only local audit before invoking the Windows input adapter, and
+audit failure MUST block native input.
+
+#### Scenario: Host applies authorized pointer input
+- **WHEN** an opted-in host runtime with local audit configuration receives a pointer `input-event` from the observed viewer for the active visible unexpired authorization that grants `input:pointer`
+- **THEN** the runtime writes metadata-only local input-application audit before invoking the Windows input adapter
+- **AND** the adapter receives a grant snapshot bound to the current authorization, visibility, permissions, expiry, and connected viewer state
+- **AND** local events, logs, audit records, thrown errors, and status output MUST NOT expose pointer coordinates, button values, raw input payloads, credentials, tokens, pairing codes, private reasons, command output, or full secrets
+
+#### Scenario: Host applies authorized keyboard input
+- **WHEN** an opted-in host runtime with local audit configuration receives a keyboard `input-event` from the observed viewer for the active visible unexpired authorization that grants `input:keyboard`
+- **THEN** the runtime writes metadata-only local input-application audit before invoking the Windows input adapter
+- **AND** local events, logs, audit records, thrown errors, and status output MUST NOT expose key values, code values, modifier values, raw input payloads, keylogging buffers, credentials, tokens, pairing codes, private reasons, command output, or full secrets
+
+#### Scenario: Host input application is not opted in
+- **WHEN** a host runtime receives an otherwise authorized `input-event` while native input application is disabled
+- **THEN** the runtime keeps existing metadata-only inbound observation behavior and MUST NOT write input-application audit, invoke the Windows input adapter, inject OS input, reconnect peers, hide the session, or bypass consent
+
+#### Scenario: Host input application lacks local audit
+- **WHEN** a host runtime is configured to apply inbound input without a local audit sink
+- **THEN** runtime creation or startup fails closed before opening a relay connection, receiving input, invoking the Windows input adapter, injecting OS input, reconnecting peers, hiding the session, or bypassing consent
+
+#### Scenario: Input application audit fails
+- **WHEN** an opted-in host is otherwise authorized to apply an inbound `input-event` but metadata-only local audit persistence fails
+- **THEN** the runtime rejects before invoking the Windows input adapter, injecting OS input, writing trusted success metadata, reconnecting peers, hiding the session, or bypassing consent
+- **AND** diagnostics MUST NOT expose pointer coordinates, button values, key values, modifier values, raw input payloads, keylogging buffers, credentials, tokens, pairing codes, private reasons, command output, or full secrets
+
+#### Scenario: Authorization is lost before input application
+- **WHEN** a host receives an `input-event` after authorization is paused, revoked, terminated, expired, invisible, disconnected, missing, mismatched, or missing the required input permission
+- **THEN** the runtime rejects or ignores the event before input-application audit, Windows input adapter invocation, trusted received event emission, injected OS input, reconnection, hidden session behavior, or consent bypass
+
+#### Scenario: Windows input adapter fails
+- **WHEN** an opted-in host passes an authorized inbound input event to the Windows input adapter and the adapter rejects or fails
+- **THEN** the runtime reports only bounded generic failure metadata
+- **AND** it MUST NOT expose pointer coordinates, button values, key values, modifier values, raw input payloads, keylogging buffers, credentials, tokens, pairing codes, private reasons, command output, or full secrets
+
+#### Scenario: Host input application remains scoped
+- **WHEN** a host enables inbound Windows input application
+- **THEN** the process MUST NOT capture input, keylog, read clipboard data, sync clipboard, transfer files, collect diagnostics, install services, configure startup persistence, elevate privileges, run unattended, collect credentials, evade AV/EDR, bypass Windows prompts, hide the active host session indicator, or suppress host pause, revoke, terminate, or disconnect controls
+
 ### Requirement: Agent shell CLI remote interaction diagnostics remain metadata-only
 
 The agent shell CLI SHALL keep all remote interaction exerciser diagnostics metadata-only. CLI usage errors, expected send failures, unexpected runtime diagnostics, logs, and local status output MUST NOT include raw frame data, screen contents, pointer coordinates, button values, key values, code values, modifier values, raw input payloads, keylogging buffers, clipboard contents, file contents, diagnostics dumps, credentials, tokens, pairing codes, private reasons, or full secrets.
@@ -3176,32 +3272,224 @@ routing is available, the local socket is open, the remote peer is connected,
 and metadata-only local audit for the capture attempt has been persisted.
 
 #### Scenario: Host sends a captured Windows frame
+
 - **WHEN** a host CLI process is started with the Windows capture screen-frame source and later has active visible unexpired `screen:view` authorization
 - **THEN** the runtime writes metadata-only local capture audit before invoking the Windows capture adapter
-- **AND** it sends the captured PNG through the existing `sendScreenFrame()` path
+- **AND** it sends the captured JPEG or PNG through the existing `sendScreenFrame()` path with the protocol MIME type that matches the adapter-reported frame format
 - **AND** existing screen-frame send authorization, routing, audit-before-send, socket, and redaction gates still apply
 
 #### Scenario: Capture source lacks authorization
+
 - **WHEN** the host CLI capture source fires before active visible unexpired `screen:view` authorization exists
 - **THEN** it waits without invoking native capture, writing capture audit, sending screen frames, opening native adapters, reconnecting peers, hiding the session, or bypassing consent
 
 #### Scenario: Authorization is lost during capture stream
+
 - **WHEN** a finite Windows capture frame stream has sent fewer than the configured count and authorization becomes paused, revoked, terminated, expired, invisible, disconnected, or no longer grants `screen:view`
 - **THEN** it stops before further capture audit, native capture, accepted-send audit, socket write, local sent event emission, reconnection, hidden session behavior, or consent bypass
 
 #### Scenario: Capture audit fails
+
 - **WHEN** the runtime is otherwise authorized to capture a Windows frame but metadata-only local capture audit persistence fails
 - **THEN** the runtime rejects before invoking native capture, sending a frame, writing accepted-send audit, or exposing raw screen contents
 
 #### Scenario: Capture adapter fails
+
 - **WHEN** the Windows capture adapter rejects or returns invalid output
 - **THEN** the CLI reports only bounded generic failure metadata
 - **AND** it MUST NOT expose raw frame bytes, encoded frame data, screenshots, screen contents, credentials, tokens, pairing codes, private reasons, command output, or full secrets
 
 #### Scenario: Capture source configuration is malformed
+
 - **WHEN** a host or viewer CLI process is started with malformed Windows capture source configuration such as role mismatch, static frame payload options mixed with capture source, unsafe count, missing interval for multi-frame streaming, or unsafe frame ids
 - **THEN** it exits through bounded usage handling before opening native capture, sending protocol messages, writing audit records, reconnecting peers, hiding the session, or bypassing consent
 
 #### Scenario: Capture source remains scoped to viewing
+
 - **WHEN** a host uses the Windows capture screen-frame source
 - **THEN** the process MUST NOT render a viewer desktop, inject OS input, sync clipboard, transfer files, collect diagnostics, install services, configure startup persistence, elevate privileges, run unattended, collect credentials, keylog, evade AV/EDR, bypass Windows prompts, or hide capture from the host
+
+### Requirement: Agent shell viewer writes consent-bound screen frames to an explicit output file
+
+The agent shell CLI SHALL expose an explicit viewer-only latest-frame file
+output for development MVP checks. The output path MUST be configured through
+the validated `--viewer-screen-frame-output` option, the viewer MUST request
+`screen:view`, and the viewer MUST configure local audit persistence before the
+runtime starts. The runtime MUST persist frame bytes only after inbound
+`screen-frame` sender role, target peer, authorization id, active visible
+unexpired authorization, `screen:view` permission, and metadata-only output
+audit gates pass. Each latest-frame update MUST create the configured output
+directory recursively before publishing complete frame bytes by writing to a
+same-directory temporary file and then replacing the configured output path; the
+local viewer surface MUST NOT be able to read a partially written frame as
+trusted current state. Output writes, logs, local events, HTTP responses, and
+audit records MUST NOT expose raw frame bytes, encoded frame data, screenshots,
+screen contents, credentials, tokens, pairing codes, private reasons, or full
+secrets.
+
+#### Scenario: Viewer writes a complete latest frame
+
+- **WHEN** a viewer with configured latest-frame output receives an authorized
+  inbound `screen-frame` and metadata-only output audit succeeds
+- **THEN** it creates the configured output directory recursively before writing
+  the decoded frame bytes to a temporary file in that directory
+- **AND** it replaces the configured latest-frame path only after the full frame
+  write succeeds
+- **AND** the configured latest-frame path contains either the previous complete
+  frame or the new complete frame, never a partially written frame
+- **AND** diagnostics and audit remain metadata-only
+
+#### Scenario: Latest-frame replacement fails
+
+- **WHEN** the runtime cannot create the configured output directory, write the
+  temporary frame file, or replace the configured latest-frame path
+- **THEN** it fails closed before treating the new frame as published
+- **AND** the failure MUST NOT send protocol messages, grant permissions,
+  reconnect peers, start capture, send input, hide the host session, bypass
+  consent, or expose raw frame bytes, encoded frame data, screenshots, screen
+  contents, credentials, tokens, pairing codes, private reasons, or full secrets
+
+### Requirement: Agent shell viewer serves a loopback local control surface
+
+The agent shell CLI SHALL expose an opt-in viewer-only local control surface
+that binds only to `127.0.0.1` on an explicitly configured port, requires the
+existing explicit viewer screen-frame output path, and stops with the CLI
+runtime shutdown. The surface SHALL serve only the configured latest-frame path
+through a no-store frame endpoint and MUST NOT serve arbitrary paths,
+same-directory temporary frame output files, raw directory listings, or host
+machine files. The generated page SHALL load replacement frames through a
+bounded same-origin preload step and SHALL replace the displayed frame only
+after the replacement image has loaded. While a displayed frame is ready, a
+replacement refresh MAY be in progress without making the displayed frame
+not-ready. Before any displayed frame is ready, failed or missing frame refreshes
+MUST keep the local surface in a not-ready state without enabling browser
+pointer arming. The surface SHALL serve no-store/nosniff HTML with a
+nonce-based Content Security Policy for generated inline style and script, and
+SHALL expose only token-protected local POST endpoints for input and local
+viewer disconnect actions.
+
+#### Scenario: Local surface preloads replacement frames
+
+- **WHEN** the generated local viewer page already displays a ready frame and
+  starts refreshing the latest frame endpoint
+- **THEN** it preloads the replacement frame before swapping the displayed frame
+- **AND** browser pointer arming MAY remain available for the currently
+  displayed ready frame while the replacement is loading
+- **AND** a failed replacement refresh MUST NOT expose frame paths, frame bytes,
+  raw error bodies, tokens, pairing codes, private reasons, or diagnostics
+
+### Requirement: Local viewer surface displays only the configured latest frame
+
+The local viewer surface SHALL serve generated HTML for a loopback-only viewer
+page and SHALL serve the current configured latest-frame file through a fixed
+`/frame` endpoint only after the file is available for the current surface run.
+The generated page SHALL poll only bounded local status metadata and the fixed
+frame endpoint. The generated page MAY display the bounded
+`signalProbeAckReceived=true` viewer status flag when present, but MUST NOT
+expose authorization ids, raw signal payload markers, payload keys, payload
+values, peer ids, display names, private reasons, tokens, pairing codes,
+credentials, screen contents, input contents, clipboard contents,
+file-transfer contents, diagnostics dumps, or raw protocol data. The generated
+page MUST NOT treat signal acknowledgement status as authorization or as
+permission to send input; input authorization remains enforced by the existing
+runtime gates.
+
+#### Scenario: Local surface shows bounded signal acknowledgement readiness
+
+- **WHEN** the local viewer page polls `/status` and receives
+  `signalProbeAckReceived=true`
+- **THEN** the visible local status text includes
+  `signalProbeAckReceived=true`
+- **AND** it MUST NOT include raw signal markers, authorization ids, peer ids,
+  display names, tokens, pairing codes, credentials, private reasons, screen
+  contents, input contents, clipboard contents, file-transfer contents, or
+  diagnostics dumps
+- **AND** displaying the flag MUST NOT send protocol messages, grant
+  permissions, start capture, send input, invoke host controls, reconnect
+  peers, or bypass consent
+
+### Requirement: Local viewer surface sends only explicit consent-bound input
+
+The local viewer surface SHALL accept only bounded exact viewer control input
+commands and MUST route accepted commands through the existing viewer runtime
+input-event method. The generated local page MAY expose explicit on-screen
+keyboard buttons for a bounded set of protocol-supported keys; each keyboard
+button MUST send exactly one key-down command and exactly one key-up command
+through the same local `/input` path as manual commands. The generated local
+page MAY expose visible pointer interactions on the frame, but page-originated
+pointer movement, wheel, and button events MUST be disabled by default and MUST
+require both an explicit visible same-page pointer arming action and a currently
+ready displayed frame before they can send pointer input. Browser-native context
+menu and image drag defaults MAY be suppressed for the displayed remote frame
+only and MUST NOT be suppressed through document-level or window-level pointer
+capture. The surface MUST verify that the current viewer status is active,
+visible, and bound to an authorization id before requesting the runtime send.
+The runtime remains authoritative for required permission, peer routing,
+audit-before-send, socket state, local/remote disconnect state, pause, revoke,
+expiration, and redaction. The surface MUST generate an unguessable per-run
+mutation token for the visible local page and MUST reject input or disconnect
+POST requests before reading request bodies, reading viewer authorization state,
+sending input, or leaving the viewer when the token is missing or incorrect, the
+`Origin` header is missing or foreign, or the `Content-Type` is not JSON. The
+surface MUST NOT install document-level keyboard capture, buffer typed text,
+create macros, read clipboard data, or send keys except through an explicit
+same-page button click or a bounded exact manual command.
+
+#### Scenario: Local surface requires pointer arming
+
+- **WHEN** the generated local viewer page is loaded and no displayed frame is
+  ready
+- **THEN** browser pointer movement, wheel, and pointer button handlers are not
+  armed to send remote input
+- **AND** the visible pointer arming control is disabled until a displayed frame
+  is ready
+- **AND** pointer handlers can send only after the viewer user uses the visible
+  same-page pointer arming control while a displayed frame is ready
+- **AND** arming state changes MUST NOT send pointer input, grant permissions,
+  bypass runtime authorization gates, install global pointer listeners, or hide
+  the host active-session indicator
+
+### Requirement: Local viewer surface remains development-scoped
+
+The local viewer surface SHALL remain a visible, opt-in development MVP helper.
+It MUST NOT approve sessions, grant permissions, hide the host active-session
+indicator, suppress host pause/revoke/terminate/disconnect controls, run
+unattended, install services, configure startup persistence, elevate
+privileges, collect credentials, read clipboard data, transfer files, collect
+diagnostics dumps, evade AV/EDR, bypass Windows prompts, or expose a remote
+administration shell.
+
+#### Scenario: Local surface is stopped with viewer shutdown
+- **WHEN** the viewer CLI is interrupted, terminated, or otherwise shuts down
+- **THEN** the local control surface listener is closed with the rest of the CLI
+  handles
+- **AND** shutdown MUST NOT reconnect peers, keep a background listener alive,
+  install persistence, continue sending input, continue serving frames, hide the
+  session, or bypass consent
+
+### Requirement: Agent shell CLI signal shutdown is idempotent
+
+The agent shell CLI SHALL handle SIGINT and SIGTERM through a single
+idempotent shutdown path. After the first handled signal, the CLI MUST stop
+local prompt, status, viewer surface, disconnect, remote interaction, and
+managed runtime handles through the existing shutdown ordering before exiting.
+Additional SIGINT or SIGTERM events while shutdown is in progress or complete
+MUST NOT start a second cleanup attempt, send protocol messages, reconnect
+peers, grant permissions, keep local listeners alive, expose secrets, hide the
+host active-session indicator, or bypass consent.
+
+#### Scenario: Signal shutdown succeeds once
+
+- **WHEN** the agent shell CLI receives SIGINT or SIGTERM
+- **THEN** it starts the existing local shutdown sequence at most once
+- **AND** successful cleanup exits with code `0`
+
+#### Scenario: Signal shutdown fails closed
+
+- **WHEN** the existing local shutdown sequence rejects during signal handling
+- **THEN** the CLI reports the failure through bounded agent-shell diagnostics
+- **AND** it exits with code `1`
+- **AND** later signals MUST NOT start another cleanup attempt or expose raw
+  tokens, pairing codes, credentials, private reasons, screen contents, input
+  contents, clipboard contents, file-transfer contents, or diagnostics dumps
+

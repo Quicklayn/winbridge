@@ -2,7 +2,7 @@
 
 WinBridge is a consent-first Windows-to-Windows remote assistance project.
 
-The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, a non-native agent shell, and a Windows screen capture adapter wired into an explicit consent-bound host development frame source. It does **not** implement viewer desktop rendering, input injection, unattended access, or production deployment yet.
+The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, a non-native agent shell, a Windows screen capture adapter wired into an explicit consent-bound host development frame source, an explicit viewer output-file path for authorized frames, a loopback-only local viewer control surface for development MVP checks, an MVP command kit for printing a visible relay/host/viewer launch sequence, an interactive viewer control prompt for authorized development input commands, and explicit host opt-in Windows input application for authorized development input events. It does **not** implement a production desktop viewer UI, production remote-control UX, unattended access, or production deployment yet.
 
 ## Safety Scope
 
@@ -36,6 +36,7 @@ packages/
   audit-log/       Shared development audit sinks.
   protocol/        Shared consent, session, and message schemas.
   windows-capture/ Windows-only one-shot capture adapter behind explicit visible grants.
+  windows-input/   Windows-only input adapter boundary behind explicit visible grants.
 docs/              Architecture, security, privacy, release, GitHub setup, roadmap, orchestration.
 openspec/          Spec-driven planning source of truth.
 ```
@@ -71,9 +72,201 @@ The `@winbridge/windows-capture` package is a reviewed native boundary for MVP
 host viewing. It performs no capture at import or construction time, requires an
 explicit active visible `screen:view` grant, rejects non-Windows and
 expired/disconnected/invisible grants before native calls, and returns a bounded
-PNG frame only to the immediate caller. The host agent shell can now opt into
-this adapter with `--dev-screen-frame-source windows-capture`; viewer desktop
-rendering remains future work.
+JPEG preview or PNG frame only to the immediate caller. The host agent shell can now opt into
+this adapter with `--dev-screen-frame-source windows-capture`. The viewer agent
+shell can opt into saving the latest authorized received frame to an explicit
+local file with `--viewer-screen-frame-output` and can expose that file through
+a loopback-only development viewer surface with `--viewer-control-surface-port`.
+
+The `@winbridge/windows-input` package is a reviewed native boundary for
+development host control. It performs no input at import or construction time,
+requires Windows plus an active visible unexpired connected grant with the
+matching `authorizationId` and `input:pointer` or `input:keyboard` permission,
+normalizes one protocol-supported pointer or keyboard event into a bounded
+native runner request, and sanitizes runner failures. The host agent shell can
+opt into this adapter with `--host-apply-input true`, but only when a local
+agent audit sink is configured.
+
+Generate a reviewed visible-session MVP command sequence:
+
+```powershell
+npm run mvp:commands
+```
+
+Print the same non-executing command plan as bounded JSON for local automation:
+
+```powershell
+npm run mvp:commands -- --json
+```
+
+Print only the bounded preflight command plan as JSON:
+
+```powershell
+npm run mvp:commands -- --preflight-only --json
+```
+
+The command kit validates the session id, pairing code, relay URL, audit paths,
+viewer frame path, loopback viewer surface port, and finite capture cadence,
+then prints the `mvp:ready` preflight gate plus separate relay, host, viewer,
+and browser steps. It does not start processes, open sockets, capture the
+screen, apply input, write files, install services, configure startup
+persistence, run unattended, elevate privileges, or bypass Windows prompts. The
+generated host command uses the interactive host consent prompt, visible session
+state, metadata-only audit,
+`--host-apply-input true`, finite Windows capture, and
+`--host-control-prompt true`. Host controls start after approved active visible
+authorization, so the host terminal can run `pause`, `resume`,
+`revoke screen:view`, `revoke input:pointer`, `revoke input:keyboard`,
+`terminate`, or `disconnect` immediately after approval.
+
+By default the generated MVP host command uses a finite 10 minute frame stream.
+Use `--capture-duration-minutes <1-16>` to choose another bounded duration, or
+`--capture-count <frames>` when you need an exact finite frame count. Duration
+and raw frame count are mutually exclusive, and the helper rejects combinations
+that would exceed the supported finite stream bound.
+
+The generated host and viewer commands include explicit display names for
+clearer consent prompts. Use `--host-name "Assisted PC"` and
+`--viewer-name "Support Viewer"` to customize those bounded labels. They are
+development display metadata only, not production account authentication, and
+the helper rejects blank, untrimmed, oversized, control-character,
+format-control, or secret-bearing names before printing commands.
+
+The generated viewer command also includes a bounded request reason shown in
+the host consent prompt. Use
+`--request-reason "Troubleshoot display settings"` to customize it. The reason
+is consent context only and does not grant access; pairing, explicit host
+approval, visible session state, permissions, revocation, and audit gates remain
+authoritative.
+
+The generated host and viewer commands also enable the existing development
+signal readiness probe: the host command prints `--host-signal-probe-ack true`,
+and the viewer command prints `--viewer-signal-probe-after-ms 1000`. Use
+`--viewer-signal-probe-after-ms <0-2147483647>` to customize the bounded delay.
+This probe is metadata-only readiness context after active visible `screen:view`
+authorization; it does not grant access and does not send screen, input,
+clipboard, file-transfer, diagnostic, SDP, or ICE payloads.
+
+For a token-protected development relay, set the same local environment
+variable in the relay, host, and viewer terminals, then print commands that
+reference it without printing the token value:
+
+```powershell
+$env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
+npm run mvp:commands -- --token-env WINBRIDGE_RELAY_SHARED_TOKEN
+```
+
+The command kit rejects raw `--token` values. Generated commands include the
+pairing code and local file paths, so keep the output inside the trusted test
+session. The default `logs\*.jsonl` and `frames\latest.jpg` parent directories
+are created by the audit and frame-output runtime sinks on first authorized
+write; the command kit itself still only prints commands and does not create
+files or directories. The generated browser step is a visible PowerShell
+`Start-Process 'http://127.0.0.1:<port>/'` command for the loopback viewer
+surface; it also reminds the developer to wait for `frame=ready` and click the
+visible `Pointer Off/On` control before browser pointer actions can send input.
+It opens a browser only when the developer explicitly runs that printed command
+on the viewer PC.
+
+For a two-PC trial, do not use the default `ws://localhost:8787/` relay URL for
+both machines. Rerun the command kit with the relay PC LAN IP or DNS name, for
+example `npm run mvp:commands -- --relay-host 192.168.1.10`, which generates
+`ws://192.168.1.10:8787/`. Use `--relay ws://<host>:<port>` when you need a
+custom relay port or full URL. For non-loopback relay URLs, the printed relay
+step explicitly sets
+`WINBRIDGE_RELAY_BIND_HOST=0.0.0.0` so the development relay can accept LAN
+connections. This is still an explicit development action; the command kit does
+not probe IP addresses, open firewall ports, or start background services.
+
+Check local MVP prerequisites on each Windows machine before a two-PC trial:
+
+```powershell
+npm run mvp:doctor
+```
+
+The doctor verifies Windows platform, supported Node.js version, required root
+npm scripts, required workspace package manifests, and required MVP source
+entrypoints. It is read-only: it does not start relay, host, viewer, browser,
+capture, input, sockets, HTTP listeners, services, startup persistence,
+unattended access, privilege elevation, or Windows prompt bypass.
+
+Check local native Windows prerequisites on the assisted Windows machine before
+using the real capture/input MVP host path:
+
+```powershell
+npm run mvp:native-preflight
+```
+
+The native preflight is read-only. It checks Windows platform, bounded
+PowerShell execution, capture prerequisite assembly/type availability, and input
+wrapper compilation readiness. It does not call `CopyFromScreen`, call
+`SendInput`, start WinBridge processes, open sockets or HTTP listeners, write
+files, launch a browser, install services, configure startup persistence,
+elevate privileges, run unattended, or bypass Windows prompts.
+
+Run the local read-only readiness gate before a two-PC trial:
+
+```powershell
+npm run mvp:ready
+```
+
+`mvp:ready` runs `mvp:doctor`, `mvp:native-preflight`, a non-executing
+localhost `mvp:commands -- --json` command-plan validation, and a
+non-executing representative LAN command-plan validation sequentially, then
+prints only bounded step status. The LAN validation uses a fixed safe
+`--relay-host` value only to exercise the two-PC command generator path; it
+does not detect local IP addresses, probe ports, start processes, or open
+sockets. It does not echo child output, generated command strings, pairing
+codes, paths, tokens, frame bytes, or input contents, and does not run the
+local smoke workflow unless explicitly requested. For machine-readable output:
+
+```powershell
+npm run mvp:ready -- --json
+```
+
+To also run the bounded local static smoke workflow after the default readiness
+checks pass:
+
+```powershell
+npm run mvp:ready -- --include-smoke
+```
+
+For machine-readable readiness with the smoke subchecks included:
+
+```powershell
+npm run mvp:ready -- --json --include-smoke
+```
+
+The aggregate JSON keeps child output and generated command strings hidden and
+may include fixed smoke subchecks for relay, frame, surface, signal, input, and
+audit readiness.
+
+Run a bounded local MVP smoke check before a two-PC trial:
+
+```powershell
+npm run mvp:smoke
+```
+
+The smoke check builds the workspace, starts local relay, host, and viewer
+development processes, uses explicit static host approval with
+`--visible-session true`, publishes a static authorized frame to a temporary
+viewer output file, verifies the loopback viewer surface and `/frame` endpoint,
+verifies the sanitized viewer `/status` endpoint reports
+`signalProbeAckReceived=true` for the bounded development signal readiness
+probe, submits one bounded pointer command through the token-protected local
+`/input` path, verifies that both configured host and viewer JSONL audit logs
+contain bounded audit records, and then stops the child processes. The signal
+readiness and audit checks are metadata-only and do not print raw signal
+payloads, authorization ids, audit paths, raw audit contents, or pairing codes.
+It is a local preflight only: it does not use Windows capture, apply OS input,
+launch a browser, install services, configure startup persistence, run
+unattended, elevate privileges, or bypass Windows prompts.
+
+For troubleshooting, run `npm run mvp:smoke -- --keep-artifacts` to retain the
+temporary smoke work directory after the bounded local check. The retained
+directory is for local inspection only; smoke diagnostics still avoid printing
+frame bytes, mutation tokens, audit paths, raw audit contents, raw child output,
+pairing codes, tokens, or input contents.
 
 Run the development relay:
 
@@ -100,6 +293,19 @@ Configure the local relay port with an exact integer TCP port:
 $env:WINBRIDGE_RELAY_PORT = "8787"
 npm run dev:relay
 ```
+
+By default the development relay binds to `127.0.0.1`. For an explicit LAN MVP
+trial, bind it to all IPv4 interfaces before running the relay:
+
+```powershell
+$env:WINBRIDGE_RELAY_BIND_HOST = "0.0.0.0"
+npm run dev:relay
+```
+
+`WINBRIDGE_RELAY_BIND_HOST` accepts only `127.0.0.1`, `localhost`, or
+`0.0.0.0`. Do not expose this development relay as an Internet-facing service;
+pairing, optional shared-token configuration, protocol validation, and host
+consent still apply, but production deployment hardening is not implemented.
 
 Persist development relay audit records as JSONL:
 
@@ -224,7 +430,58 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-decision appro
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
-`--dev-screen-frame-source windows-capture` is host-only. It waits for active visible unexpired `screen:view` authorization, verified peer routing, open socket, connected viewer, and metadata-only local capture audit before invoking the Windows capture adapter. The captured PNG then goes through the existing `sendScreenFrame()` authorization, routing, audit-before-send, socket, and redaction gates, so pause, revoke, expiration, disconnect, audit failure, adapter failure, or runtime rejection fails closed. Capture source rejects static payload options such as `--dev-screen-frame-data-base64`; it does not render a viewer desktop, inject OS input, sync clipboard, transfer files, collect diagnostics, install services, configure startup persistence, elevate privileges, run unattended, bypass Windows prompts, or hide capture from the host.
+`--dev-screen-frame-source windows-capture` is host-only. It waits for active visible unexpired `screen:view` authorization, verified peer routing, open socket, connected viewer, and metadata-only local capture audit before invoking the Windows capture adapter. The captured JPEG preview or PNG frame then goes through the existing `sendScreenFrame()` authorization, routing, audit-before-send, socket, and redaction gates, so pause, revoke, expiration, disconnect, audit failure, adapter failure, or runtime rejection fails closed. Capture source rejects static payload options such as `--dev-screen-frame-data-base64`; it does not render a viewer desktop, inject OS input, sync clipboard, transfer files, collect diagnostics, install services, configure startup persistence, elevate privileges, run unattended, bypass Windows prompts, or hide capture from the host.
+
+To save the latest authorized received frame on the viewer side:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --dev-screen-frame-after-ms 1000 --dev-screen-frame-source windows-capture
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view --audit-log logs\viewer-audit.jsonl --viewer-screen-frame-output frames\latest.jpg
+```
+
+`--viewer-screen-frame-output` is viewer-only and requires both `--request screen:view` and local audit configuration through `--audit-log` or `WINBRIDGE_AGENT_AUDIT_LOG_PATH`. It overwrites the configured file with the latest authorized inbound PNG/JPEG frame only after the existing inbound sender, peer routing, authorization id, visible active unexpired status, and `screen:view` gates pass, and only after metadata-only output audit succeeds. Frame publication creates the configured output directory when needed, writes to a same-directory temporary file first, and then replaces the configured latest-frame path, so the local viewer surface observes either the previous complete frame or the new complete frame; failed directory creation or replacement fails closed, cleans the temporary file when possible, and leaves the previous frame in place. Runtime events, logs, status, and audit records continue to redact frame bytes and screen contents. The option does not render a desktop UI, capture the local screen, inject OS input, sync clipboard, transfer files, collect diagnostics, install services, configure startup persistence, elevate privileges, run unattended, bypass Windows prompts, or hide the host active-session indicator.
+
+To use the local development viewer surface for MVP end-to-end checks:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-consent-prompt true --visible-session true --host-control-prompt true --audit-log logs\host-audit.jsonl --host-apply-input true --dev-screen-frame-after-ms 1000 --dev-screen-frame-source windows-capture --dev-screen-frame-count 100 --dev-screen-frame-interval-ms 1000
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view,input:pointer,input:keyboard --audit-log logs\viewer-audit.jsonl --viewer-screen-frame-output frames\latest.jpg --viewer-control-surface-port 35987
+```
+
+Open `http://127.0.0.1:35987/` on the viewer machine. The page displays only
+the latest authorized frame from the explicit output file. Browser pointer
+actions on the displayed frame are disabled by default and require the visible
+`Pointer Off/On` control while the latest frame is ready before pointer
+movement, wheel, or button events can send input. The page preloads replacement
+frames before swapping the displayed frame, so ordinary refreshes do not disarm
+pointer control while a ready frame remains visible; initial missing frames keep
+the control disabled. The frame also suppresses browser-native context menu and
+image drag defaults only on that frame.
+Command-box input and browser pointer input use the same `sendInputEvent()`
+path as the terminal viewer prompt. It also provides
+explicit buttons for common keys such as Enter, Escape, Tab, Backspace, and
+arrow navigation; each click sends one bounded key-down/key-up pair through the
+same consent-bound input path. The surface is viewer-only, binds only to
+`127.0.0.1`,
+requires `--viewer-screen-frame-output`, clears any pre-existing latest-frame
+file on startup, ignores same-directory temporary frame output files, and
+rejects malformed ports before relay startup. Input and
+disconnect POSTs require the generated local page's same-origin per-run token
+before request bodies or authorization state are read. It does not expose a
+LAN/public server, read arbitrary files, capture keyboard input outside the
+visible page, buffer typed text, create macros, sync clipboard, transfer files,
+install services, configure startup persistence, elevate privileges, run
+unattended, hide the host indicator, or bypass Windows prompts. HTTP responses
+and CLI diagnostics stay metadata-only and do not echo pointer coordinates,
+buttons, key values, frame bytes, tokens, pairing codes, credentials, or private
+reasons.
+
+When the generated command plan enables the development signal probe, the local
+viewer page may show `signalProbeAckReceived=true` in its status text after a
+trusted host acknowledgement for the current active visible `screen:view`
+authorization. That flag is readiness metadata only; it does not expose raw
+signal payloads and does not grant input, capture, reconnect, clipboard,
+file-transfer, diagnostics, or host-control capability.
 
 To exercise bounded frame cadence on the same consent-bound path:
 
@@ -244,14 +501,34 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request input:poi
 
 `--dev-input-after-ms` is viewer-only and requires a matching requested permission: pointer events require `input:pointer`, and keyboard events require `input:keyboard`. It waits until the viewer runtime observes an active visible authorization, then sends exactly one development `input-event` message through `sendInputEvent()`. Pointer options are bounded normalized coordinates/buttons/wheel deltas; keyboard options are protocol-supported key names plus unique modifiers. This path does not inject OS input, bypass Windows prompts, capture keystrokes, accept arbitrary JSON, or expose raw input payloads in events, logs, or audit records.
 
+To apply authorized development input on a Windows host, explicitly opt in on the
+host and configure local audit:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --audit-log logs\host-audit.jsonl --host-apply-input true
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request input:pointer --dev-input-after-ms 1000 --dev-input-kind pointer-move --dev-pointer-x 0.5 --dev-pointer-y 0.5
+```
+
+`--host-apply-input true` is host-only, disabled by default, and rejected without
+`--audit-log` or `WINBRIDGE_AGENT_AUDIT_LOG_PATH`. The host writes
+metadata-only input-application audit before invoking the Windows input adapter;
+audit failure, stale authorization, pause, revoke, termination, expiration,
+disconnect, wrong permission, or adapter failure blocks trusted success. Runtime
+events, logs, and audit records still redact pointer coordinates, buttons, keys,
+modifiers, raw input payloads, tokens, pairing codes, credentials, and private
+reason text. This development path does not capture input, keylog, sync
+clipboard, transfer files, install services, configure startup persistence,
+elevate privileges, run unattended, hide the host indicator, or bypass Windows
+prompts.
+
 Use the development host control prompt to invoke immediate local controls from the host terminal:
 
 ```powershell
-npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --host-control-prompt true
+npm run dev:agent -- host --session demo --pairing 123-456 --host-consent-prompt true --visible-session true --host-control-prompt true
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view,input:pointer
 ```
 
-Host control prompt mode accepts exact commands: `help`, `status`, `pause`, `resume`, `revoke screen:view`, `terminate`, and `disconnect`. It is host-only and mutually exclusive with `--host-consent-prompt true` and `--host-status-after-ms` so only one host control/status surface is active. `help` prints a static command list and does not read runtime status, send protocol messages, or invoke controls. `status` prints bounded local host status metadata such as indicator state, visibility, permission count, authorization id/status when available, optional viewer device id/platform bound when the active or paused authorization was approved, and optional `inactiveCause` after local host indicator deactivation; it does not send protocol messages, invoke controls, reconnect peers, expose private disconnect reason text, or display remote self-asserted `trustLevel` values as verified trust. Other commands call the same managed runtime controls as tests, so invisible sessions, expired grants, terminal sessions, disconnected peers, and missing permissions still fail closed before lifecycle protocol messages. After successful exact `terminate` or `disconnect`, the host control prompt stops locally so the terminal no longer presents an active control surface for the terminated or closed local session; failed attempts keep the prompt available with sanitized error output.
+Host control prompt mode accepts exact commands: `help`, `status`, `pause`, `resume`, `revoke screen:view`, `revoke input:pointer`, `revoke input:keyboard`, `terminate`, and `disconnect`. It is host-only and mutually exclusive with `--host-status-after-ms`. When combined with `--host-consent-prompt true`, the consent prompt owns stdin first; the host control prompt starts only after an approved active visible authorization. `help` prints a static command list and does not read runtime status, send protocol messages, or invoke controls. `status` prints bounded local host status metadata such as indicator state, visibility, permission count, authorization id/status when available, optional viewer device id/platform bound when the active or paused authorization was approved, and optional `inactiveCause` after local host indicator deactivation; it does not send protocol messages, invoke controls, reconnect peers, expose private disconnect reason text, or display remote self-asserted `trustLevel` values as verified trust. Other commands call the same managed runtime controls as tests, so invisible sessions, expired grants, terminal sessions, disconnected peers, and missing permissions still fail closed before lifecycle protocol messages. After successful exact `terminate` or `disconnect`, the host control prompt stops locally so the terminal no longer presents an active control surface for the terminated or closed local session; failed attempts keep the prompt available with sanitized error output.
 
 Print a bounded host-side local status snapshot once from the development CLI:
 
@@ -271,13 +548,36 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --viewer-status-aft
 
 `--viewer-status-after-ms` is viewer-only, accepts an exact integer delay from `0` through `2147483647`, and does not require requested permissions. It reads only local viewer status, including optional local inactive cause metadata after explicit viewer leave or local viewer socket close, and does not start signaling, send protocol messages, emit workflow audit events, grant permissions, reconnect peers, expose private disconnect text, or invoke host controls.
 
-Use the development viewer control prompt for repeated local viewer status reads or a local viewer leave:
+Use the development viewer control prompt for repeated local viewer status reads,
+local viewer leave, or explicit one-event input commands after authorization:
 
 ```powershell
-npm run dev:agent -- viewer --session demo --pairing 123-456 --viewer-control-prompt true
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view,input:pointer,input:keyboard --viewer-control-prompt true
 ```
 
-Viewer control prompt mode accepts exact commands: `help`, `status`, and `disconnect`. It is viewer-only and mutually exclusive with `--viewer-status-after-ms` and `--viewer-disconnect-after-ms`. `help` prints a static command list and does not read runtime status, send protocol messages, invoke viewer leave, or invoke host controls. `status` prints the same bounded local viewer status snapshot as the one-shot status helper, including optional `localInactiveCause` after explicit viewer leave or local viewer socket close. `disconnect` invokes the managed viewer-only `leave()` control and closes only the local viewer runtime; it does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages, and it cannot invoke host controls. After a successful exact `disconnect`, the viewer control prompt stops locally so the terminal no longer presents an active control surface for the left viewer session; failed disconnect attempts keep the prompt available with sanitized error output.
+Viewer control prompt mode accepts exact commands: `help`, `status`,
+`disconnect`, `pointer-move <x> <y>`, `pointer-down <x> <y> <button>`,
+`pointer-up <x> <y> <button>`, `pointer-wheel <x> <y> <deltaX> <deltaY>`,
+`key-down <KeyName> [alt,control,meta,shift]`, and
+`key-up <KeyName> [alt,control,meta,shift]`. It is viewer-only and mutually
+exclusive with `--viewer-status-after-ms` and `--viewer-disconnect-after-ms`.
+`help` prints a static command list and does not read runtime status, send
+protocol messages, invoke viewer leave, or invoke host controls. `status`
+prints the same bounded local viewer status snapshot as the one-shot status
+helper, including optional `localInactiveCause` after explicit viewer leave or
+local viewer socket close. `disconnect` invokes the managed viewer-only
+`leave()` control and closes only the local viewer runtime; it does not send
+forged `peer-disconnected`, lifecycle, signal, control, or workflow audit
+messages, and it cannot invoke host controls. Input commands read current viewer
+status and send exactly one `input-event` through `sendInputEvent()`, so active
+visible authorization, permission, peer routing, socket, disconnect,
+audit-before-send, and redaction gates still apply. Prompt output never echoes
+raw command lines and does not expose pointer coordinates, buttons, keys,
+modifiers, tokens, pairing codes, credentials, or private reasons. After a
+successful exact `disconnect`, the viewer control prompt stops locally so the
+terminal no longer presents an active control surface for the left viewer
+session; failed disconnect or input attempts keep the prompt available with
+sanitized error output.
 
 Simulate a viewer leaving the session locally:
 
@@ -294,7 +594,7 @@ $env:WINBRIDGE_AGENT_AUDIT_LOG_PATH = "logs\\agent-audit.jsonl"
 npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true
 ```
 
-The same path can be passed with `--audit-log logs\\agent-audit.jsonl`. Agent audit files record only secret-safe workflow audit metadata; they do not store raw protocol payloads, screen contents, input, or private reason text. Audit action, reason, target type, and detail key metadata must be bounded, trimmed where applicable, and free of control or bidi/zero-width formatting controls.
+The same path can be passed with `--audit-log logs\\agent-audit.jsonl`. Agent audit files record only secret-safe workflow audit metadata; they do not store raw protocol payloads, screen contents, input, or private reason text. The file audit sink creates the configured parent directory on first write for safe paths such as `logs\\agent-audit.jsonl`; creation or append failures are surfaced instead of falling back silently. Audit action, reason, target type, and detail key metadata must be bounded, trimmed where applicable, and free of control or bidi/zero-width formatting controls. Viewer frame output requires this local audit configuration; the explicit output image file contains the authorized frame bytes, while the audit file remains metadata-only.
 Omit `WINBRIDGE_AGENT_AUDIT_LOG_PATH` and `--audit-log` to skip local agent audit file persistence. Do not set either audit path to an empty, whitespace-only, untrimmed, control-character, bidi/zero-width-control, oversized, Windows reserved device path value such as `NUL`, `CON`, `COM1`, or `LPT1`, Windows alternate data stream path value such as `logs\agent-audit.jsonl:hidden`, or Windows device namespace path value such as `\\.\pipe\agent-audit` or `\\?\C:\logs\agent-audit.jsonl`.
 
 Use a short development authorization TTL:
