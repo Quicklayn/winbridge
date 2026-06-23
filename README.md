@@ -212,13 +212,16 @@ npm run mvp:ready
 
 `mvp:ready` runs `mvp:doctor`, `mvp:native-preflight`, a non-executing
 localhost `mvp:commands -- --json` command-plan validation, and a
-non-executing representative LAN command-plan validation sequentially, then
-prints only bounded step status. The LAN validation uses a fixed safe
-`--relay-host` value only to exercise the two-PC command generator path; it
-does not detect local IP addresses, probe ports, start processes, or open
-sockets. It does not echo child output, generated command strings, pairing
-codes, paths, tokens, frame bytes, or input contents, and does not run the
-local smoke workflow unless explicitly requested. For machine-readable output:
+non-executing representative LAN command-plan validation, and a non-executing
+shared-token command-plan validation sequentially, then prints only bounded
+step status. The LAN validation uses a fixed safe `--relay-host` value only to
+exercise the two-PC command generator path; the token validation uses the fixed
+`WINBRIDGE_RELAY_SHARED_TOKEN` environment variable name only to exercise the
+token-protected command generator path. It does not detect local IP addresses,
+probe ports, start processes, read token values, or open sockets. It does not
+echo child output, generated command strings, pairing codes, paths, tokens,
+frame bytes, or input contents, and does not run the local smoke workflow
+unless explicitly requested. For machine-readable output:
 
 ```powershell
 npm run mvp:ready -- --json
@@ -253,14 +256,15 @@ development processes, uses explicit static host approval with
 viewer output file, verifies the loopback viewer surface and `/frame` endpoint,
 verifies the sanitized viewer `/status` endpoint reports
 `signalProbeAckReceived=true` for the bounded development signal readiness
-probe, submits one bounded pointer command through the token-protected local
-`/input` path, verifies that both configured host and viewer JSONL audit logs
-contain bounded audit records, and then stops the child processes. The signal
-readiness and audit checks are metadata-only and do not print raw signal
-payloads, authorization ids, audit paths, raw audit contents, or pairing codes.
-It is a local preflight only: it does not use Windows capture, apply OS input,
-launch a browser, install services, configure startup persistence, run
-unattended, elevate privileges, or bypass Windows prompts.
+probe, submits one bounded pointer command and one bounded keyboard command
+with explicit modifiers through the token-protected local `/input` path,
+verifies that both configured host and viewer JSONL audit logs contain bounded
+audit records, and then stops the child processes. The signal readiness and
+audit checks are metadata-only and do not print raw signal payloads,
+authorization ids, audit paths, raw audit contents, raw input commands, or
+pairing codes. It is a local preflight only: it does not use Windows capture,
+apply OS input, launch a browser, install services, configure startup
+persistence, run unattended, elevate privileges, or bypass Windows prompts.
 
 For troubleshooting, run `npm run mvp:smoke -- --keep-artifacts` to retain the
 temporary smoke work directory after the bounded local check. The retained
@@ -460,8 +464,10 @@ image drag defaults only on that frame.
 Command-box input and browser pointer input use the same `sendInputEvent()`
 path as the terminal viewer prompt. It also provides
 explicit buttons for common keys such as Enter, Escape, Tab, Backspace, and
-arrow navigation; each click sends one bounded key-down/key-up pair through the
-same consent-bound input path. The surface is viewer-only, binds only to
+arrow navigation. Visible Shift, Ctrl, Alt, and Meta toggles can be applied to
+one explicit key button press and are cleared after that attempted key press;
+each click still sends one bounded key-down/key-up pair through the same
+consent-bound input path. The surface is viewer-only, binds only to
 `127.0.0.1`,
 requires `--viewer-screen-frame-output`, clears any pre-existing latest-frame
 file on startup, ignores same-directory temporary frame output files, and
@@ -469,7 +475,8 @@ rejects malformed ports before relay startup. Input and
 disconnect POSTs require the generated local page's same-origin per-run token
 before request bodies or authorization state are read. It does not expose a
 LAN/public server, read arbitrary files, capture keyboard input outside the
-visible page, buffer typed text, create macros, sync clipboard, transfer files,
+visible page, send modifier-only input, buffer typed text, create macros, sync
+clipboard, transfer files,
 install services, configure startup persistence, elevate privileges, run
 unattended, hide the host indicator, or bypass Windows prompts. HTTP responses
 and CLI diagnostics stay metadata-only and do not echo pointer coordinates,

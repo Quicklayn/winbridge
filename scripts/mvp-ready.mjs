@@ -26,6 +26,7 @@ const REQUIRED_COMMAND_PLAN_NAMES = new Set([
 ]);
 const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
 const MVP_READY_LAN_RELAY_URL = `ws://${MVP_READY_LAN_RELAY_HOST}:8787/`;
+const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
 const OUTPUT_LIMIT_BYTES = 32768;
 
 export class MvpReadyUsageError extends Error {
@@ -95,6 +96,10 @@ export function createMvpReadyPlan(options = {}) {
       name: "lan-command-plan",
       ...commandWithArgs("mvp:commands", ["--json", "--relay-host", MVP_READY_LAN_RELAY_HOST])
     },
+    {
+      name: "token-command-plan",
+      ...commandWithArgs("mvp:commands", ["--json", "--token-env", MVP_READY_TOKEN_ENV_NAME])
+    },
     ...(options.includeSmoke ? [{ name: "smoke", ...commandWithArgs("mvp:smoke", ["--json"]) }] : [])
   ];
 }
@@ -143,6 +148,23 @@ export function runMvpReadyCheck(options = {}) {
     if (
       step.name === "lan-command-plan" &&
       !parseCommandPlanReadiness(result.output, { expectedRelayUrl: MVP_READY_LAN_RELAY_URL })
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (
+      step.name === "token-command-plan" &&
+      !parseCommandPlanReadiness(result.output, { expectedTokenEnv: MVP_READY_TOKEN_ENV_NAME })
     ) {
       const failed = {
         name: step.name,
@@ -302,9 +324,21 @@ export function parseCommandPlanReadiness(output, options = {}) {
     }
   }
 
-  return options.expectedRelayUrl === undefined
-    ? true
-    : commandPlanUsesRelayUrl(commandsByName, options.expectedRelayUrl);
+  if (
+    options.expectedRelayUrl !== undefined &&
+    !commandPlanUsesRelayUrl(commandsByName, options.expectedRelayUrl)
+  ) {
+    return false;
+  }
+
+  if (
+    options.expectedTokenEnv !== undefined &&
+    !commandPlanUsesTokenEnv(commandsByName, options.expectedTokenEnv)
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function commandPlanUsesRelayUrl(commandsByName, expectedRelayUrl) {
@@ -323,6 +357,23 @@ function commandPlanUsesRelayUrl(commandsByName, expectedRelayUrl) {
     relayCommand.includes("WINBRIDGE_RELAY_BIND_HOST") &&
     hostCommand.includes(expectedRelayUrl) &&
     viewerCommand.includes(expectedRelayUrl)
+  );
+}
+
+function commandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
+  if (typeof expectedTokenEnv !== "string" || !/^[A-Z][A-Z0-9_]{0,127}$/.test(expectedTokenEnv)) {
+    return false;
+  }
+
+  const hostCommand = commandsByName.get("host")?.command;
+  const viewerCommand = commandsByName.get("viewer")?.command;
+  const tokenReference = `$env:${expectedTokenEnv}`;
+
+  return (
+    typeof hostCommand === "string" &&
+    typeof viewerCommand === "string" &&
+    hostCommand.includes(`--token ${tokenReference}`) &&
+    viewerCommand.includes(`--token ${tokenReference}`)
   );
 }
 

@@ -106,6 +106,10 @@ describe("viewer local control surface", () => {
     const html = await response.text();
 
     expect(response.status).toBe(200);
+    expect(html).toContain('data-key-modifier="shift"');
+    expect(html).toContain('data-key-modifier="control"');
+    expect(html).toContain('data-key-modifier="alt"');
+    expect(html).toContain('data-key-modifier="meta"');
     expect(html).toContain('data-key-command="Enter"');
     expect(html).toContain('data-key-command="Escape"');
     expect(html).toContain('data-key-command="Tab"');
@@ -118,6 +122,36 @@ describe("viewer local control surface", () => {
     expect(html).not.toContain("window.addEventListener(\"keydown\"");
     expect(html).not.toContain("document.onkeydown");
     expect(html).not.toContain("window.onkeydown");
+    expect(html).not.toContain("document.addEventListener(\"keypress\"");
+    expect(html).not.toContain("window.addEventListener(\"keypress\"");
+    expect(html).not.toContain("textarea");
+  });
+
+  it("renders one-shot modifier toggles gated on frame readiness", async () => {
+    const runtime = createRuntimeSpy();
+    const handle = await startSurface(runtime);
+
+    const response = await fetch(handle.url);
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain("const activeModifiers = new Set();");
+    expect(html).toContain('const modifierButtons = Array.from(document.querySelectorAll("[data-key-modifier]"));');
+    expect(html).toContain("function updateModifierButtons()");
+    expect(html).toContain("button.disabled = !frameReady;");
+    expect(html).toContain("function clearModifiers()");
+    expect(html).toContain("activeModifiers.clear();");
+    expect(html).toContain("const modifiers = Array.from(activeModifiers).join(\",\");");
+    expect(html).toContain('const suffix = modifiers ? " " + modifiers : "";');
+    expect(html).toContain("await sendCommand(\"key-down \" + key + suffix);");
+    expect(html).toContain("await sendCommand(\"key-up \" + key + suffix);");
+    expect(html).toContain("finally {\n        clearModifiers();\n      }");
+    expect(html).toContain('button.addEventListener("click", () => {');
+    expect(html).toContain("if (!frameReady) return;");
+    expect(html).toContain("updateModifierButtons();");
+    expect(html).not.toContain("activeModifiers.add(" + '"shift"' + ");");
+    expect(html).not.toContain("sendCommand(\"key-down shift");
+    expect(html).not.toContain("sendCommand(\"key-up shift");
   });
 
   it("renders pointer arming controls and gates browser pointer handlers", async () => {
@@ -354,6 +388,29 @@ describe("viewer local control surface", () => {
       eventId: "viewer_control_input_0",
       sequence: 0,
       event: { kind: "key-down", key: "KeyA", modifiers: ["shift"] }
+    });
+  });
+
+  it("sends keyboard input with explicit modifiers without exposing modifier values", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+
+    const response = await postJson(handle, "input", {
+      command: "key-down KeyA shift,control"
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(202);
+    expect(body).toContain("\"kind\":\"key-down\"");
+    expect(body).not.toContain("KeyA");
+    expect(body).not.toContain("shift");
+    expect(body).not.toContain("control");
+    expect(runtime.sendInputEvent).toHaveBeenCalledWith({
+      authorizationId: "authz_surface_1",
+      eventId: "viewer_control_input_0",
+      sequence: 0,
+      event: { kind: "key-down", key: "KeyA", modifiers: ["shift", "control"] }
     });
   });
 

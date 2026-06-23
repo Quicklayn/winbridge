@@ -13,7 +13,8 @@ import {
   runMvpSessionSmokeCheck,
   stopSmokeProcesses,
   tryFetchSurfaceSignalReadiness,
-  tryPostSurfaceInput
+  tryPostSurfaceInput,
+  tryPostSurfaceKeyboardInput
 } from "./mvp-session-smoke.mjs";
 
 describe("MVP session smoke check", () => {
@@ -95,6 +96,7 @@ describe("MVP session smoke check", () => {
     expect(output).not.toContain("host-audit.jsonl");
     expect(output).not.toContain("safe-token");
     expect(output).not.toContain("pointer-move 0.5 0.5");
+    expect(output).not.toContain("key-down KeyA shift,control");
     expect(output).not.toContain("123-456");
     expect(output).not.toContain("relay.peer.join.accepted");
   });
@@ -128,6 +130,7 @@ describe("MVP session smoke check", () => {
     expect(output).not.toContain("host-audit.jsonl");
     expect(output).not.toContain("safe-token");
     expect(output).not.toContain("pointer-move 0.5 0.5");
+    expect(output).not.toContain("key-down KeyA shift,control");
     expect(output).not.toContain("123-456");
     expect(output).not.toContain("relay.peer.join.accepted");
   });
@@ -270,6 +273,61 @@ describe("MVP session smoke check", () => {
         }
       }
     ]);
+  });
+
+  it("posts a bounded keyboard modifier command through the token-protected surface input path", async () => {
+    const calls: unknown[] = [];
+    const accepted = await tryPostSurfaceKeyboardInput(
+      async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return {
+          status: 202,
+          json: async () => ({ ok: true, action: "input", kind: "key-down" })
+        } as Response;
+      },
+      "http://127.0.0.1:35987/",
+      "safe-token"
+    );
+
+    expect(accepted).toBe(true);
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:35987/input",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://127.0.0.1:35987",
+            "x-winbridge-local-surface-token": "safe-token"
+          },
+          body: JSON.stringify({ command: "key-down KeyA shift,control" })
+        }
+      }
+    ]);
+    expect(formatMvpSessionSmokeError(new Error("input-not-ready"))).not.toContain("KeyA");
+    expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("shift");
+    expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("control");
+  });
+
+  it("rejects unexpected keyboard surface input responses without exposing command details", async () => {
+    const accepted = await tryPostSurfaceKeyboardInput(
+      async () =>
+        ({
+          status: 202,
+          json: async () => ({
+            ok: true,
+            action: "input",
+            kind: "key-up",
+            command: "key-down KeyA shift,control"
+          })
+        }) as Response,
+      "http://127.0.0.1:35987/",
+      "safe-token"
+    );
+
+    expect(accepted).toBe(false);
+    expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("KeyA");
+    expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("key-down");
   });
 
   it("checks signal readiness through sanitized viewer status only", async () => {

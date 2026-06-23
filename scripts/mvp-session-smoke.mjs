@@ -565,7 +565,9 @@ export async function tryFetchSurfaceSignalReadiness(fetchImpl, surfaceUrl) {
 
 async function waitForViewerSurfaceInput(surfaceUrl, mutationToken, deadline, options) {
   while (options.now() <= deadline) {
-    const accepted = await tryPostSurfaceInput(options.fetchImpl, surfaceUrl, mutationToken);
+    const accepted =
+      (await tryPostSurfaceInput(options.fetchImpl, surfaceUrl, mutationToken)) &&
+      (await tryPostSurfaceKeyboardInput(options.fetchImpl, surfaceUrl, mutationToken));
     if (accepted) {
       return;
     }
@@ -575,6 +577,26 @@ async function waitForViewerSurfaceInput(surfaceUrl, mutationToken, deadline, op
 }
 
 export async function tryPostSurfaceInput(fetchImpl, surfaceUrl, mutationToken) {
+  return tryPostSurfaceInputCommand(
+    fetchImpl,
+    surfaceUrl,
+    mutationToken,
+    "pointer-move 0.5 0.5",
+    "pointer-move"
+  );
+}
+
+export async function tryPostSurfaceKeyboardInput(fetchImpl, surfaceUrl, mutationToken) {
+  return tryPostSurfaceInputCommand(
+    fetchImpl,
+    surfaceUrl,
+    mutationToken,
+    "key-down KeyA shift,control",
+    "key-down"
+  );
+}
+
+async function tryPostSurfaceInputCommand(fetchImpl, surfaceUrl, mutationToken, command, expectedKind) {
   try {
     const response = await fetchImpl(`${surfaceUrl}input`, {
       method: "POST",
@@ -583,14 +605,14 @@ export async function tryPostSurfaceInput(fetchImpl, surfaceUrl, mutationToken) 
         origin: surfaceUrl.replace(/\/$/, ""),
         "x-winbridge-local-surface-token": mutationToken
       },
-      body: JSON.stringify({ command: "pointer-move 0.5 0.5" })
+      body: JSON.stringify({ command })
     });
     if (response.status !== 202) {
       return false;
     }
 
     const body = await response.json();
-    return body?.ok === true && body.action === "input" && body.kind === "pointer-move";
+    return body?.ok === true && body.action === "input" && body.kind === expectedKind;
   } catch {
     return false;
   }

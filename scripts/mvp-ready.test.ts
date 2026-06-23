@@ -60,6 +60,18 @@ describe("MVP ready helper", () => {
         name: "lan-command-plan",
         command: "npm",
         args: ["run", "mvp:commands", "--", "--json", "--relay-host", "192.168.1.10"]
+      },
+      {
+        name: "token-command-plan",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--json",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
       }
     ]);
   });
@@ -73,6 +85,18 @@ describe("MVP ready helper", () => {
         name: "lan-command-plan",
         command: "npm",
         args: ["run", "mvp:commands", "--", "--json", "--relay-host", "192.168.1.10"]
+      },
+      {
+        name: "token-command-plan",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--json",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
       },
       { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] }
     ]);
@@ -90,11 +114,20 @@ describe("MVP ready helper", () => {
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
         }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
         return { ok: true };
       }
     });
 
-    expect(calls).toEqual(["doctor", "native-preflight", "command-plan", "lan-command-plan"]);
+    expect(calls).toEqual([
+      "doctor",
+      "native-preflight",
+      "command-plan",
+      "lan-command-plan",
+      "token-command-plan"
+    ]);
     expect(result).toEqual({
       ok: true,
       checks: [
@@ -102,6 +135,7 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
         { name: "smoke", ok: true, skipped: true }
       ]
     });
@@ -112,6 +146,7 @@ describe("MVP ready helper", () => {
         "native-preflight=ok",
         "command-plan=ok",
         "lan-command-plan=ok",
+        "token-command-plan=ok",
         "smoke=skipped"
       ].join("\n")
     );
@@ -134,6 +169,9 @@ describe("MVP ready helper", () => {
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
         }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
         return step.name === "smoke" ? { ok: true, output: smokeOutput } : { ok: true };
       }
     });
@@ -143,6 +181,7 @@ describe("MVP ready helper", () => {
       "native-preflight",
       "command-plan",
       "lan-command-plan",
+      "token-command-plan",
       "smoke"
     ]);
     expect(result).toEqual({
@@ -152,6 +191,7 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
         { name: "smoke", ok: true, checks: smokeSubchecks() }
       ]
     });
@@ -247,6 +287,43 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyJsonResult(result)).not.toContain("123-456");
   });
 
+  it("fails closed when token command-plan output omits the expected token env", () => {
+    const result = runMvpReadyCheck({
+      includeSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WRONG_TOKEN_ENV" }) };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(formatMvpReadyResult(result)).not.toContain("WRONG_TOKEN_ENV");
+    expect(formatMvpReadyResult(result)).not.toContain("123-456");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("WRONG_TOKEN_ENV");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("123-456");
+  });
+
   it("fails closed when included smoke output is missing or malformed", () => {
     const result = runMvpReadyCheck({
       includeSmoke: true,
@@ -257,6 +334,9 @@ describe("MVP ready helper", () => {
         }
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
         }
         return step.name === "smoke"
           ? { ok: true, output: '{"ok":true,"checks":[{"name":"raw-secret-token","ok":true}]}' }
@@ -272,6 +352,7 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
         { name: "smoke", ok: false, reason: "exit-nonzero" }
       ]
     });
@@ -289,6 +370,9 @@ describe("MVP ready helper", () => {
         }
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
         }
         return step.name === "smoke"
           ? {
@@ -315,6 +399,7 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
         { name: "smoke", ok: false, reason: "exit-nonzero", checks: smokeFailureSubchecks() }
       ]
     });
@@ -328,6 +413,7 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
         { name: "smoke", ok: false, checks: smokeFailureSubchecks(), reason: "exit-nonzero" }
       ]
     });
@@ -432,6 +518,21 @@ describe("MVP ready helper", () => {
       })
     ).toBe(false);
     expect(
+      parseCommandPlanReadiness(commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }), {
+        expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN"
+      })
+    ).toBe(true);
+    expect(
+      parseCommandPlanReadiness(commandPlanOutput({ tokenEnv: "WRONG_TOKEN_ENV" }), {
+        expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN"
+      })
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(commandPlanOutput(), {
+        expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN"
+      })
+    ).toBe(false);
+    expect(
       parseCommandPlanReadiness(
         [
           "> winbridge@0.1.0 mvp:commands",
@@ -473,6 +574,7 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
         { name: "smoke", ok: true, skipped: true }
       ]
     });
@@ -491,6 +593,7 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
         { name: "smoke", ok: true, skipped: true }
       ]
     });
@@ -511,6 +614,7 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
         {
           name: "smoke",
           ok: true,
@@ -527,6 +631,7 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
         { name: "smoke", ok: true, checks: smokeSubchecks() }
       ]
     });
@@ -556,7 +661,7 @@ function smokeFailureSubchecks() {
   ];
 }
 
-function commandPlanOutput(options: { relayUrl?: string } = {}) {
+function commandPlanOutput(options: { relayUrl?: string; tokenEnv?: string } = {}) {
   return JSON.stringify({
     ok: true,
     mode: "session",
@@ -566,8 +671,9 @@ function commandPlanOutput(options: { relayUrl?: string } = {}) {
   });
 }
 
-function commandPlanCommands(options: { relayUrl?: string } = {}) {
+function commandPlanCommands(options: { relayUrl?: string; tokenEnv?: string } = {}) {
   const relayUrl = options.relayUrl ?? "ws://localhost:8787/";
+  const tokenArg = options.tokenEnv ? ` --token $env:${options.tokenEnv}` : "";
   const relayCommand =
     relayUrl === "ws://localhost:8787/"
       ? "npm run dev:relay"
@@ -581,11 +687,11 @@ function commandPlanCommands(options: { relayUrl?: string } = {}) {
     { name: "relay", command: relayCommand },
     {
       name: "host",
-      command: `npm run dev:agent -- host --relay '${relayUrl}' --pairing '123-456'`
+      command: `npm run dev:agent -- host --relay '${relayUrl}' --pairing '123-456'${tokenArg}`
     },
     {
       name: "viewer",
-      command: `npm run dev:agent -- viewer --relay '${relayUrl}' --pairing '123-456'`
+      command: `npm run dev:agent -- viewer --relay '${relayUrl}' --pairing '123-456'${tokenArg}`
     },
     { name: "browser", command: "Start-Process 'http://127.0.0.1:35987/'" }
   ];

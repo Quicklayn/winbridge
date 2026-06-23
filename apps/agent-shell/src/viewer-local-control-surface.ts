@@ -439,9 +439,11 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     #frame { display: block; max-width: 100%; max-height: calc(100vh - 112px); object-fit: contain; image-rendering: auto; }
     button, input { font: inherit; }
     button { padding: 6px 10px; border: 1px solid #52606d; background: #323f4b; color: #eef2f6; border-radius: 4px; }
+    button:disabled { opacity: 0.55; }
     input { min-width: min(520px, 55vw); padding: 6px 8px; border: 1px solid #52606d; border-radius: 4px; }
     .keys { display: flex; flex-wrap: wrap; gap: 6px; }
     .keys button { min-width: 44px; }
+    .modifier[aria-pressed="true"] { background: #6d28d9; border-color: #a78bfa; }
     .muted { color: #bcccdc; }
     #pointerArm[aria-pressed="true"] { background: #0f766e; border-color: #2dd4bf; }
   </style>
@@ -460,6 +462,10 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     </section>
     <footer>
       <span class="keys" aria-label="Keyboard controls">
+        <button class="modifier" type="button" data-key-modifier="shift" aria-pressed="false">Shift</button>
+        <button class="modifier" type="button" data-key-modifier="control" aria-pressed="false">Ctrl</button>
+        <button class="modifier" type="button" data-key-modifier="alt" aria-pressed="false">Alt</button>
+        <button class="modifier" type="button" data-key-modifier="meta" aria-pressed="false">Meta</button>
         <button type="button" data-key-command="Enter">Enter</button>
         <button type="button" data-key-command="Escape">Esc</button>
         <button type="button" data-key-command="Tab">Tab</button>
@@ -486,11 +492,27 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     let pointerArmed = false;
     let frameReady = false;
     let frameRequestSequence = 0;
+    const activeModifiers = new Set();
+    const modifierButtons = Array.from(document.querySelectorAll("[data-key-modifier]"));
 
     function updatePointerArm() {
       pointerArm.textContent = pointerArmed ? "Pointer On" : "Pointer Off";
       pointerArm.setAttribute("aria-pressed", pointerArmed ? "true" : "false");
       pointerArm.disabled = !frameReady;
+    }
+
+    function updateModifierButtons() {
+      for (const button of modifierButtons) {
+        const modifier = button.dataset.keyModifier;
+        const pressed = typeof modifier === "string" && activeModifiers.has(modifier);
+        button.setAttribute("aria-pressed", pressed ? "true" : "false");
+        button.disabled = !frameReady;
+      }
+    }
+
+    function clearModifiers() {
+      activeModifiers.clear();
+      updateModifierButtons();
     }
 
     async function postJson(path, body) {
@@ -574,9 +596,15 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
 
     async function sendKeyPress(key) {
       if (typeof key !== "string" || key.length === 0) return;
-      const down = await sendCommand("key-down " + key);
-      if (!down.ok) return;
-      await sendCommand("key-up " + key);
+      const modifiers = Array.from(activeModifiers).join(",");
+      const suffix = modifiers ? " " + modifiers : "";
+      try {
+        const down = await sendCommand("key-down " + key + suffix);
+        if (!down.ok) return;
+        await sendCommand("key-up " + key + suffix);
+      } finally {
+        clearModifiers();
+      }
     }
 
     frame.addEventListener("pointerdown", (event) => {
@@ -628,6 +656,20 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
       updatePointerArm();
     });
 
+    for (const button of modifierButtons) {
+      button.addEventListener("click", () => {
+        if (!frameReady) return;
+        const modifier = button.dataset.keyModifier;
+        if (typeof modifier !== "string") return;
+        if (activeModifiers.has(modifier)) {
+          activeModifiers.delete(modifier);
+        } else {
+          activeModifiers.add(modifier);
+        }
+        updateModifierButtons();
+      });
+    }
+
     document.getElementById("send").addEventListener("click", () => {
       void sendCommand(command.value);
       command.value = "";
@@ -656,6 +698,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     void refreshStatus();
     refreshFrame();
     updatePointerArm();
+    updateModifierButtons();
   </script>
 </body>
 </html>`;
