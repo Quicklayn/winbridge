@@ -460,6 +460,18 @@ describe("MVP ready helper", () => {
         JSON.stringify({
           ok: true,
           checks: smokeSubchecks().map((check) =>
+            check.name === "input"
+              ? { ...check, command: "key-down KeyA shift,control", token: "raw-secret-token" }
+              : check
+          )
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeSubchecks(
+        JSON.stringify({
+          ok: true,
+          checks: smokeSubchecks().map((check) =>
             check.name === "audit" ? { ...check, ok: false } : check
           )
         })
@@ -500,6 +512,19 @@ describe("MVP ready helper", () => {
           ok: false,
           reason: "signal-not-ready",
           checks: smokeSubchecks()
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeReadiness(
+        JSON.stringify({
+          ok: false,
+          reason: "input-not-ready",
+          checks: smokeFailureSubchecks().map((check) =>
+            check.name === "input"
+              ? { ...check, command: "pointer-move 0.5 0.5", surfaceUrl: "http://127.0.0.1:1/" }
+              : check
+          )
         })
       )
     ).toBeUndefined();

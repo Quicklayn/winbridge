@@ -402,6 +402,7 @@ export function parseSmokeReadiness(output) {
   for (const check of parsed.checks) {
     if (
       !check ||
+      !hasExactSmokeSubcheckShape(check) ||
       typeof check.name !== "string" ||
       !SAFE_SMOKE_SUBCHECK_NAMES.has(check.name) ||
       seen.has(check.name) ||
@@ -429,6 +430,15 @@ export function parseSmokeReadiness(output) {
   }
 
   return { ok: expectedOk, checks: subchecks };
+}
+
+function hasExactSmokeSubcheckShape(check) {
+  const keys = Object.keys(check);
+  return (
+    keys.includes("name") &&
+    keys.includes("ok") &&
+    keys.every((key) => key === "name" || key === "ok" || key === "skipped")
+  );
 }
 
 function formatSmokeSubcheckJson(subcheck) {

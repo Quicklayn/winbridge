@@ -309,115 +309,24 @@ When invoked with `--include-smoke`, it SHALL also run the existing root MVP
 smoke check after the default checks pass. The included smoke step SHALL use
 the smoke check's bounded JSON mode and MAY surface fixed safe smoke subchecks
 for relay, frame, surface, signal, input, and audit readiness or failure status
-in the aggregate ready output. When invoked with `--json`, it SHALL emit
-bounded machine-readable aggregate readiness metadata containing only `ok`,
-optional bounded reason codes, per-check bounded status records, optional fixed
-smoke subcheck status records, and safe skipped state. It MUST NOT echo raw
-child stdout/stderr, generated command strings, frame paths, surface URLs,
-audit paths, frame bytes, surface mutation tokens, raw input commands, relay
-tokens, pairing codes, credentials, private reasons, raw signal payloads, raw
-audit contents, screen contents, input contents, clipboard contents,
-file-transfer contents, diagnostics dumps, or full secrets.
+in the aggregate ready output. Smoke subcheck records MUST be rejected unless
+they contain only the fixed safe `name`, boolean `ok`, and optional boolean
+`skipped` fields. When invoked with `--json`, it SHALL emit bounded
+machine-readable aggregate readiness metadata containing only `ok`, optional
+bounded reason codes, per-check bounded status records, optional fixed smoke
+subcheck status records, and safe skipped state. It MUST NOT echo raw child
+stdout/stderr, generated command strings, frame paths, surface URLs, audit
+paths, frame bytes, surface mutation tokens, raw input commands, relay tokens,
+pairing codes, credentials, private reasons, raw signal payloads, raw audit
+contents, screen contents, input contents, clipboard contents, file-transfer
+contents, diagnostics dumps, or full secrets.
 
-#### Scenario: Ready helper passes default read-only checks
+#### Scenario: Ready helper rejects smoke subchecks with unexpected fields
 
-- **WHEN** a developer runs `npm run mvp:ready` and all default checks pass
-- **THEN** it reports bounded success for doctor, native preflight, localhost
-  command-plan readiness, LAN command-plan readiness, and token command-plan
-  readiness
-- **AND** it reports smoke as skipped
-- **AND** it does not start relay, host, viewer, browser, capture, input,
-  services, startup persistence, unattended access, privilege elevation, or
-  Windows prompt bypass
-
-#### Scenario: Ready helper validates the non-executing localhost command plan
-
-- **WHEN** a developer runs `npm run mvp:ready`
-- **THEN** the ready helper invokes the existing MVP command kit in bounded JSON
-  mode after doctor and native preflight pass
-- **AND** it accepts only an `ok=true` non-executing session plan with fixed
-  expected command names
-- **AND** ready output MUST NOT include generated command strings, pairing
-  codes, relay tokens, audit paths, frame paths, raw child output, credentials,
-  screen contents, input contents, clipboard contents, file-transfer contents,
-  diagnostics dumps, or full secrets
-
-#### Scenario: Ready helper validates the non-executing LAN command plan
-
-- **WHEN** a developer runs `npm run mvp:ready`
-- **THEN** the ready helper invokes the existing MVP command kit in bounded JSON
-  mode with a fixed safe LAN relay host after localhost command-plan validation
-  passes
-- **AND** it accepts only an `ok=true` non-executing session plan with fixed
-  expected command names and relay, host, and viewer command entries targeting
-  the derived LAN relay URL
-- **AND** ready output MUST NOT include generated command strings, pairing
-  codes, relay tokens, audit paths, frame paths, raw child output, credentials,
-  screen contents, input contents, clipboard contents, file-transfer contents,
-  diagnostics dumps, or full secrets
-
-#### Scenario: Ready helper validates the non-executing token command plan
-
-- **WHEN** a developer runs `npm run mvp:ready`
-- **THEN** the ready helper invokes the existing MVP command kit in bounded JSON
-  mode with a fixed safe token environment variable name after LAN command-plan
-  validation passes
-- **AND** it accepts only an `ok=true` non-executing session plan with fixed
-  expected command names and host/viewer command entries referencing the fixed
-  token environment variable
-- **AND** ready output MUST NOT include generated command strings, token values,
-  token environment values, pairing codes, relay tokens, audit paths, frame
-  paths, raw child output, credentials, screen contents, input contents,
-  clipboard contents, file-transfer contents, diagnostics dumps, or full secrets
-
-#### Scenario: Ready helper includes smoke only when requested
-
-- **WHEN** a developer runs `npm run mvp:ready -- --include-smoke`
-- **THEN** it runs the existing bounded local MVP smoke check after doctor,
-  native preflight, localhost command-plan, LAN command-plan, and token
-  command-plan checks pass
-- **AND** it reports bounded success or failure metadata for the smoke check
-- **AND** it may report fixed bounded smoke subchecks for relay, frame, surface,
-  signal, input, and audit readiness or failure status
-- **AND** it does not use Windows capture, OS input application, browser
-  automation, services, startup persistence, unattended access, privilege
-  elevation, or Windows prompt bypass
-
-#### Scenario: Ready helper emits bounded JSON
-
-- **WHEN** a developer runs `npm run mvp:ready -- --json`
-- **THEN** it emits JSON with bounded aggregate status and per-check metadata
-- **AND** JSON output MUST NOT include raw child stdout/stderr, generated
-  command strings, local paths, frame bytes, surface mutation tokens, raw input
-  commands, relay tokens, pairing codes, credentials, private reasons, screen
-  contents, input contents, clipboard contents, file-transfer contents,
-  diagnostics dumps, or full secrets
-
-#### Scenario: Ready helper emits bounded smoke subchecks
-
-- **WHEN** a developer runs
-  `npm run mvp:ready -- --json --include-smoke` and the smoke check returns
-  bounded JSON subchecks
-- **THEN** the aggregate JSON includes only fixed safe smoke subcheck names,
-  boolean readiness or failure status, and optional boolean skipped markers
-- **AND** JSON output MUST NOT include smoke stdout/stderr, frame paths, surface
-  URLs, audit paths, frame bytes, surface mutation tokens, raw input commands,
-  relay tokens, pairing codes, credentials, private reasons, raw signal
-  payloads, raw audit contents, screen contents, input contents, clipboard
-  contents, file-transfer contents, diagnostics dumps, or full secrets
-
-#### Scenario: Ready helper fails closed
-
-- **WHEN** argument parsing fails, a child process cannot start, a child
-  readiness check exits non-zero, localhost command-plan validation returns
-  malformed or unexpected JSON metadata, LAN command-plan validation returns
-  malformed or unexpected JSON metadata, token command-plan validation returns
-  malformed or unexpected JSON metadata, or an included smoke check returns
-  malformed or unexpected JSON metadata
-- **THEN** the helper exits non-zero with bounded diagnostics
-- **AND** it stops before running later checks
-- **AND** diagnostics MUST NOT echo raw rejected values, raw child stdout/stderr,
-  generated command strings, paths containing secrets, tokens, pairing codes,
-  credentials, private reasons, screen contents, input contents, clipboard
-  contents, file-transfer contents, diagnostics dumps, or full secrets
+- **WHEN** `npm run mvp:ready -- --include-smoke` receives smoke JSON where any
+  smoke subcheck includes an unexpected field such as raw output, path, URL,
+  token, or command metadata
+- **THEN** the ready helper treats the smoke output as malformed and fails
+  closed with bounded aggregate diagnostics
+- **AND** ready output MUST NOT include the unexpected field value
 
