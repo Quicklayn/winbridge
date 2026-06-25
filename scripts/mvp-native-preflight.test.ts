@@ -9,7 +9,8 @@ import {
   MvpNativePreflightUsageError,
   MVP_NATIVE_PREFLIGHT_POWERSHELL_SCRIPTS,
   parseMvpNativePreflightArgs,
-  runMvpNativePreflightCheck
+  runMvpNativePreflightCheck,
+  validatePowerShellProbeSuccessOutput
 } from "./mvp-native-preflight.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,7 @@ describe("MVP native preflight", () => {
       platform: "win32",
       runPowerShell: async (script: string, name: string) => {
         calls.push({ script, name });
+        return "{\"ok\":true}";
       }
     });
 
@@ -65,7 +67,7 @@ describe("MVP native preflight", () => {
   it("formats bounded JSON readiness output", async () => {
     const result = await runMvpNativePreflightCheck({
       platform: "win32",
-      runPowerShell: async () => {}
+      runPowerShell: async () => "{\"ok\":true}"
     });
     const parsed = JSON.parse(formatMvpNativePreflightJsonResult(result));
 
@@ -103,6 +105,7 @@ describe("MVP native preflight", () => {
         if (name === "capture-prerequisites") {
           throw new Error("raw-screen-path C:\\Users\\Nur\\secret 123-456 token");
         }
+        return "{\"ok\":true}";
       }
     });
     const output = formatMvpNativePreflightResult(result);
@@ -124,6 +127,7 @@ describe("MVP native preflight", () => {
         if (name === "input-prerequisites") {
           throw new Error("raw-key-data C:\\Users\\Nur\\secret 123-456 token");
         }
+        return "{\"ok\":true}";
       }
     });
     const output = formatMvpNativePreflightJsonResult(result);
@@ -157,5 +161,58 @@ describe("MVP native preflight", () => {
     expect(source).not.toContain("node:http");
     expect(source).not.toContain("node:https");
     expect(source).not.toContain("node:fs");
+  });
+
+  it("accepts only the strict bounded PowerShell probe success marker", () => {
+    expect(() => validatePowerShellProbeSuccessOutput("{\"ok\":true}")).not.toThrow();
+    expect(() => validatePowerShellProbeSuccessOutput(" \n{\"ok\":true}\r\n ")).not.toThrow();
+
+    for (const output of [
+      "",
+      "not-json",
+      "[]",
+      "null",
+      "true",
+      "{\"ok\":false}",
+      "{\"ok\":true,\"path\":\"C:\\\\Users\\\\Nur\\\\secret\"}",
+      "{\"status\":\"ok\"}",
+      "{\"ok\":true}\n{\"ok\":true}",
+      `{"ok":true,"padding":"${"x".repeat(1100)}"}`
+    ]) {
+      expect(() => validatePowerShellProbeSuccessOutput(output)).toThrow(
+        "invalid-native-preflight-output"
+      );
+    }
+  });
+
+  it("fails closed when a successful PowerShell probe emits malformed readiness output", async () => {
+    const result = await runMvpNativePreflightCheck({
+      platform: "win32",
+      runPowerShell: async (_script: string, name: string) => {
+        if (name === "capture-prerequisites") {
+          return "{\"ok\":true,\"path\":\"C:\\\\Users\\\\Nur\\\\secret\",\"token\":\"raw-token\"}";
+        }
+        return "{\"ok\":true}";
+      }
+    });
+    const textOutput = formatMvpNativePreflightResult(result);
+    const jsonOutput = formatMvpNativePreflightJsonResult(result);
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "capture-prerequisite-unavailable"
+    });
+    expect(textOutput).toBe(
+      "WinBridge MVP native preflight failed. reason=capture-prerequisite-unavailable"
+    );
+    expect(JSON.parse(jsonOutput)).toMatchObject({
+      ok: false,
+      reason: "capture-prerequisite-unavailable"
+    });
+    for (const output of [textOutput, jsonOutput]) {
+      expect(output).not.toContain("C:\\Users\\Nur\\secret");
+      expect(output).not.toContain("raw-token");
+      expect(output).not.toContain("path");
+    }
   });
 });

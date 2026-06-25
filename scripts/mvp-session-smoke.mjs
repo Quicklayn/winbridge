@@ -11,7 +11,8 @@ export const DEFAULT_MVP_SMOKE_OPTIONS = Object.freeze({
   pairing: "123-456",
   captureAfterMs: 250,
   captureCount: 3,
-  captureIntervalMs: 250
+  captureIntervalMs: 250,
+  lifecycleRevokeAfterMs: 8_000
 });
 
 export const MVP_SESSION_SMOKE_USAGE = [
@@ -20,6 +21,7 @@ export const MVP_SESSION_SMOKE_USAGE = [
   "Options:",
   "  --timeout-ms 45000",
   "  --keep-artifacts",
+  "  --lan-relay",
   "  --json",
   "",
   "The smoke check starts local relay, host, and viewer development processes",
@@ -29,15 +31,44 @@ export const MVP_SESSION_SMOKE_USAGE = [
 
 const SAFE_TIMER_DELAY_MS = 2_147_483_647;
 const OUTPUT_LIMIT_BYTES = 4096;
-const MVP_SMOKE_CHECK_NAMES = Object.freeze(["relay", "frame", "surface", "signal", "input", "audit"]);
+const SMOKE_AUDIT_LOG_CONTENT_LIMIT_BYTES = 256 * 1024;
+const SMOKE_AUDIT_LOG_LINE_LIMIT_BYTES = 4096;
+const MVP_SMOKE_CHECK_NAMES = Object.freeze([
+  "relay",
+  "indicator",
+  "frame",
+  "surface",
+  "signal",
+  "input",
+  "audit",
+  "lifecycle"
+]);
+const SMOKE_AUDIT_SUMMARY_FLAGS = Object.freeze([
+  "authorizationApproved",
+  "authorizationActive",
+  "screenFrameSent",
+  "screenFrameOutput",
+  "inputSent",
+  "permissionRevoked"
+]);
+const SMOKE_AUDIT_SUMMARY_ACTIONS = Object.freeze({
+  "agent-shell.authorization.approved": "authorizationApproved",
+  "agent-shell.authorization.active": "authorizationActive",
+  "agent-shell.remote-interaction.screen-frame.sent": "screenFrameSent",
+  "agent-shell.remote-interaction.screen-frame.output-written": "screenFrameOutput",
+  "agent-shell.remote-interaction.input-event.sent": "inputSent",
+  "agent-shell.permission.revoked": "permissionRevoked"
+});
 const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "relay-not-ready": 0,
   "port-unavailable": 0,
-  "frame-not-ready": 1,
-  "surface-not-ready": 2,
-  "signal-not-ready": 3,
-  "input-not-ready": 4,
-  "audit-not-ready": 5
+  "indicator-not-ready": 1,
+  "frame-not-ready": 2,
+  "surface-not-ready": 3,
+  "signal-not-ready": 4,
+  "input-not-ready": 5,
+  "audit-not-ready": 6,
+  "lifecycle-not-ready": 7
 });
 
 export class MvpSessionSmokeUsageError extends Error {
@@ -66,6 +97,7 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
   let timeoutMs = DEFAULT_MVP_SMOKE_OPTIONS.timeoutMs;
   let keepArtifacts = false;
   let json = false;
+  let lanRelay = false;
   let sawTimeout = false;
 
   for (let index = 0; index < rawArgs.length;) {
@@ -76,6 +108,15 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
         throw new MvpSessionSmokeUsageError();
       }
       json = true;
+      index += 1;
+      continue;
+    }
+
+    if (key === "--lan-relay") {
+      if (lanRelay) {
+        throw new MvpSessionSmokeUsageError();
+      }
+      lanRelay = true;
       index += 1;
       continue;
     }
@@ -113,6 +154,7 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
     help: false,
     timeoutMs,
     keepArtifacts,
+    lanRelay,
     json
   };
 }
@@ -122,7 +164,8 @@ export function createMvpSmokePlan(options) {
     ? { command: options.npmCommand, argsPrefix: [] }
     : defaultNpmInvocation();
   const session = options.session ?? `smoke-${Date.now()}`;
-  const relayUrl = `ws://127.0.0.1:${options.relayPort}/`;
+  const relayHost = options.lanRelay ? "127.0.0.1" : "localhost";
+  const relayUrl = `ws://${relayHost}:${options.relayPort}/`;
   const framePath = join(options.workDir, "frames", "latest.png");
   const hostAuditPath = join(options.workDir, "logs", "host-audit.jsonl");
   const viewerAuditPath = join(options.workDir, "logs", "viewer-audit.jsonl");
@@ -163,6 +206,10 @@ export function createMvpSmokePlan(options) {
         "true",
         "--host-signal-probe-ack",
         "true",
+        "--revoke-after-ms",
+        String(DEFAULT_MVP_SMOKE_OPTIONS.lifecycleRevokeAfterMs),
+        "--revoke-permission",
+        "input:pointer",
         "--audit-log",
         hostAuditPath,
         "--dev-screen-frame-after-ms",
@@ -264,7 +311,12 @@ async function runMvpSessionSmokeSteps(context) {
   const readyPlan =
     resolvedRelayPort === relayPort
       ? plan
-      : createMvpSmokePlan({ ...rawOptions, workDir, relayPort: resolvedRelayPort, surfacePort });
+      : createMvpSmokePlan({
+          ...rawOptions,
+          workDir,
+          relayPort: resolvedRelayPort,
+          surfacePort
+        });
 
   const host = startSmokeProcess(readyPlan.host, options);
   children.push(host);
@@ -272,6 +324,7 @@ async function runMvpSessionSmokeSteps(context) {
   const viewer = startSmokeProcess(readyPlan.viewer, options);
   children.push(viewer);
 
+  await waitForHostActiveVisibleIndicator(host, deadline, options);
   await waitForFrameFile(readyPlan.framePath, deadline, options);
   const surface = await waitForViewerSurface(readyPlan.surfaceUrl, deadline, options);
   await waitForViewerSignalReadiness(readyPlan.surfaceUrl, deadline, options);
@@ -281,12 +334,18 @@ async function runMvpSessionSmokeSteps(context) {
     deadline,
     options
   );
+  await waitForViewerSurfaceInputDenied(readyPlan.surfaceUrl, surface.mutationToken, deadline, options);
+  const auditSummary = tryReadSmokeAuditSummary(readyPlan.hostAuditPath, readyPlan.viewerAuditPath);
+  if (!auditSummary) {
+    throw new Error("audit-not-ready");
+  }
 
   return {
     ok: true,
     workDir,
     framePath: readyPlan.framePath,
-    surfaceUrl: readyPlan.surfaceUrl
+    surfaceUrl: readyPlan.surfaceUrl,
+    auditSummary
   };
 }
 
@@ -384,20 +443,25 @@ export function formatMvpSessionSmokeError(error) {
 export function formatMvpSessionSmokeSuccess(result, options = {}) {
   return [
     "WinBridge MVP smoke check passed.",
+    "indicator=verified",
     "surface=verified",
     "frame=verified",
     "signal=verified",
     "input=verified",
     "audit=verified",
+    "lifecycle=verified",
+    ...formatSmokeAuditSummaryLines(result.auditSummary),
     options.keepArtifacts ? `artifacts=${result.workDir}` : "artifacts=cleaned"
   ].join("\n");
 }
 
 export function formatMvpSessionSmokeJsonSuccess(result, options = {}) {
+  const auditSummary = sanitizeSmokeAuditSummary(result.auditSummary);
   return JSON.stringify({
     ok: true,
     checks: MVP_SMOKE_CHECK_NAMES.map((name) => ({ name, ok: true })),
     artifacts: options.keepArtifacts ? "retained" : "cleaned",
+    ...(auditSummary ? { auditSummary } : {}),
     ...(options.keepArtifacts ? { artifactDir: result.workDir } : {})
   });
 }
@@ -458,11 +522,13 @@ function safeSmokeFailureReason(error) {
     [
       "relay-not-ready",
       "host-not-ready",
+      "indicator-not-ready",
       "frame-not-ready",
       "surface-not-ready",
       "signal-not-ready",
       "input-not-ready",
       "audit-not-ready",
+      "lifecycle-not-ready",
       "port-unavailable"
     ].includes(error.message)
   ) {
@@ -500,6 +566,33 @@ async function waitForHostPairingTicket(relayHandle, deadline, options) {
     await options.sleep(100);
   }
   throw new Error("host-not-ready");
+}
+
+async function waitForHostActiveVisibleIndicator(hostHandle, deadline, options) {
+  while (options.now() <= deadline) {
+    assertChildRunning(hostHandle);
+    if (hasActiveVisibleHostIndicatorOutput(hostHandle.output)) {
+      return;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("indicator-not-ready");
+}
+
+export function hasActiveVisibleHostIndicatorOutput(output) {
+  if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
+    return false;
+  }
+
+  return output
+    .split(/\r?\n/)
+    .some(
+      (line) =>
+        line.includes("[winbridge-agent] host indicator") &&
+        line.includes("state=active") &&
+        line.includes("visibleToHost=true") &&
+        /\bpermissionCount=([1-9]\d*)\b/.test(line)
+    );
 }
 
 async function waitForFrameFile(framePath, deadline, options) {
@@ -596,7 +689,33 @@ export async function tryPostSurfaceKeyboardInput(fetchImpl, surfaceUrl, mutatio
   );
 }
 
+async function waitForViewerSurfaceInputDenied(surfaceUrl, mutationToken, deadline, options) {
+  while (options.now() <= deadline) {
+    const denied = await tryPostSurfaceInputDenied(options.fetchImpl, surfaceUrl, mutationToken);
+    if (denied) {
+      return;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("lifecycle-not-ready");
+}
+
+export async function tryPostSurfaceInputDenied(fetchImpl, surfaceUrl, mutationToken) {
+  const result = await tryPostSurfaceInputCommandStatus(
+    fetchImpl,
+    surfaceUrl,
+    mutationToken,
+    "pointer-move 0.5 0.5"
+  );
+  return result === "denied";
+}
+
 async function tryPostSurfaceInputCommand(fetchImpl, surfaceUrl, mutationToken, command, expectedKind) {
+  const result = await tryPostSurfaceInputCommandStatus(fetchImpl, surfaceUrl, mutationToken, command);
+  return result !== "denied" && result?.ok === true && result.action === "input" && result.kind === expectedKind;
+}
+
+async function tryPostSurfaceInputCommandStatus(fetchImpl, surfaceUrl, mutationToken, command) {
   try {
     const response = await fetchImpl(`${surfaceUrl}input`, {
       method: "POST",
@@ -607,14 +726,16 @@ async function tryPostSurfaceInputCommand(fetchImpl, surfaceUrl, mutationToken, 
       },
       body: JSON.stringify({ command })
     });
-    if (response.status !== 202) {
-      return false;
-    }
-
     const body = await response.json();
-    return body?.ok === true && body.action === "input" && body.kind === expectedKind;
+    if (response.status === 202) {
+      return body;
+    }
+    if (response.status === 409 && body?.ok === false && body.error === "not-ready") {
+      return "denied";
+    }
+    return undefined;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -630,25 +751,63 @@ async function waitForSmokeAuditLogs(auditPaths, deadline, options) {
 
 export function tryReadSmokeAuditLog(auditPath) {
   try {
-    return hasUsableSmokeAuditLogContent(readFileSync(auditPath, "utf8"));
+    return summarizeSmokeAuditLogContent(readFileSync(auditPath, "utf8")) !== undefined;
   } catch {
     return false;
   }
 }
 
 export function hasUsableSmokeAuditLogContent(content) {
+  return summarizeSmokeAuditLogContent(content) !== undefined;
+}
+
+export function tryReadSmokeAuditSummary(hostAuditPath, viewerAuditPath) {
+  try {
+    const host = summarizeSmokeAuditLogContent(readFileSync(hostAuditPath, "utf8"));
+    const viewer = summarizeSmokeAuditLogContent(readFileSync(viewerAuditPath, "utf8"));
+    return host && viewer ? { host, viewer } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function summarizeSmokeAuditLogContent(content) {
   if (typeof content !== "string") {
-    return false;
+    return undefined;
+  }
+  if (Buffer.byteLength(content, "utf8") > SMOKE_AUDIT_LOG_CONTENT_LIMIT_BYTES) {
+    return undefined;
   }
 
   const lines = content.split(/\r?\n/).filter((line) => line.length > 0);
-  return lines.some((line) => {
-    try {
-      return isSmokeAuditRecordLike(JSON.parse(line));
-    } catch {
-      return false;
+  if (lines.length === 0) {
+    return undefined;
+  }
+
+  const summary = createEmptySmokeAuditRoleSummary();
+  for (const line of lines) {
+    if (Buffer.byteLength(line, "utf8") > SMOKE_AUDIT_LOG_LINE_LIMIT_BYTES) {
+      return undefined;
     }
-  });
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      return undefined;
+    }
+    if (!isSmokeAuditRecordLike(record)) {
+      return undefined;
+    }
+
+    summary.records += 1;
+    summary[record.outcome] += 1;
+    const coverageFlag = SMOKE_AUDIT_SUMMARY_ACTIONS[record.action];
+    if (coverageFlag) {
+      summary[coverageFlag] = true;
+    }
+  }
+
+  return summary.records > 0 ? summary : undefined;
 }
 
 function isSmokeAuditRecordLike(value) {
@@ -675,6 +834,93 @@ function isBoundedAuditString(value, minLength, maxLength) {
 
 function isIsoTimestamp(value) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value));
+}
+
+function createEmptySmokeAuditRoleSummary() {
+  return {
+    records: 0,
+    accepted: 0,
+    denied: 0,
+    failed: 0,
+    authorizationApproved: false,
+    authorizationActive: false,
+    screenFrameSent: false,
+    screenFrameOutput: false,
+    inputSent: false,
+    permissionRevoked: false
+  };
+}
+
+function formatSmokeAuditSummaryLines(summary) {
+  const safeSummary = sanitizeSmokeAuditSummary(summary);
+  if (!safeSummary) {
+    return [];
+  }
+
+  const coverage = SMOKE_AUDIT_SUMMARY_FLAGS.filter(
+    (flag) => safeSummary.host[flag] === true || safeSummary.viewer[flag] === true
+  );
+  return [
+    formatSmokeAuditRoleSummaryLine("host", safeSummary.host),
+    formatSmokeAuditRoleSummaryLine("viewer", safeSummary.viewer),
+    `audit.coverage=${coverage.length > 0 ? coverage.join(",") : "none"}`
+  ];
+}
+
+function formatSmokeAuditRoleSummaryLine(role, summary) {
+  return `audit.${role}.records=${summary.records} accepted=${summary.accepted} denied=${summary.denied} failed=${summary.failed}`;
+}
+
+function sanitizeSmokeAuditSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes("host") || !keys.includes("viewer")) {
+    return undefined;
+  }
+
+  const host = sanitizeSmokeAuditRoleSummary(value.host);
+  const viewer = sanitizeSmokeAuditRoleSummary(value.viewer);
+  return host && viewer ? { host, viewer } : undefined;
+}
+
+function sanitizeSmokeAuditRoleSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const expectedKeys = [
+    "records",
+    "accepted",
+    "denied",
+    "failed",
+    ...SMOKE_AUDIT_SUMMARY_FLAGS
+  ];
+  const keys = Object.keys(value);
+  if (keys.length !== expectedKeys.length || !expectedKeys.every((key) => keys.includes(key))) {
+    return undefined;
+  }
+
+  const summary = {};
+  for (const key of ["records", "accepted", "denied", "failed"]) {
+    const count = value[key];
+    if (!Number.isSafeInteger(count) || count < 0 || count > 100_000) {
+      return undefined;
+    }
+    summary[key] = count;
+  }
+  if (summary.accepted + summary.denied + summary.failed !== summary.records) {
+    return undefined;
+  }
+  for (const key of SMOKE_AUDIT_SUMMARY_FLAGS) {
+    if (typeof value[key] !== "boolean") {
+      return undefined;
+    }
+    summary[key] = value[key];
+  }
+  return summary;
 }
 
 async function tryFetchText(fetchImpl, url) {
@@ -780,7 +1026,8 @@ async function runCli(rawArgs = process.argv.slice(2), streams = process) {
 
     const result = await runMvpSessionSmokeCheck({
       timeoutMs: parsed.timeoutMs,
-      keepArtifacts: parsed.keepArtifacts
+      keepArtifacts: parsed.keepArtifacts,
+      lanRelay: parsed.lanRelay
     });
     streams.stdout.write(
       `${

@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   extractViewerSurfaceMutationToken,
@@ -6,14 +7,17 @@ import {
   formatMvpSessionSmokeJsonError,
   formatMvpSessionSmokeJsonSuccess,
   formatMvpSessionSmokeSuccess,
+  hasActiveVisibleHostIndicatorOutput,
   hasUsableSmokeAuditLogContent,
   MvpSessionSmokeUsageError,
   parseMvpSessionSmokeArgs,
   createMvpSmokePlan,
   runMvpSessionSmokeCheck,
   stopSmokeProcesses,
+  summarizeSmokeAuditLogContent,
   tryFetchSurfaceSignalReadiness,
   tryPostSurfaceInput,
+  tryPostSurfaceInputDenied,
   tryPostSurfaceKeyboardInput
 } from "./mvp-session-smoke.mjs";
 
@@ -23,23 +27,27 @@ describe("MVP session smoke check", () => {
       help: false,
       timeoutMs: 45_000,
       keepArtifacts: false,
+      lanRelay: false,
       json: false
     });
     expect(parseMvpSessionSmokeArgs(["--timeout-ms", "5000"])).toMatchObject({
       timeoutMs: 5000,
       keepArtifacts: false,
+      lanRelay: false,
       json: false
     });
     expect(parseMvpSessionSmokeArgs(["--keep-artifacts"])).toMatchObject({
       timeoutMs: 45_000,
       keepArtifacts: true,
+      lanRelay: false,
       json: false
     });
     expect(
-      parseMvpSessionSmokeArgs(["--json", "--keep-artifacts", "--timeout-ms", "5000"])
+      parseMvpSessionSmokeArgs(["--json", "--keep-artifacts", "--lan-relay", "--timeout-ms", "5000"])
     ).toMatchObject({
       timeoutMs: 5000,
       keepArtifacts: true,
+      lanRelay: true,
       json: true
     });
     expect(parseMvpSessionSmokeArgs(["--help"])).toEqual({ help: true });
@@ -68,6 +76,9 @@ describe("MVP session smoke check", () => {
     expect(() => parseMvpSessionSmokeArgs(["--keep-artifacts", "--keep-artifacts"])).toThrow(
       MvpSessionSmokeUsageError
     );
+    expect(() => parseMvpSessionSmokeArgs(["--lan-relay", "--lan-relay"])).toThrow(
+      MvpSessionSmokeUsageError
+    );
     expect(() => parseMvpSessionSmokeArgs(["--json", "raw-secret-token"])).toThrow(
       MvpSessionSmokeUsageError
     );
@@ -91,6 +102,7 @@ describe("MVP session smoke check", () => {
     expect(output).toContain("WinBridge MVP smoke check passed.");
     expect(output).toContain("signal=verified");
     expect(output).toContain("audit=verified");
+    expect(output).toContain("lifecycle=verified");
     expect(output).toContain("artifacts=C:\\Temp\\winbridge-mvp-smoke-safe");
     expect(output).not.toContain("latest.png");
     expect(output).not.toContain("host-audit.jsonl");
@@ -117,11 +129,13 @@ describe("MVP session smoke check", () => {
       ok: true,
       checks: [
         { name: "relay", ok: true },
+        { name: "indicator", ok: true },
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
         { name: "input", ok: true },
-        { name: "audit", ok: true }
+        { name: "audit", ok: true },
+        { name: "lifecycle", ok: true }
       ],
       artifacts: "cleaned"
     });
@@ -159,11 +173,13 @@ describe("MVP session smoke check", () => {
       reason: "signal-not-ready",
       checks: [
         { name: "relay", ok: true },
+        { name: "indicator", ok: true },
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: false },
         { name: "input", ok: false, skipped: true },
-        { name: "audit", ok: false, skipped: true }
+        { name: "audit", ok: false, skipped: true },
+        { name: "lifecycle", ok: false, skipped: true }
       ]
     });
     expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("audit-not-ready")))).toEqual({
@@ -171,11 +187,41 @@ describe("MVP session smoke check", () => {
       reason: "audit-not-ready",
       checks: [
         { name: "relay", ok: true },
+        { name: "indicator", ok: true },
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
         { name: "input", ok: true },
-        { name: "audit", ok: false }
+        { name: "audit", ok: false },
+        { name: "lifecycle", ok: false, skipped: true }
+      ]
+    });
+    expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("lifecycle-not-ready")))).toEqual({
+      ok: false,
+      reason: "lifecycle-not-ready",
+      checks: [
+        { name: "relay", ok: true },
+        { name: "indicator", ok: true },
+        { name: "frame", ok: true },
+        { name: "surface", ok: true },
+        { name: "signal", ok: true },
+        { name: "input", ok: true },
+        { name: "audit", ok: true },
+        { name: "lifecycle", ok: false }
+      ]
+    });
+    expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("indicator-not-ready")))).toEqual({
+      ok: false,
+      reason: "indicator-not-ready",
+      checks: [
+        { name: "relay", ok: true },
+        { name: "indicator", ok: false },
+        { name: "frame", ok: false, skipped: true },
+        { name: "surface", ok: false, skipped: true },
+        { name: "signal", ok: false, skipped: true },
+        { name: "input", ok: false, skipped: true },
+        { name: "audit", ok: false, skipped: true },
+        { name: "lifecycle", ok: false, skipped: true }
       ]
     });
     expect(formatMvpSessionSmokeJsonError(new Error("raw-secret-token"))).not.toContain(
@@ -214,10 +260,15 @@ describe("MVP session smoke check", () => {
     expect(plan.relay.args).toEqual(["--workspace", "@winbridge/relay", "run", "dev"]);
     expect(plan.relay.env).toEqual({ WINBRIDGE_RELAY_PORT: "18787" });
     expect(plan.host.args).toContain("--host-decision");
+    expect(plan.host.args).toContain("ws://localhost:18787/");
     expect(plan.host.args).toContain("approve");
     expect(plan.host.args).toContain("--visible-session");
     expect(plan.host.args).toContain("true");
     expect(plan.host.args).toContain("--host-signal-probe-ack");
+    expect(plan.host.args).toContain("--revoke-after-ms");
+    expect(plan.host.args).toContain("8000");
+    expect(plan.host.args).toContain("--revoke-permission");
+    expect(plan.host.args).toContain("input:pointer");
     expect(plan.host.args).toContain("--dev-screen-frame-source");
     expect(plan.host.args).toContain("static");
     expect(plan.viewer.args).toContain("--viewer-signal-probe-after-ms");
@@ -233,6 +284,63 @@ describe("MVP session smoke check", () => {
     expect(serialized).not.toContain("browser");
     expect(serialized).not.toContain("host-signal-probe-ack-secret");
     expect(serialized).not.toContain("viewer-signal-probe-raw");
+  });
+
+  it("builds LAN-style smoke plans through a fixed loopback relay URL", () => {
+    const plan = createMvpSmokePlan({
+      npmCommand: "npm",
+      workDir: "C:\\Temp\\winbridge-smoke",
+      relayPort: 18787,
+      surfacePort: 35987,
+      session: "smoke-test",
+      lanRelay: true
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.host.args).toContain("ws://127.0.0.1:18787/");
+    expect(plan.viewer.args).toContain("ws://127.0.0.1:18787/");
+    expect(serialized).not.toContain("windows-capture");
+    expect(serialized).not.toContain("host-apply-input");
+    expect(serialized).not.toContain("Start-Process");
+    expect(serialized).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
+    expect(serialized).not.toContain("0.0.0.0");
+  });
+
+  it("matches only active visible host indicator metadata", () => {
+    expect(
+      hasActiveVisibleHostIndicatorOutput(
+        "[winbridge-agent] host indicator state=active authorizationStatus=approved authorizationId=authz_private visibleToHost=true permissionCount=3 cause=authorized\n"
+      )
+    ).toBe(true);
+    expect(
+      hasActiveVisibleHostIndicatorOutput(
+        "[winbridge-agent] host indicator state=paused authorizationStatus=approved authorizationId=authz_private visibleToHost=true permissionCount=3 cause=paused\n"
+      )
+    ).toBe(false);
+    expect(
+      hasActiveVisibleHostIndicatorOutput(
+        "[winbridge-agent] host indicator state=active authorizationStatus=approved authorizationId=authz_private visibleToHost=false permissionCount=3 cause=hidden\n"
+      )
+    ).toBe(false);
+    expect(
+      hasActiveVisibleHostIndicatorOutput(
+        "[winbridge-agent] host indicator state=active authorizationStatus=approved authorizationId=authz_private visibleToHost=true permissionCount=0 cause=missing-permission\n"
+      )
+    ).toBe(false);
+    expect(formatMvpSessionSmokeJsonError(new Error("indicator-not-ready"))).not.toContain(
+      "authz_private"
+    );
+  });
+
+  it("keeps the agent-shell CLI wired to bounded runtime logging for host indicator output", () => {
+    const source = readFileSync(new URL("../apps/agent-shell/src/index.ts", import.meta.url), "utf8");
+    const runtimeOptions = source.slice(
+      source.indexOf("runtime = createAgentShellRuntime({"),
+      source.indexOf("  const shutdown = async () => {")
+    );
+
+    expect(runtimeOptions).toContain("logger: console");
+    expect(runtimeOptions).toContain("onEvent:");
   });
 
   it("extracts only bounded viewer surface mutation tokens", () => {
@@ -330,6 +438,67 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("key-down");
   });
 
+  it("recognizes explicit lifecycle denial from the token-protected surface input path", async () => {
+    const calls: unknown[] = [];
+    const denied = await tryPostSurfaceInputDenied(
+      async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return {
+          status: 409,
+          json: async () => ({ ok: false, error: "not-ready", messageBytes: 42 })
+        } as Response;
+      },
+      "http://127.0.0.1:35987/",
+      "safe-token"
+    );
+
+    expect(denied).toBe(true);
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:35987/input",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://127.0.0.1:35987",
+            "x-winbridge-local-surface-token": "safe-token"
+          },
+          body: JSON.stringify({ command: "pointer-move 0.5 0.5" })
+        }
+      }
+    ]);
+    expect(formatMvpSessionSmokeJsonError(new Error("lifecycle-not-ready"))).not.toContain(
+      "pointer-move"
+    );
+    expect(formatMvpSessionSmokeJsonError(new Error("lifecycle-not-ready"))).not.toContain(
+      "safe-token"
+    );
+  });
+
+  it("does not treat accepted input or network failures as lifecycle denial", async () => {
+    await expect(
+      tryPostSurfaceInputDenied(
+        async () =>
+          ({
+            status: 202,
+            json: async () => ({ ok: true, action: "input", kind: "pointer-move" })
+          }) as Response,
+        "http://127.0.0.1:35987/",
+        "safe-token"
+      )
+    ).resolves.toBe(false);
+
+    await expect(
+      tryPostSurfaceInputDenied(
+        async () => {
+          throw new Error("raw-token network failure");
+        },
+        "http://127.0.0.1:35987/",
+        "safe-token"
+      )
+    ).resolves.toBe(false);
+  });
+
   it("checks signal readiness through sanitized viewer status only", async () => {
     const calls: unknown[] = [];
     const ready = await tryFetchSurfaceSignalReadiness(
@@ -390,14 +559,7 @@ describe("MVP session smoke check", () => {
   });
 
   it("accepts bounded schema-like smoke audit records without exposing raw contents", () => {
-    const auditLine = JSON.stringify({
-      eventId: "audit_safe123",
-      timestamp: "2026-06-22T08:00:00.000Z",
-      actor: { type: "host", id: "host-smoke" },
-      action: "agent-shell.authorization.active",
-      outcome: "accepted",
-      detail: { authorizationId: "authz_safe" }
-    });
+    const auditLine = smokeAuditLine("agent-shell.authorization.active");
 
     expect(hasUsableSmokeAuditLogContent(`${auditLine}\n`)).toBe(true);
     expect(
@@ -414,6 +576,93 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeJsonError(new Error("audit-not-ready"))).not.toContain(
       "agent-shell.authorization.active"
     );
+  });
+
+  it("summarizes smoke audit logs with fixed safe metadata only", () => {
+    const summary = summarizeSmokeAuditLogContent(
+      [
+        smokeAuditLine("agent-shell.authorization.approved", "accepted"),
+        smokeAuditLine("agent-shell.authorization.active", "accepted"),
+        smokeAuditLine("agent-shell.remote-interaction.screen-frame.sent", "accepted"),
+        smokeAuditLine("agent-shell.remote-interaction.input-event.sent", "accepted"),
+        smokeAuditLine("agent-shell.permission.revoked", "accepted")
+      ].join("\n")
+    );
+
+    expect(summary).toEqual({
+      records: 5,
+      accepted: 5,
+      denied: 0,
+      failed: 0,
+      authorizationApproved: true,
+      authorizationActive: true,
+      screenFrameSent: true,
+      screenFrameOutput: false,
+      inputSent: true,
+      permissionRevoked: true
+    });
+
+    const output = formatMvpSessionSmokeJsonSuccess({
+      ok: true,
+      workDir: "C:\\Temp\\winbridge-mvp-smoke-safe",
+      auditSummary: {
+        host: summary,
+        viewer: {
+          records: 1,
+          accepted: 1,
+          denied: 0,
+          failed: 0,
+          authorizationApproved: false,
+          authorizationActive: false,
+          screenFrameSent: false,
+          screenFrameOutput: true,
+          inputSent: false,
+          permissionRevoked: false
+        }
+      }
+    });
+
+    expect(JSON.parse(output)).toMatchObject({
+      ok: true,
+      auditSummary: {
+        host: { records: 5, inputSent: true, permissionRevoked: true },
+        viewer: { records: 1, screenFrameOutput: true }
+      }
+    });
+    expect(output).not.toContain("agent-shell");
+    expect(output).not.toContain("audit_safe123");
+    expect(output).not.toContain("authz_safe");
+    expect(output).not.toContain("host-smoke");
+
+    const unsafeOutput = formatMvpSessionSmokeJsonSuccess({
+      ok: true,
+      workDir: "C:\\Temp\\winbridge-mvp-smoke-safe",
+      auditSummary: {
+        host: { records: "raw-secret-token" },
+        action: "agent-shell.authorization.active"
+      }
+    });
+    expect(unsafeOutput).not.toContain("auditSummary");
+    expect(unsafeOutput).not.toContain("raw-secret-token");
+    expect(unsafeOutput).not.toContain("agent-shell");
+  });
+
+  it("rejects malformed or oversized smoke audit content for summary parsing", () => {
+    expect(
+      summarizeSmokeAuditLogContent(`${smokeAuditLine("agent-shell.authorization.active")}\nnot-json`)
+    ).toBeUndefined();
+    expect(
+      summarizeSmokeAuditLogContent(
+        JSON.stringify({
+          eventId: "audit_safe123",
+          timestamp: "2026-06-22T08:00:00.000Z",
+          actor: { type: "host", id: "host-smoke" },
+          action: "agent-shell.authorization.active",
+          outcome: "accepted",
+          detail: { authorizationId: "authz_safe" }
+        }) + "x".repeat(4096)
+      )
+    ).toBeUndefined();
   });
 
   it("stops child processes in reverse start order", async () => {
@@ -545,4 +794,15 @@ function fakeChild(pid: number) {
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
   return child;
+}
+
+function smokeAuditLine(action: string, outcome = "accepted") {
+  return JSON.stringify({
+    eventId: "audit_safe123",
+    timestamp: "2026-06-22T08:00:00.000Z",
+    actor: { type: "host", id: "host-smoke" },
+    action,
+    outcome,
+    detail: { authorizationId: "authz_safe" }
+  });
 }

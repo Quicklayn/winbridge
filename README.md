@@ -105,12 +105,24 @@ Print only the bounded preflight command plan as JSON:
 npm run mvp:commands -- --preflight-only --json
 ```
 
+Print only one bounded text command block for the machine you are working on:
+
+```powershell
+npm run mvp:commands -- --only relay
+npm run mvp:commands -- --only host
+npm run mvp:commands -- --only viewer
+npm run mvp:commands -- --only browser
+npm run mvp:commands -- --only preflight
+```
+
 The command kit validates the session id, pairing code, relay URL, audit paths,
 viewer frame path, loopback viewer surface port, and finite capture cadence,
 then prints the `mvp:ready` preflight gate plus separate relay, host, viewer,
 and browser steps. It does not start processes, open sockets, capture the
 screen, apply input, write files, install services, configure startup
 persistence, run unattended, elevate privileges, or bypass Windows prompts. The
+`--only` filter is text-only, rejects unknown or incompatible values, and still
+derives the selected block from the same fully validated non-executing plan.
 generated host command uses the interactive host consent prompt, visible session
 state, metadata-only audit,
 `--host-apply-input true`, finite Windows capture, and
@@ -185,8 +197,11 @@ npm run mvp:doctor
 ```
 
 The doctor verifies Windows platform, supported Node.js version, required root
-npm scripts, required workspace package manifests, and required MVP source
-entrypoints. It is read-only: it does not start relay, host, viewer, browser,
+npm scripts, required root script alignment for the reviewed `dev:agent`,
+`dev:relay`, and `mvp:smoke` workflows, required workspace package manifests,
+and required MVP source entrypoints. Script-alignment failures use only the
+bounded `script-misaligned` reason and do not echo script bodies or package JSON
+content. It is read-only: it does not start relay, host, viewer, browser,
 capture, input, sockets, HTTP listeners, services, startup persistence,
 unattended access, privilege elevation, or Windows prompt bypass.
 
@@ -199,10 +214,14 @@ npm run mvp:native-preflight
 
 The native preflight is read-only. It checks Windows platform, bounded
 PowerShell execution, capture prerequisite assembly/type availability, and input
-wrapper compilation readiness. It does not call `CopyFromScreen`, call
-`SendInput`, start WinBridge processes, open sockets or HTTP listeners, write
-files, launch a browser, install services, configure startup persistence,
-elevate privileges, run unattended, or bypass Windows prompts.
+wrapper compilation readiness. Each fixed PowerShell probe must emit only the
+strict bounded JSON success marker `{ "ok": true }`; empty, malformed, false,
+extra-field, non-object, array-shaped, or oversized probe output fails closed
+with the probe's bounded reason code and is not echoed. It does not call
+`CopyFromScreen`, call `SendInput`, start WinBridge processes, open sockets or
+HTTP listeners, write files, launch a browser, install services, configure
+startup persistence, elevate privileges, run unattended, or bypass Windows
+prompts.
 
 Run the local read-only readiness gate before a two-PC trial:
 
@@ -213,22 +232,28 @@ npm run mvp:ready
 `mvp:ready` runs `mvp:doctor`, `mvp:native-preflight`, a non-executing
 localhost `mvp:commands -- --json` command-plan validation, and a
 non-executing representative LAN command-plan validation, and a non-executing
-shared-token command-plan validation sequentially, then prints only bounded
-step status. The LAN validation uses a fixed safe `--relay-host` value only to
-exercise the two-PC command generator path; the token validation uses the fixed
+shared-token command-plan validation sequentially. It also validates the
+target-specific text outputs from `mvp:commands -- --only relay`, `host`,
+`viewer`, `browser`, and `preflight`, so the per-machine operator blocks are
+checked before a live trial. It then prints only bounded step status. The LAN
+validation uses a fixed safe `--relay-host` value only to exercise the two-PC
+command generator path; the token validation uses the fixed
 `WINBRIDGE_RELAY_SHARED_TOKEN` environment variable name only to exercise the
 token-protected command generator path. It does not detect local IP addresses,
-probe ports, start processes, read token values, or open sockets. It does not
-echo child output, generated command strings, pairing codes, paths, tokens,
-frame bytes, or input contents, and does not run the local smoke workflow
-unless explicitly requested. For machine-readable output:
+probe ports, start processes, read token values, or open sockets. The LAN
+validation also requires the non-executing relay command to use the reviewed
+`WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'` setting without echoing the command. It
+does not echo child output, filtered or generated command strings, pairing
+codes, local URLs, paths, tokens, frame bytes, or input contents, and does not
+run the local smoke workflow unless explicitly requested. For machine-readable
+output:
 
 ```powershell
 npm run mvp:ready -- --json
 ```
 
 To also run the bounded local static smoke workflow after the default readiness
-checks pass:
+checks pass, including the explicit LAN-style local relay smoke mode:
 
 ```powershell
 npm run mvp:ready -- --include-smoke
@@ -241,8 +266,9 @@ npm run mvp:ready -- --json --include-smoke
 ```
 
 The aggregate JSON keeps child output and generated command strings hidden and
-may include fixed smoke subchecks for relay, frame, surface, signal, input, and
-audit readiness.
+may include fixed smoke subchecks for relay, host indicator, frame, surface,
+signal, input, audit, and lifecycle readiness for the default smoke and
+LAN-style smoke steps.
 
 Run a bounded local MVP smoke check before a two-PC trial:
 
@@ -254,23 +280,47 @@ The smoke check builds the workspace, starts local relay, host, and viewer
 development processes, uses explicit static host approval with
 `--visible-session true`, publishes a static authorized frame to a temporary
 viewer output file, verifies the loopback viewer surface and `/frame` endpoint,
+verifies the host process emitted the bounded active visible host indicator
+marker with a positive permission count,
 verifies the sanitized viewer `/status` endpoint reports
 `signalProbeAckReceived=true` for the bounded development signal readiness
 probe, submits one bounded pointer command and one bounded keyboard command
 with explicit modifiers through the token-protected local `/input` path,
 verifies that both configured host and viewer JSONL audit logs contain bounded
-audit records, and then stops the child processes. The signal readiness and
-audit checks are metadata-only and do not print raw signal payloads,
-authorization ids, audit paths, raw audit contents, raw input commands, or
-pairing codes. It is a local preflight only: it does not use Windows capture,
-apply OS input, launch a browser, install services, configure startup
-persistence, run unattended, elevate privileges, or bypass Windows prompts.
+audit records, verifies that scheduled host revocation of `input:pointer` makes
+a later pointer command fail closed through the same local `/input` path, and
+then stops the child processes. The host indicator, signal readiness, audit,
+and lifecycle checks are metadata-only. Successful JSON output may include a
+fixed audit summary with host/viewer record counts, outcome counts, and coverage booleans
+for expected smoke evidence such as consent, frame, input, and revocation. The
+summary is read-only and does not print raw signal payloads, authorization ids,
+event ids, actor ids, target ids, audit paths, raw audit contents, raw audit
+actions, details, reasons, raw input commands, mutation tokens, or pairing
+codes. It is a local preflight only: it does not use Windows capture, apply OS
+input, launch a browser, install services, configure startup persistence, run
+unattended, elevate privileges, or bypass Windows prompts.
 
 For troubleshooting, run `npm run mvp:smoke -- --keep-artifacts` to retain the
 temporary smoke work directory after the bounded local check. The retained
 directory is for local inspection only; smoke diagnostics still avoid printing
 frame bytes, mutation tokens, audit paths, raw audit contents, raw child output,
 pairing codes, tokens, or input contents.
+
+To exercise the smoke workflow with a LAN-style relay URL shape before a
+two-PC trial, run:
+
+```powershell
+npm run mvp:smoke -- --lan-relay
+```
+
+This remains a same-machine local smoke check. It connects the smoke host and
+viewer through `ws://127.0.0.1:<resolved-port>/` while preserving the same
+static frames, visible host authorization, host indicator verification,
+loopback viewer surface, bounded input endpoint checks, audit checks, and
+cleanup behavior. It does not discover
+LAN interfaces, connect to remote hosts, open firewall ports, use Windows
+capture, apply OS input, launch a browser, install services, configure startup
+persistence, run unattended, elevate privileges, or bypass Windows prompts.
 
 Run the development relay:
 
@@ -453,14 +503,16 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 ```
 
 Open `http://127.0.0.1:35987/` on the viewer machine. The page displays only
-the latest authorized frame from the explicit output file. Browser pointer
-actions on the displayed frame are disabled by default and require the visible
-`Pointer Off/On` control while the latest frame is ready before pointer
-movement, wheel, or button events can send input. The page preloads replacement
-frames before swapping the displayed frame, so ordinary refreshes do not disarm
-pointer control while a ready frame remains visible; initial missing frames keep
-the control disabled. The frame also suppresses browser-native context menu and
-image drag defaults only on that frame.
+the latest authorized frame from the explicit output file. Visible input
+controls stay disabled until the page has both sanitized active visible viewer
+status with at least one granted permission and a ready displayed frame. Browser
+pointer actions on the displayed frame are disabled by default and require the
+visible `Pointer Off/On` control while local input readiness is true before
+pointer movement, wheel, or button events can send input. The page preloads
+replacement frames before swapping the displayed frame, so ordinary refreshes do
+not disarm pointer control while a ready frame remains visible; initial missing
+frames keep input controls disabled. The frame also suppresses browser-native
+context menu and image drag defaults only on that frame.
 Command-box input and browser pointer input use the same `sendInputEvent()`
 path as the terminal viewer prompt. It also provides
 explicit buttons for common keys such as Enter, Escape, Tab, Backspace, and
@@ -473,15 +525,26 @@ requires `--viewer-screen-frame-output`, clears any pre-existing latest-frame
 file on startup, ignores same-directory temporary frame output files, and
 rejects malformed ports before relay startup. Input and
 disconnect POSTs require the generated local page's same-origin per-run token
-before request bodies or authorization state are read. It does not expose a
-LAN/public server, read arbitrary files, capture keyboard input outside the
-visible page, send modifier-only input, buffer typed text, create macros, sync
-clipboard, transfer files,
+before request bodies or authorization state are read. The local readiness gate
+is only a UI affordance: token, origin, content-type, active visible
+authorization, permission, routing, socket, audit, pause, revoke, termination,
+expiration, disconnect, and redaction gates still run for every input POST.
+Disconnect remains available even while input controls are not ready. It does
+not expose a LAN/public server, read arbitrary files, capture keyboard input
+outside the visible page, send modifier-only input, buffer typed text, create
+macros, sync clipboard, transfer files,
 install services, configure startup persistence, elevate privileges, run
 unattended, hide the host indicator, or bypass Windows prompts. HTTP responses
 and CLI diagnostics stay metadata-only and do not echo pointer coordinates,
 buttons, key values, frame bytes, tokens, pairing codes, credentials, or private
 reasons.
+
+The viewer page also shows local frame freshness metadata such as
+`frameAgeMs=<bucket>` and marks the displayed frame stale when no replacement
+frame has loaded within the local threshold. This is browser-local readiness
+metadata only; it is not a capture timestamp, does not grant permissions, and
+does not expose frame paths, frame bytes, URLs, authorization ids, tokens,
+pairing codes, or raw protocol data.
 
 When the generated command plan enables the development signal probe, the local
 viewer page may show `signalProbeAckReceived=true` in its status text after a

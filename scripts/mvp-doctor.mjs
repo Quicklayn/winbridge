@@ -51,10 +51,27 @@ const FAILURE_REASONS = new Set([
   "unsupported-platform",
   "unsupported-node",
   "missing-root-script",
+  "script-misaligned",
   "missing-workspace-manifest",
   "missing-entrypoint",
   "invalid-package-json"
 ]);
+
+const REQUIRED_ROOT_SCRIPT_ALIGNMENT = Object.freeze({
+  "dev:agent": Object.freeze([
+    "npm --workspace @winbridge/protocol run build",
+    "npm --workspace @winbridge/audit-log run build",
+    "npm --workspace @winbridge/windows-capture run build",
+    "npm --workspace @winbridge/windows-input run build",
+    "npm --workspace @winbridge/agent-shell run dev --"
+  ]),
+  "dev:relay": Object.freeze([
+    "npm --workspace @winbridge/protocol run build",
+    "npm --workspace @winbridge/audit-log run build",
+    "npm --workspace @winbridge/relay run dev"
+  ]),
+  "mvp:smoke": Object.freeze(["npm run build", "node scripts/mvp-session-smoke.mjs"])
+});
 
 export class MvpDoctorUsageError extends Error {
   constructor() {
@@ -203,9 +220,35 @@ function checkRootScripts(packageJson) {
     return { name: "scripts", ok: false, reason: "missing-root-script" };
   }
 
-  return REQUIRED_MVP_ROOT_SCRIPTS.every((script) => typeof scripts[script] === "string")
+  if (!REQUIRED_MVP_ROOT_SCRIPTS.every((script) => typeof scripts[script] === "string")) {
+    return { name: "scripts", ok: false, reason: "missing-root-script" };
+  }
+
+  return hasAlignedRootScripts(scripts)
     ? { name: "scripts", ok: true }
-    : { name: "scripts", ok: false, reason: "missing-root-script" };
+    : { name: "scripts", ok: false, reason: "script-misaligned" };
+}
+
+function hasAlignedRootScripts(scripts) {
+  return Object.entries(REQUIRED_ROOT_SCRIPT_ALIGNMENT).every(([scriptName, tokens]) =>
+    hasOrderedTokens(scripts[scriptName], tokens)
+  );
+}
+
+function hasOrderedTokens(value, tokens) {
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  let cursor = 0;
+  for (const token of tokens) {
+    const index = value.indexOf(token, cursor);
+    if (index < 0) {
+      return false;
+    }
+    cursor = index + token.length;
+  }
+  return true;
 }
 
 function checkWorkspaceManifests(rootDir, exists) {

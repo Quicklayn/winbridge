@@ -137,6 +137,18 @@ describe("MVP doctor", () => {
 
     expect(
       runMvpDoctorCheck(createDoctorOptions({
+        packageJson: {
+          scripts: {
+            ...alignedRootScripts(),
+            "dev:agent":
+              "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/agent-shell run dev -- --token raw-secret-token"
+          }
+        }
+      }))
+    ).toMatchObject({ ok: false, reason: "script-misaligned" });
+
+    expect(
+      runMvpDoctorCheck(createDoctorOptions({
         exists: (path: string) => !path.includes("windows-input")
       }))
     ).toMatchObject({ ok: false, reason: "missing-workspace-manifest" });
@@ -160,6 +172,72 @@ describe("MVP doctor", () => {
     expect(output).not.toContain(secretRoot);
     expect(output).not.toContain("apps\\relay\\src\\index.ts");
     expect(output).not.toContain("secret");
+  });
+
+  it("detects misaligned root scripts without echoing script bodies or secrets", () => {
+    const secretScript =
+      "npm run build && node scripts/mvp-session-smoke.mjs --token raw-secret-token --pairing 123-456";
+    const result = runMvpDoctorCheck(createDoctorOptions({
+      packageJson: {
+        scripts: {
+          ...alignedRootScripts(),
+          "mvp:smoke": "node scripts/mvp-session-smoke.mjs"
+        }
+      }
+    }));
+    const secretResult = runMvpDoctorCheck(createDoctorOptions({
+      packageJson: {
+        scripts: {
+          ...alignedRootScripts(),
+          "dev:relay": secretScript
+        }
+      }
+    }));
+    const output = formatMvpDoctorResult(secretResult);
+    const jsonOutput = formatMvpDoctorJsonResult(secretResult);
+
+    expect(result).toMatchObject({ ok: false, reason: "script-misaligned" });
+    expect(secretResult).toMatchObject({ ok: false, reason: "script-misaligned" });
+    expect(output).toBe("WinBridge MVP doctor failed. reason=script-misaligned");
+    expect(jsonOutput).toContain('"reason":"script-misaligned"');
+    for (const unsafe of [
+      secretScript,
+      "raw-secret-token",
+      "123-456",
+      "node scripts/mvp-session-smoke.mjs"
+    ]) {
+      expect(output).not.toContain(unsafe);
+      expect(jsonOutput).not.toContain(unsafe);
+    }
+  });
+
+  it("requires ordered root script alignment for relay, agent, and smoke workflows", () => {
+    const scripts = alignedRootScripts();
+
+    expect(runMvpDoctorCheck(createDoctorOptions({ packageJson: { scripts } }))).toMatchObject({
+      ok: true
+    });
+    expect(
+      runMvpDoctorCheck(createDoctorOptions({
+        packageJson: {
+          scripts: {
+            ...scripts,
+            "dev:relay":
+              "npm --workspace @winbridge/relay run dev && npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/audit-log run build"
+          }
+        }
+      }))
+    ).toMatchObject({ ok: false, reason: "script-misaligned" });
+    expect(
+      runMvpDoctorCheck(createDoctorOptions({
+        packageJson: {
+          scripts: {
+            ...scripts,
+            "mvp:smoke": "node scripts/mvp-session-smoke.mjs && npm run build"
+          }
+        }
+      }))
+    ).toMatchObject({ ok: false, reason: "script-misaligned" });
   });
 
   it("detects missing root helper script entrypoints without echoing paths", () => {
@@ -237,8 +315,10 @@ describe("MVP doctor", () => {
     expect(source).not.toContain("node:https");
     expect(source).not.toContain("node:tls");
     expect(source).not.toContain("WebSocket");
-    expect(source).not.toContain("@winbridge/windows-capture");
-    expect(source).not.toContain("@winbridge/windows-input");
+    expect(source).not.toContain('from "@winbridge/windows-capture"');
+    expect(source).not.toContain('from "@winbridge/windows-input"');
+    expect(source).not.toContain('import("@winbridge/windows-capture")');
+    expect(source).not.toContain('import("@winbridge/windows-input")');
   });
 });
 
@@ -250,7 +330,7 @@ function createDoctorOptions(overrides: {
   exists?: (path: string) => boolean;
 } = {}) {
   const packageJson = overrides.packageJson ?? {
-    scripts: Object.fromEntries(REQUIRED_MVP_ROOT_SCRIPTS.map((script) => [script, "ok"]))
+    scripts: alignedRootScripts()
   };
 
   return {
@@ -267,5 +347,18 @@ function createDoctorOptions(overrides: {
         REQUIRED_MVP_ENTRYPOINT_FILES.some((entrypointPath) =>
           path.endsWith(entrypointPath.replaceAll("/", "\\"))
         ))
+  };
+}
+
+function alignedRootScripts() {
+  return {
+    "dev:relay":
+      "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/audit-log run build && npm --workspace @winbridge/relay run dev",
+    "dev:agent":
+      "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/audit-log run build && npm --workspace @winbridge/windows-capture run build && npm --workspace @winbridge/windows-input run build && npm --workspace @winbridge/agent-shell run dev --",
+    "mvp:commands": "node scripts/mvp-session-commands.mjs",
+    "mvp:native-preflight": "node scripts/mvp-native-preflight.mjs",
+    "mvp:ready": "node scripts/mvp-ready.mjs",
+    "mvp:smoke": "npm run build && node scripts/mvp-session-smoke.mjs"
   };
 }

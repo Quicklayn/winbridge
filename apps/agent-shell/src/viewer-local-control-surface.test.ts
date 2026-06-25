@@ -127,7 +127,7 @@ describe("viewer local control surface", () => {
     expect(html).not.toContain("textarea");
   });
 
-  it("renders one-shot modifier toggles gated on frame readiness", async () => {
+  it("renders one-shot modifier toggles gated on input readiness", async () => {
     const runtime = createRuntimeSpy();
     const handle = await startSurface(runtime);
 
@@ -138,7 +138,8 @@ describe("viewer local control surface", () => {
     expect(html).toContain("const activeModifiers = new Set();");
     expect(html).toContain('const modifierButtons = Array.from(document.querySelectorAll("[data-key-modifier]"));');
     expect(html).toContain("function updateModifierButtons()");
-    expect(html).toContain("button.disabled = !frameReady;");
+    expect(html).toContain("const disabled = !isLocalInputReady();");
+    expect(html).toContain("button.disabled = disabled;");
     expect(html).toContain("function clearModifiers()");
     expect(html).toContain("activeModifiers.clear();");
     expect(html).toContain("const modifiers = Array.from(activeModifiers).join(\",\");");
@@ -147,7 +148,7 @@ describe("viewer local control surface", () => {
     expect(html).toContain("await sendCommand(\"key-up \" + key + suffix);");
     expect(html).toContain("finally {\n        clearModifiers();\n      }");
     expect(html).toContain('button.addEventListener("click", () => {');
-    expect(html).toContain("if (!frameReady) return;");
+    expect(html).toContain("if (!isLocalInputReady()) return;");
     expect(html).toContain("updateModifierButtons();");
     expect(html).not.toContain("activeModifiers.add(" + '"shift"' + ");");
     expect(html).not.toContain("sendCommand(\"key-down shift");
@@ -168,20 +169,53 @@ describe("viewer local control surface", () => {
     expect(html).toContain("Pointer On");
     expect(html).toContain("let pointerArmed = false;");
     expect(html).toContain("let frameReady = false;");
+    expect(html).toContain("let statusInputReady = false;");
     expect(html).toContain("let frameRequestSequence = 0;");
+    expect(html).toContain("function isLocalInputReady()");
+    expect(html).toContain("return frameReady && statusInputReady;");
     expect(html).toContain("function updatePointerArm()");
     expect(html).toContain('pointerArm.setAttribute("aria-pressed", pointerArmed ? "true" : "false")');
-    expect(html).toContain("pointerArm.disabled = !frameReady;");
+    expect(html).toContain("pointerArm.disabled = !isLocalInputReady();");
     expect(html).toContain('pointerArm.addEventListener("click"');
-    expect(html).toContain("if (!frameReady) return;");
+    expect(html).toContain("if (!isLocalInputReady()) return;");
     expect(html).toContain("pointerArmed = !pointerArmed;");
-    expect(html.match(/if \(!pointerArmed \|\| !frameReady\) return;/g)).toHaveLength(4);
+    expect(html.match(/if \(!pointerArmed \|\| !isLocalInputReady\(\)\) return;/g)).toHaveLength(4);
     expect(html.match(/pointerArmed = false;/g)?.length).toBeGreaterThanOrEqual(2);
     expect(html).toContain("frameReady = true;");
     expect(html).toContain('frameStatus.textContent = frameReady ? "frame=refreshing" : "frame=loading"');
     expect(html).toContain('frameStatus.textContent = "frame=not-ready"');
     expect(html).not.toContain("document.addEventListener(\"pointer");
     expect(html).not.toContain("window.addEventListener(\"pointer");
+  });
+
+  it("renders local input controls gated on sanitized status and displayed frame readiness", async () => {
+    const runtime = createRuntimeSpy();
+    const handle = await startSurface(runtime);
+
+    const response = await fetch(handle.url);
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain("let statusInputReady = false;");
+    expect(html).toContain("function isLocalInputReady()");
+    expect(html).toContain("return frameReady && statusInputReady;");
+    expect(html).toContain(
+      'statusInputReady = body.state.state === "active" && body.state.visibleToHost === true && Number.isInteger(body.state.permissionCount) && body.state.permissionCount > 0;',
+    );
+    expect(html).toContain(
+      'status.textContent = "state=" + body.state.state + " visibleToHost=" + body.state.visibleToHost + " permissionCount=" + body.state.permissionCount + " inputReady=" + statusInputReady + signalAck;',
+    );
+    expect(html).toContain('const keyCommandButtons = Array.from(document.querySelectorAll("[data-key-command]"));');
+    expect(html).toContain("function updateInputControls()");
+    expect(html).toContain("sendButton.disabled = disabled;");
+    expect(html).toContain("for (const button of keyCommandButtons)");
+    expect(html).toContain("button.disabled = disabled;");
+    expect(html).toContain("updateInputControls();");
+    expect(html).toContain('if (event.key === "Enter")');
+    expect(html).toContain("if (!isLocalInputReady()) return;");
+    expect(html).not.toContain("authorizationId");
+    expect(html).not.toContain("raw-token");
+    expect(html).not.toContain("pairingCode");
   });
 
   it("preloads replacement frames without disarming the displayed ready frame", async () => {
@@ -200,7 +234,7 @@ describe("viewer local control surface", () => {
     expect(html.match(/if \(requestSequence !== frameRequestSequence\) return;/g)).toHaveLength(2);
     expect(html).toContain("frame.src = frameUrl;");
     expect(html).toContain("nextFrame.src = frameUrl;");
-    expect(html).toContain('frameStatus.textContent = "frame=ready";');
+    expect(html).toContain("updateFrameFreshness();");
     expect(html).not.toContain('frame.addEventListener("load"');
     expect(html).not.toContain('frame.addEventListener("error"');
   });
@@ -261,11 +295,35 @@ describe("viewer local control surface", () => {
     expect(html).toContain('id="frameStatus"');
     expect(html).toContain("frame=pending");
     expect(html).toContain('frameStatus.textContent = frameReady ? "frame=refreshing" : "frame=loading"');
-    expect(html).toContain('frameStatus.textContent = "frame=ready"');
+    expect(html).toContain('"frame=" + (stale ? "stale" : "ready")');
     expect(html).toContain('frameStatus.textContent = "frame=not-ready"');
     expect(html).not.toContain("latest.png");
     expect(html).not.toContain("response.text()");
     expect(html).not.toContain("raw-token");
+  });
+
+  it("renders bounded local frame freshness without exposing frame diagnostics", async () => {
+    const runtime = createRuntimeSpy();
+    const handle = await startSurface(runtime);
+
+    const response = await fetch(handle.url);
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(html).toContain("let displayedFrameLoadedAt = undefined;");
+    expect(html).toContain("const frameStaleAfterMs = 5000;");
+    expect(html).toContain("function frameAgeBucket(ageMs)");
+    expect(html).toContain('return "unknown";');
+    expect(html).toContain('return "30000";');
+    expect(html).toContain("function updateFrameFreshness()");
+    expect(html).toContain("const stale = ageMs >= frameStaleAfterMs;");
+    expect(html).toContain('"frame=" + (stale ? "stale" : "ready") + " frameAgeMs=" + frameAgeBucket(ageMs)');
+    expect(html).toContain("displayedFrameLoadedAt = Date.now();");
+    expect(html).toContain("setInterval(updateFrameFreshness, 1000);");
+    expect(html).not.toContain("latest.png");
+    expect(html).not.toContain("authorizationId");
+    expect(html).not.toContain("raw-token");
+    expect(html).not.toContain("response.text()");
   });
 
   it("serves only the configured latest frame file", async () => {

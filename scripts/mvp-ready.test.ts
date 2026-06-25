@@ -7,6 +7,7 @@ import {
   MvpReadyUsageError,
   parseCommandPlanReadiness,
   parseMvpReadyArgs,
+  parseRoleFilteredCommandReadiness,
   parseSmokeReadiness,
   parseSmokeSubchecks,
   runMvpReadyCheck
@@ -72,7 +73,8 @@ describe("MVP ready helper", () => {
           "--token-env",
           "WINBRIDGE_RELAY_SHARED_TOKEN"
         ]
-      }
+      },
+      ...roleFilterPlanSteps()
     ]);
   });
 
@@ -98,7 +100,13 @@ describe("MVP ready helper", () => {
           "WINBRIDGE_RELAY_SHARED_TOKEN"
         ]
       },
-      { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] }
+      ...roleFilterPlanSteps(),
+      { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] },
+      {
+        name: "lan-smoke",
+        command: "npm",
+        args: ["run", "mvp:smoke", "--", "--json", "--lan-relay"]
+      }
     ]);
   });
 
@@ -117,17 +125,15 @@ describe("MVP ready helper", () => {
         if (step.name === "token-command-plan") {
           return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
         }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
         return { ok: true };
       }
     });
 
-    expect(calls).toEqual([
-      "doctor",
-      "native-preflight",
-      "command-plan",
-      "lan-command-plan",
-      "token-command-plan"
-    ]);
+    expect(calls).toEqual(defaultReadyCheckNames());
     expect(result).toEqual({
       ok: true,
       checks: [
@@ -136,7 +142,9 @@ describe("MVP ready helper", () => {
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
-        { name: "smoke", ok: true, skipped: true }
+        ...roleFilterCheckResults(),
+        { name: "smoke", ok: true, skipped: true },
+        { name: "lan-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toBe(
@@ -147,7 +155,13 @@ describe("MVP ready helper", () => {
         "command-plan=ok",
         "lan-command-plan=ok",
         "token-command-plan=ok",
-        "smoke=skipped"
+        "role-filter-relay-command=ok",
+        "role-filter-host-command=ok",
+        "role-filter-viewer-command=ok",
+        "role-filter-browser-command=ok",
+        "role-filter-preflight-command=ok",
+        "smoke=skipped",
+        "lan-smoke=skipped"
       ].join("\n")
     );
   });
@@ -156,7 +170,8 @@ describe("MVP ready helper", () => {
     const calls: string[] = [];
     const smokeOutput = JSON.stringify({
       ok: true,
-      checks: smokeSubchecks()
+      checks: smokeSubchecks(),
+      auditSummary: smokeAuditSummary()
     });
     const result = runMvpReadyCheck({
       includeSmoke: true,
@@ -172,18 +187,17 @@ describe("MVP ready helper", () => {
         if (step.name === "token-command-plan") {
           return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
         }
-        return step.name === "smoke" ? { ok: true, output: smokeOutput } : { ok: true };
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return step.name === "smoke" || step.name === "lan-smoke"
+          ? { ok: true, output: smokeOutput }
+          : { ok: true };
       }
     });
 
-    expect(calls).toEqual([
-      "doctor",
-      "native-preflight",
-      "command-plan",
-      "lan-command-plan",
-      "token-command-plan",
-      "smoke"
-    ]);
+    expect(calls).toEqual([...defaultReadyCheckNames(), "smoke", "lan-smoke"]);
     expect(result).toEqual({
       ok: true,
       checks: [
@@ -192,10 +206,16 @@ describe("MVP ready helper", () => {
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
-        { name: "smoke", ok: true, checks: smokeSubchecks() }
+        ...roleFilterCheckResults(),
+        { name: "smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
+        { name: "lan-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() }
       ]
     });
     expect(formatMvpReadyResult(result)).toContain("smoke.audit=ok");
+    expect(formatMvpReadyResult(result)).toContain("lan-smoke.audit=ok");
+    expect(formatMvpReadyResult(result)).toContain("smoke.audit.host.records=5 accepted=5 denied=0 failed=0");
+    expect(formatMvpReadyResult(result)).toContain("smoke.audit.coverage=authorizationApproved");
+    expect(formatMvpReadyResult(result)).not.toContain("agent-shell");
   });
 
   it("stops after the first failed check with bounded reason metadata", () => {
@@ -287,6 +307,43 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyJsonResult(result)).not.toContain("123-456");
   });
 
+  it("fails closed when LAN command-plan output omits the reviewed relay bind", () => {
+    const result = runMvpReadyCheck({
+      includeSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return {
+            ok: true,
+            output: commandPlanOutput({
+              relayUrl: "ws://192.168.1.10:8787/",
+              relayBindHost: "127.0.0.1"
+            })
+          };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "lan-command-plan", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("127.0.0.1");
+    expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("127.0.0.1");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("192.168.1.10");
+  });
+
   it("fails closed when token command-plan output omits the expected token env", () => {
     const result = runMvpReadyCheck({
       includeSmoke: true,
@@ -324,6 +381,53 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyJsonResult(result)).not.toContain("123-456");
   });
 
+  it("fails closed when role-filter command output is malformed or cross-target", () => {
+    const result = runMvpReadyCheck({
+      includeSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "role-filter-host-command") {
+          return {
+            ok: true,
+            output: `${roleFilterOutput("host")}\nviewer command:\nnpm run dev:agent -- viewer --pairing '123-456'`
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        { name: "role-filter-relay-command", ok: true },
+        { name: "role-filter-host-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("npm run dev:agent");
+    expect(formatMvpReadyResult(result)).not.toContain("123-456");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("npm run dev:agent");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("123-456");
+  });
+
   it("fails closed when included smoke output is missing or malformed", () => {
     const result = runMvpReadyCheck({
       includeSmoke: true,
@@ -337,6 +441,10 @@ describe("MVP ready helper", () => {
         }
         if (step.name === "token-command-plan") {
           return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
         }
         return step.name === "smoke"
           ? { ok: true, output: '{"ok":true,"checks":[{"name":"raw-secret-token","ok":true}]}' }
@@ -353,6 +461,7 @@ describe("MVP ready helper", () => {
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
+        ...roleFilterCheckResults(),
         { name: "smoke", ok: false, reason: "exit-nonzero" }
       ]
     });
@@ -373,6 +482,10 @@ describe("MVP ready helper", () => {
         }
         if (step.name === "token-command-plan") {
           return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
         }
         return step.name === "smoke"
           ? {
@@ -400,6 +513,7 @@ describe("MVP ready helper", () => {
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
+        ...roleFilterCheckResults(),
         { name: "smoke", ok: false, reason: "exit-nonzero", checks: smokeFailureSubchecks() }
       ]
     });
@@ -414,6 +528,7 @@ describe("MVP ready helper", () => {
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
+        ...roleFilterCheckResults(),
         { name: "smoke", ok: false, checks: smokeFailureSubchecks(), reason: "exit-nonzero" }
       ]
     });
@@ -431,7 +546,7 @@ describe("MVP ready helper", () => {
           artifactDir: "C:\\Temp\\raw-secret-token"
         })
       )
-    ).toEqual(smokeSubchecks());
+    ).toBeUndefined();
     expect(
       parseSmokeSubchecks(
         [
@@ -440,11 +555,84 @@ describe("MVP ready helper", () => {
           JSON.stringify({
             ok: true,
             checks: smokeSubchecks(),
+            auditSummary: smokeAuditSummary(),
             artifacts: "cleaned"
           })
         ].join("\n")
       )
     ).toEqual(smokeSubchecks());
+    expect(
+      parseSmokeReadiness(
+        JSON.stringify({
+          ok: true,
+          checks: smokeSubchecks(),
+          auditSummary: smokeAuditSummary(),
+          artifacts: "cleaned"
+        })
+      )
+    ).toEqual({ ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() });
+    expect(
+      parseSmokeSubchecks(
+        JSON.stringify({
+          ok: true,
+          checks: smokeSubchecks(),
+          artifacts: "retained",
+          artifactDir: "C:\\Temp\\raw-secret-token"
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeSubchecks(
+        JSON.stringify({
+          ok: true,
+          checks: smokeSubchecks(),
+          command: "npm run mvp:smoke -- --json",
+          token: "raw-secret-token"
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeReadiness(
+        JSON.stringify({
+          ok: true,
+          checks: smokeSubchecks(),
+          artifacts: "cleaned",
+          auditSummary: {
+            ...smokeAuditSummary(),
+            path: "C:\\Temp\\raw-secret-token"
+          }
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeReadiness(
+        JSON.stringify({
+          ok: true,
+          checks: smokeSubchecks(),
+          artifacts: "cleaned",
+          auditSummary: {
+            host: {
+              ...smokeAuditSummary().host,
+              action: "agent-shell.authorization.active"
+            },
+            viewer: smokeAuditSummary().viewer
+          }
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeReadiness(
+        JSON.stringify({
+          ok: true,
+          checks: smokeSubchecks(),
+          artifacts: "cleaned",
+          auditSummary: {
+            host: { ...smokeAuditSummary().host, records: 1, accepted: 1, denied: 1 },
+            viewer: smokeAuditSummary().viewer
+          }
+        })
+      )
+    ).toBeUndefined();
 
     expect(parseSmokeSubchecks('{"ok":true,"checks":[{"name":"relay","ok":true}]}')).toBeUndefined();
     expect(
@@ -474,6 +662,16 @@ describe("MVP ready helper", () => {
           checks: smokeSubchecks().map((check) =>
             check.name === "audit" ? { ...check, ok: false } : check
           )
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeReadiness(
+        JSON.stringify({
+          ok: false,
+          reason: "signal-not-ready",
+          checks: smokeFailureSubchecks(),
+          stderr: "raw-secret-token"
         })
       )
     ).toBeUndefined();
@@ -534,9 +732,28 @@ describe("MVP ready helper", () => {
     expect(parseCommandPlanReadiness(commandPlanOutput())).toBe(true);
     expect(
       parseCommandPlanReadiness(commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }), {
-        expectedRelayUrl: "ws://192.168.1.10:8787/"
+        expectedRelayUrl: "ws://192.168.1.10:8787/",
+        expectedRelayBindHost: "0.0.0.0"
       })
     ).toBe(true);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/", relayBindHost: "127.0.0.1" }),
+        {
+          expectedRelayUrl: "ws://192.168.1.10:8787/",
+          expectedRelayBindHost: "0.0.0.0"
+        }
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/", relayBindHost: null }),
+        {
+          expectedRelayUrl: "ws://192.168.1.10:8787/",
+          expectedRelayBindHost: "0.0.0.0"
+        }
+      )
+    ).toBe(false);
     expect(
       parseCommandPlanReadiness(commandPlanOutput({ relayUrl: "ws://localhost:8787/" }), {
         expectedRelayUrl: "ws://192.168.1.10:8787/"
@@ -589,6 +806,59 @@ describe("MVP ready helper", () => {
         })
       )
     ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        JSON.stringify({
+          ...JSON.parse(commandPlanOutput()),
+          stdout: "raw-secret-token",
+          artifactPath: "C:\\Temp\\raw-secret-token"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        JSON.stringify({
+          ...JSON.parse(commandPlanOutput()),
+          safety: ["This helper prints commands only.", 42]
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        JSON.stringify({
+          ...JSON.parse(commandPlanOutput()),
+          token: "raw-secret-token"
+        })
+      )
+    ).toBe(false);
+  });
+
+  it("parses only bounded target-specific role-filter command output", () => {
+    for (const target of roleFilterTargets()) {
+      expect(parseRoleFilteredCommandReadiness(roleFilterOutput(target), target)).toBe(true);
+    }
+
+    expect(
+      parseRoleFilteredCommandReadiness(
+        `${roleFilterOutput("host")}\nviewer command:\nnpm run dev:agent -- viewer`,
+        "host"
+      )
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(
+        `${roleFilterOutput("browser")}\nrelay command:\nnpm run dev:relay`,
+        "browser"
+      )
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(
+        `${roleFilterOutput("preflight")}\nhost command:\nnpm run dev:agent -- host --host-apply-input 'true'`,
+        "preflight"
+      )
+    ).toBe(false);
+    expect(parseRoleFilteredCommandReadiness(roleFilterOutput("relay"), "host")).toBe(false);
+    expect(parseRoleFilteredCommandReadiness("x".repeat(32769), "relay")).toBe(false);
+    expect(parseRoleFilteredCommandReadiness(roleFilterOutput("relay"), "unsafe")).toBe(false);
   });
 
   it("formats bounded JSON success and failure output without child output leakage", () => {
@@ -600,7 +870,9 @@ describe("MVP ready helper", () => {
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
-        { name: "smoke", ok: true, skipped: true }
+        ...roleFilterCheckResults(),
+        { name: "smoke", ok: true, skipped: true },
+        { name: "lan-smoke", ok: true, skipped: true }
       ]
     });
     const failure = formatMvpReadyJsonResult({
@@ -619,7 +891,9 @@ describe("MVP ready helper", () => {
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
-        { name: "smoke", ok: true, skipped: true }
+        ...roleFilterCheckResults(),
+        { name: "smoke", ok: true, skipped: true },
+        { name: "lan-smoke", ok: true, skipped: true }
       ]
     });
     expect(JSON.parse(failure)).toEqual({
@@ -640,11 +914,28 @@ describe("MVP ready helper", () => {
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
+        ...roleFilterCheckResults(),
         {
           name: "smoke",
           ok: true,
           checks: smokeSubchecks(),
+          auditSummary: smokeAuditSummary(),
           output: "raw-secret-token"
+        },
+        {
+          name: "lan-smoke",
+          ok: true,
+          checks: smokeSubchecks(),
+          auditSummary: smokeAuditSummary(),
+          output: "raw-secret-token"
+        },
+        {
+          name: "unsafe-smoke",
+          ok: true,
+          auditSummary: {
+            host: { records: "raw-secret-token" },
+            action: "agent-shell.authorization.active"
+          }
         }
       ]
     });
@@ -657,36 +948,169 @@ describe("MVP ready helper", () => {
         { name: "command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
-        { name: "smoke", ok: true, checks: smokeSubchecks() }
+        ...roleFilterCheckResults(),
+        { name: "smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
+        { name: "lan-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
+        { name: "unsafe-smoke", ok: true }
       ]
     });
     expect(output).not.toContain("raw-secret-token");
+    expect(output).not.toContain("agent-shell");
   });
 });
+
+function roleFilterTargets() {
+  return ["relay", "host", "viewer", "browser", "preflight"];
+}
+
+function roleFilterPlanSteps() {
+  return roleFilterTargets().map((target) => ({
+    name: `role-filter-${target}-command`,
+    command: "npm",
+    args: ["run", "mvp:commands", "--", "--only", target]
+  }));
+}
+
+function defaultReadyCheckNames() {
+  return [
+    "doctor",
+    "native-preflight",
+    "command-plan",
+    "lan-command-plan",
+    "token-command-plan",
+    ...roleFilterTargets().map((target) => `role-filter-${target}-command`)
+  ];
+}
+
+function roleFilterCheckResults() {
+  return roleFilterTargets().map((target) => ({
+    name: `role-filter-${target}-command`,
+    ok: true
+  }));
+}
+
+function roleFilterOutputForStep(name: string) {
+  const prefix = "role-filter-";
+  const suffix = "-command";
+  if (!name.startsWith(prefix) || !name.endsWith(suffix)) {
+    return undefined;
+  }
+
+  const target = name.slice(prefix.length, -suffix.length);
+  return roleFilterTargets().includes(target) ? roleFilterOutput(target) : undefined;
+}
+
+function roleFilterOutput(target: string) {
+  if (target === "preflight") {
+    return [
+      "# WinBridge MVP preflight commands",
+      "Run each command manually in a visible PowerShell terminal before a two-PC MVP trial.",
+      "0. Preflight before the two-PC trial:",
+      "- On each Windows machine:",
+      "npm run mvp:ready",
+      "- Individual troubleshooting checks:",
+      "npm run mvp:doctor",
+      "npm run mvp:native-preflight",
+      "- On one local development machine before the two-PC trial:",
+      "npm run mvp:smoke",
+      "Safety checks:",
+      "- Host consent and visible sessions are required before any live assistance trial.",
+      "- Do not proceed if any preflight command fails.",
+      "- This helper printed commands only; it did not start runtime processes or remote assistance actions."
+    ].join("\n");
+  }
+
+  const targetBodies: Record<string, string[]> = {
+    relay: ["relay command:", "npm run dev:relay"],
+    host: [
+      "host command:",
+      "npm run dev:agent -- host --relay 'ws://localhost:8787/' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true' --visible-session 'true' --host-control-prompt 'true' --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl' --host-apply-input 'true' --dev-screen-frame-after-ms '1000' --dev-screen-frame-source 'windows-capture' --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'",
+      "Host controls:",
+      "help | status | pause | resume | revoke screen:view | revoke input:pointer | revoke input:keyboard | terminate | disconnect"
+    ],
+    viewer: [
+      "viewer command:",
+      "npm run dev:agent -- viewer --relay 'ws://localhost:8787/' --session 'demo' --pairing '123-456' --name 'WinBridge Support Viewer' --request 'screen:view,input:pointer,input:keyboard' --request-reason 'MVP remote assistance session' --viewer-signal-probe-after-ms '1000' --audit-log 'logs\\viewer-audit.jsonl' --viewer-screen-frame-output 'frames\\latest.jpg' --viewer-control-surface-port '35987'",
+      "Open the separate browser command on the viewer PC after this viewer command is running."
+    ],
+    browser: [
+      "browser command:",
+      "Start-Process 'http://127.0.0.1:35987/'",
+      "Open only on the viewer PC after the viewer command reports the local control surface URL.",
+      "- Wait for frame=ready before browser pointer control.",
+      "- Click the visible Pointer Off/On control before browser pointer movement, wheel, or button input."
+    ]
+  };
+
+  return [
+    `# WinBridge MVP ${target} command`,
+    "Run this command manually in a visible PowerShell terminal.",
+    "Preflight reminder: run npm run mvp:ready on each Windows machine before a live trial.",
+    "Relay URL: ws://localhost:8787/",
+    ...targetBodies[target],
+    "Safety checks:",
+    "- Host consent and visible sessions are required before live assistance trials.",
+    "- This helper printed commands only; it did not start relay, host, viewer, capture, input, or browser processes.",
+    "- Stop from the host terminal with pause, revoke, terminate, disconnect, or Ctrl+C."
+  ].join("\n");
+}
 
 function smokeSubchecks() {
   return [
     { name: "relay", ok: true },
+    { name: "indicator", ok: true },
     { name: "frame", ok: true },
     { name: "surface", ok: true },
     { name: "signal", ok: true },
     { name: "input", ok: true },
-    { name: "audit", ok: true }
+    { name: "audit", ok: true },
+    { name: "lifecycle", ok: true }
   ];
 }
 
 function smokeFailureSubchecks() {
   return [
     { name: "relay", ok: true },
+    { name: "indicator", ok: true },
     { name: "frame", ok: true },
     { name: "surface", ok: true },
     { name: "signal", ok: false },
     { name: "input", ok: false, skipped: true },
-    { name: "audit", ok: false, skipped: true }
+    { name: "audit", ok: false, skipped: true },
+    { name: "lifecycle", ok: false, skipped: true }
   ];
 }
 
-function commandPlanOutput(options: { relayUrl?: string; tokenEnv?: string } = {}) {
+function smokeAuditSummary() {
+  return {
+    host: {
+      records: 5,
+      accepted: 5,
+      denied: 0,
+      failed: 0,
+      authorizationApproved: true,
+      authorizationActive: true,
+      screenFrameSent: true,
+      screenFrameOutput: false,
+      inputSent: true,
+      permissionRevoked: true
+    },
+    viewer: {
+      records: 1,
+      accepted: 1,
+      denied: 0,
+      failed: 0,
+      authorizationApproved: false,
+      authorizationActive: false,
+      screenFrameSent: false,
+      screenFrameOutput: true,
+      inputSent: false,
+      permissionRevoked: false
+    }
+  };
+}
+
+function commandPlanOutput(options: { relayUrl?: string; tokenEnv?: string; relayBindHost?: string | null } = {}) {
   return JSON.stringify({
     ok: true,
     mode: "session",
@@ -696,13 +1120,11 @@ function commandPlanOutput(options: { relayUrl?: string; tokenEnv?: string } = {
   });
 }
 
-function commandPlanCommands(options: { relayUrl?: string; tokenEnv?: string } = {}) {
+function commandPlanCommands(options: { relayUrl?: string; tokenEnv?: string; relayBindHost?: string | null } = {}) {
   const relayUrl = options.relayUrl ?? "ws://localhost:8787/";
   const tokenArg = options.tokenEnv ? ` --token $env:${options.tokenEnv}` : "";
-  const relayCommand =
-    relayUrl === "ws://localhost:8787/"
-      ? "npm run dev:relay"
-      : "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; npm run dev:relay";
+  const relayBindHost = Object.hasOwn(options, "relayBindHost") ? options.relayBindHost : "0.0.0.0";
+  const relayCommand = commandPlanRelayCommand(relayUrl, relayBindHost);
 
   return [
     { name: "preflight.ready", command: "npm run mvp:ready" },
@@ -720,4 +1142,14 @@ function commandPlanCommands(options: { relayUrl?: string; tokenEnv?: string } =
     },
     { name: "browser", command: "Start-Process 'http://127.0.0.1:35987/'" }
   ];
+}
+
+function commandPlanRelayCommand(relayUrl: string, relayBindHost: string | null | undefined) {
+  if (relayUrl === "ws://localhost:8787/") {
+    return "npm run dev:relay";
+  }
+  if (relayBindHost === null || relayBindHost === undefined) {
+    return "npm run dev:relay";
+  }
+  return `$env:WINBRIDGE_RELAY_BIND_HOST = '${relayBindHost}'; npm run dev:relay`;
 }

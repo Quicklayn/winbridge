@@ -13,7 +13,26 @@ export const MVP_READY_USAGE = [
 ].join("\n");
 
 const FAILURE_REASONS = new Set(["usage", "spawn-failed", "exit-nonzero"]);
-const SAFE_SMOKE_SUBCHECK_NAMES = new Set(["relay", "frame", "surface", "signal", "input", "audit"]);
+const SAFE_SMOKE_SUBCHECK_NAMES = new Set([
+  "relay",
+  "indicator",
+  "frame",
+  "surface",
+  "signal",
+  "input",
+  "audit",
+  "lifecycle"
+]);
+const SAFE_SMOKE_AUDIT_SUMMARY_ROLES = Object.freeze(["host", "viewer"]);
+const SAFE_SMOKE_AUDIT_SUMMARY_COUNTS = Object.freeze(["records", "accepted", "denied", "failed"]);
+const SAFE_SMOKE_AUDIT_SUMMARY_FLAGS = Object.freeze([
+  "authorizationApproved",
+  "authorizationActive",
+  "screenFrameSent",
+  "screenFrameOutput",
+  "inputSent",
+  "permissionRevoked"
+]);
 const REQUIRED_COMMAND_PLAN_NAMES = new Set([
   "preflight.ready",
   "preflight.doctor",
@@ -28,6 +47,28 @@ const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
 const MVP_READY_LAN_RELAY_URL = `ws://${MVP_READY_LAN_RELAY_HOST}:8787/`;
 const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
 const OUTPUT_LIMIT_BYTES = 32768;
+const ROLE_FILTER_TARGETS = Object.freeze(["relay", "host", "viewer", "browser", "preflight"]);
+const ROLE_FILTER_STEP_TARGETS = new Map(
+  ROLE_FILTER_TARGETS.map((target) => [`role-filter-${target}-command`, target])
+);
+const ROLE_FILTER_SHARED_MARKERS = Object.freeze([
+  "Run this command manually in a visible PowerShell terminal.",
+  "Preflight reminder: run npm run mvp:ready on each Windows machine before a live trial.",
+  "Safety checks:",
+  "This helper printed commands only"
+]);
+const ROLE_FILTER_LIVE_COMMAND_MARKERS = Object.freeze([
+  "npm run dev:relay",
+  "npm run dev:agent -- host",
+  "npm run dev:agent -- viewer",
+  "Start-Process 'http://127.0.0.1:35987/'"
+]);
+const ROLE_FILTER_RUNTIME_BLOCK_MARKERS = Object.freeze([
+  "relay command:",
+  "host command:",
+  "viewer command:",
+  "browser command:"
+]);
 
 export class MvpReadyUsageError extends Error {
   constructor() {
@@ -100,7 +141,16 @@ export function createMvpReadyPlan(options = {}) {
       name: "token-command-plan",
       ...commandWithArgs("mvp:commands", ["--json", "--token-env", MVP_READY_TOKEN_ENV_NAME])
     },
-    ...(options.includeSmoke ? [{ name: "smoke", ...commandWithArgs("mvp:smoke", ["--json"]) }] : [])
+    ...ROLE_FILTER_TARGETS.map((target) => ({
+      name: `role-filter-${target}-command`,
+      ...commandWithArgs("mvp:commands", ["--only", target])
+    })),
+    ...(options.includeSmoke
+      ? [
+          { name: "smoke", ...commandWithArgs("mvp:smoke", ["--json"]) },
+          { name: "lan-smoke", ...commandWithArgs("mvp:smoke", ["--json", "--lan-relay"]) }
+        ]
+      : [])
   ];
 }
 
@@ -113,7 +163,7 @@ export function runMvpReadyCheck(options = {}) {
     const result = runCommand(step);
     if (!result.ok) {
       const smokeResult =
-        step.name === "smoke" && result.reason === "exit-nonzero"
+        isSmokeStep(step.name) && result.reason === "exit-nonzero"
           ? parseSmokeReadiness(result.output)
           : undefined;
       const failed = {
@@ -147,7 +197,10 @@ export function runMvpReadyCheck(options = {}) {
 
     if (
       step.name === "lan-command-plan" &&
-      !parseCommandPlanReadiness(result.output, { expectedRelayUrl: MVP_READY_LAN_RELAY_URL })
+      !parseCommandPlanReadiness(result.output, {
+        expectedRelayUrl: MVP_READY_LAN_RELAY_URL,
+        expectedRelayBindHost: "0.0.0.0"
+      })
     ) {
       const failed = {
         name: step.name,
@@ -179,7 +232,25 @@ export function runMvpReadyCheck(options = {}) {
       };
     }
 
-    if (step.name === "smoke") {
+    const roleFilterTarget = roleFilterTargetForStep(step.name);
+    if (
+      roleFilterTarget !== undefined &&
+      !parseRoleFilteredCommandReadiness(result.output, roleFilterTarget)
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (isSmokeStep(step.name)) {
       const smokeResult = parseSmokeReadiness(result.output);
       if (smokeResult?.ok !== true) {
         const failed = {
@@ -196,6 +267,9 @@ export function runMvpReadyCheck(options = {}) {
         };
       }
       check.checks = smokeResult.checks;
+      if (smokeResult.auditSummary) {
+        check.auditSummary = smokeResult.auditSummary;
+      }
     }
 
     checks.push(check);
@@ -203,6 +277,7 @@ export function runMvpReadyCheck(options = {}) {
 
   if (!options.includeSmoke) {
     checks.push({ name: "smoke", ok: true, skipped: true });
+    checks.push({ name: "lan-smoke", ok: true, skipped: true });
   }
 
   return {
@@ -232,6 +307,10 @@ export function formatMvpReadyResult(result) {
         lines.push(`${check.name}.${subcheck.name}=${subcheck.ok === true ? "ok" : "failed"}`);
       }
     }
+    const auditSummary = parseSmokeAuditSummary(check.auditSummary);
+    if (auditSummary) {
+      lines.push(...formatReadyAuditSummaryLines(check.name, auditSummary));
+    }
   }
 
   return lines.join("\n");
@@ -247,6 +326,9 @@ export function formatMvpReadyJsonResult(result) {
       ...(check.skipped ? { skipped: true } : {}),
       ...(Array.isArray(check.checks)
         ? { checks: check.checks.map(formatSmokeSubcheckJson) }
+        : {}),
+      ...(parseSmokeAuditSummary(check.auditSummary)
+        ? { auditSummary: parseSmokeAuditSummary(check.auditSummary) }
         : {}),
       ...(check.ok ? {} : { reason: safeReadyReason(check.reason) })
     }))
@@ -288,6 +370,14 @@ function runReadyCommand(step) {
     : { ok: false, reason: "exit-nonzero", output: boundedOutput(`${result.stdout}\n${result.stderr}`) };
 }
 
+function isSmokeStep(name) {
+  return name === "smoke" || name === "lan-smoke";
+}
+
+function roleFilterTargetForStep(name) {
+  return ROLE_FILTER_STEP_TARGETS.get(name);
+}
+
 export function parseCommandPlanReadiness(output, options = {}) {
   if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
     return false;
@@ -296,6 +386,7 @@ export function parseCommandPlanReadiness(output, options = {}) {
   const parsed = parseLastJsonOutputLine(output);
   if (
     !parsed ||
+    !hasExactCommandPlanShape(parsed) ||
     parsed.ok !== true ||
     parsed.mode !== "session" ||
     parsed.nonExecuting !== true ||
@@ -326,7 +417,9 @@ export function parseCommandPlanReadiness(output, options = {}) {
 
   if (
     options.expectedRelayUrl !== undefined &&
-    !commandPlanUsesRelayUrl(commandsByName, options.expectedRelayUrl)
+    !commandPlanUsesRelayUrl(commandsByName, options.expectedRelayUrl, {
+      expectedRelayBindHost: options.expectedRelayBindHost
+    })
   ) {
     return false;
   }
@@ -341,7 +434,112 @@ export function parseCommandPlanReadiness(output, options = {}) {
   return true;
 }
 
-function commandPlanUsesRelayUrl(commandsByName, expectedRelayUrl) {
+export function parseRoleFilteredCommandReadiness(output, target) {
+  if (
+    typeof output !== "string" ||
+    output.length === 0 ||
+    output.length > OUTPUT_LIMIT_BYTES ||
+    !ROLE_FILTER_TARGETS.includes(target)
+  ) {
+    return false;
+  }
+
+  return roleFilterMarkersForTarget(target).every((marker) => output.includes(marker)) &&
+    roleFilterForbiddenMarkersForTarget(target).every((marker) => !output.includes(marker));
+}
+
+function roleFilterMarkersForTarget(target) {
+  if (target === "preflight") {
+    return [
+      "# WinBridge MVP preflight commands",
+      "Run each command manually in a visible PowerShell terminal before a two-PC MVP trial.",
+      "npm run mvp:ready",
+      "npm run mvp:doctor",
+      "npm run mvp:native-preflight",
+      "npm run mvp:smoke",
+      "Safety checks:",
+      "This helper printed commands only"
+    ];
+  }
+
+  const targetMarkers = {
+    relay: ["# WinBridge MVP relay command", "Relay URL:", "relay command:", "npm run dev:relay"],
+    host: [
+      "# WinBridge MVP host command",
+      "Relay URL:",
+      "host command:",
+      "npm run dev:agent -- host",
+      "--host-consent-prompt 'true'",
+      "--visible-session 'true'",
+      "--host-control-prompt 'true'",
+      "--host-signal-probe-ack 'true'",
+      "Host controls:"
+    ],
+    viewer: [
+      "# WinBridge MVP viewer command",
+      "Relay URL:",
+      "viewer command:",
+      "npm run dev:agent -- viewer",
+      "--request 'screen:view,input:pointer,input:keyboard'",
+      "--request-reason 'MVP remote assistance session'",
+      "--viewer-signal-probe-after-ms",
+      "--viewer-control-surface-port"
+    ],
+    browser: [
+      "# WinBridge MVP browser command",
+      "Relay URL:",
+      "browser command:",
+      "Start-Process 'http://127.0.0.1:35987/'",
+      "Wait for frame=ready",
+      "Click the visible Pointer Off/On control"
+    ]
+  };
+
+  return [...ROLE_FILTER_SHARED_MARKERS, ...targetMarkers[target]];
+}
+
+function roleFilterForbiddenMarkersForTarget(target) {
+  if (target === "preflight") {
+    return [
+      "Relay URL:",
+      ...ROLE_FILTER_RUNTIME_BLOCK_MARKERS,
+      ...ROLE_FILTER_LIVE_COMMAND_MARKERS,
+      "--host-apply-input",
+      "windows-capture",
+      "--viewer-control-surface-port"
+    ];
+  }
+
+  return [
+    ...ROLE_FILTER_RUNTIME_BLOCK_MARKERS.filter((marker) => marker !== `${target} command:`),
+    ...ROLE_FILTER_LIVE_COMMAND_MARKERS.filter((marker) => !roleFilterAllowedLiveMarker(target, marker)),
+    "# WinBridge MVP preflight commands"
+  ];
+}
+
+function roleFilterAllowedLiveMarker(target, marker) {
+  return (
+    (target === "relay" && marker === "npm run dev:relay") ||
+    (target === "host" && marker === "npm run dev:agent -- host") ||
+    (target === "viewer" && marker === "npm run dev:agent -- viewer") ||
+    (target === "browser" && marker === "Start-Process 'http://127.0.0.1:35987/'")
+  );
+}
+
+function hasExactCommandPlanShape(parsed) {
+  const keys = Object.keys(parsed);
+  return (
+    keys.includes("ok") &&
+    keys.includes("mode") &&
+    keys.includes("nonExecuting") &&
+    keys.includes("commands") &&
+    keys.every((key) => key === "ok" || key === "mode" || key === "nonExecuting" || key === "commands" || key === "safety") &&
+    (!keys.includes("safety") ||
+      (Array.isArray(parsed.safety) && parsed.safety.every((item) => typeof item === "string")))
+  );
+}
+
+function commandPlanUsesRelayUrl(commandsByName, expectedRelayUrl, options = {}) {
   if (typeof expectedRelayUrl !== "string" || expectedRelayUrl.length === 0) {
     return false;
   }
@@ -354,10 +552,22 @@ function commandPlanUsesRelayUrl(commandsByName, expectedRelayUrl) {
     typeof relayCommand === "string" &&
     typeof hostCommand === "string" &&
     typeof viewerCommand === "string" &&
-    relayCommand.includes("WINBRIDGE_RELAY_BIND_HOST") &&
+    commandPlanRelayBindMatches(relayCommand, options.expectedRelayBindHost) &&
     hostCommand.includes(expectedRelayUrl) &&
     viewerCommand.includes(expectedRelayUrl)
   );
+}
+
+function commandPlanRelayBindMatches(relayCommand, expectedRelayBindHost) {
+  if (expectedRelayBindHost === undefined) {
+    return relayCommand.includes("WINBRIDGE_RELAY_BIND_HOST");
+  }
+
+  if (expectedRelayBindHost !== "0.0.0.0") {
+    return false;
+  }
+
+  return relayCommand.includes("$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'");
 }
 
 function commandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
@@ -392,7 +602,12 @@ export function parseSmokeReadiness(output) {
     return undefined;
   }
 
-  if (!parsed || (parsed.ok !== true && parsed.ok !== false) || !Array.isArray(parsed.checks)) {
+  if (
+    !parsed ||
+    !hasExactSmokeReadinessShape(parsed) ||
+    (parsed.ok !== true && parsed.ok !== false) ||
+    !Array.isArray(parsed.checks)
+  ) {
     return undefined;
   }
 
@@ -429,7 +644,15 @@ export function parseSmokeReadiness(output) {
     return undefined;
   }
 
-  return { ok: expectedOk, checks: subchecks };
+  const auditSummary =
+    expectedOk && "auditSummary" in parsed
+      ? parseSmokeAuditSummary(parsed.auditSummary)
+      : undefined;
+  if (expectedOk && "auditSummary" in parsed && auditSummary === undefined) {
+    return undefined;
+  }
+
+  return { ok: expectedOk, checks: subchecks, ...(auditSummary ? { auditSummary } : {}) };
 }
 
 function hasExactSmokeSubcheckShape(check) {
@@ -441,12 +664,102 @@ function hasExactSmokeSubcheckShape(check) {
   );
 }
 
+function hasExactSmokeReadinessShape(result) {
+  const keys = Object.keys(result);
+  if (!keys.includes("ok") || !keys.includes("checks")) {
+    return false;
+  }
+
+  if (result.ok === true) {
+    return (
+      keys.every((key) => key === "ok" || key === "checks" || key === "artifacts" || key === "auditSummary") &&
+      (!keys.includes("artifacts") || result.artifacts === "cleaned")
+    );
+  }
+
+  if (result.ok === false) {
+    return keys.every((key) => key === "ok" || key === "checks" || key === "reason");
+  }
+
+  return false;
+}
+
 function formatSmokeSubcheckJson(subcheck) {
   return {
     name: subcheck.name,
     ok: subcheck.ok === true,
     ...(subcheck.skipped ? { skipped: true } : {})
   };
+}
+
+function parseSmokeAuditSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const keys = Object.keys(value);
+  if (
+    keys.length !== SAFE_SMOKE_AUDIT_SUMMARY_ROLES.length ||
+    !SAFE_SMOKE_AUDIT_SUMMARY_ROLES.every((role) => keys.includes(role))
+  ) {
+    return undefined;
+  }
+
+  const summary = {};
+  for (const role of SAFE_SMOKE_AUDIT_SUMMARY_ROLES) {
+    const roleSummary = parseSmokeAuditRoleSummary(value[role]);
+    if (!roleSummary) {
+      return undefined;
+    }
+    summary[role] = roleSummary;
+  }
+  return summary;
+}
+
+function parseSmokeAuditRoleSummary(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const expectedKeys = [...SAFE_SMOKE_AUDIT_SUMMARY_COUNTS, ...SAFE_SMOKE_AUDIT_SUMMARY_FLAGS];
+  const keys = Object.keys(value);
+  if (keys.length !== expectedKeys.length || !expectedKeys.every((key) => keys.includes(key))) {
+    return undefined;
+  }
+
+  const summary = {};
+  for (const key of SAFE_SMOKE_AUDIT_SUMMARY_COUNTS) {
+    const count = value[key];
+    if (!Number.isSafeInteger(count) || count < 0 || count > 100_000) {
+      return undefined;
+    }
+    summary[key] = count;
+  }
+  if (summary.accepted + summary.denied + summary.failed !== summary.records) {
+    return undefined;
+  }
+  for (const key of SAFE_SMOKE_AUDIT_SUMMARY_FLAGS) {
+    if (typeof value[key] !== "boolean") {
+      return undefined;
+    }
+    summary[key] = value[key];
+  }
+  return summary;
+}
+
+function formatReadyAuditSummaryLines(checkName, summary) {
+  const coverage = SAFE_SMOKE_AUDIT_SUMMARY_FLAGS.filter(
+    (flag) => summary.host?.[flag] === true || summary.viewer?.[flag] === true
+  );
+  return [
+    formatReadyAuditRoleSummaryLine(checkName, "host", summary.host),
+    formatReadyAuditRoleSummaryLine(checkName, "viewer", summary.viewer),
+    `${checkName}.audit.coverage=${coverage.length > 0 ? coverage.join(",") : "none"}`
+  ];
+}
+
+function formatReadyAuditRoleSummaryLine(checkName, role, summary) {
+  return `${checkName}.audit.${role}.records=${summary.records} accepted=${summary.accepted} denied=${summary.denied} failed=${summary.failed}`;
 }
 
 function parseLastJsonOutputLine(output) {

@@ -487,26 +487,49 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     const frameStatus = document.getElementById("frameStatus");
     const pointerArm = document.getElementById("pointerArm");
     const command = document.getElementById("command");
+    const sendButton = document.getElementById("send");
     const mutationToken = ${JSON.stringify(token)};
     let lastMoveAt = 0;
     let pointerArmed = false;
     let frameReady = false;
+    let statusInputReady = false;
     let frameRequestSequence = 0;
+    let displayedFrameLoadedAt = undefined;
+    const frameStaleAfterMs = 5000;
     const activeModifiers = new Set();
     const modifierButtons = Array.from(document.querySelectorAll("[data-key-modifier]"));
+    const keyCommandButtons = Array.from(document.querySelectorAll("[data-key-command]"));
+
+    function isLocalInputReady() {
+      return frameReady && statusInputReady;
+    }
 
     function updatePointerArm() {
+      if (!isLocalInputReady()) {
+        pointerArmed = false;
+      }
       pointerArm.textContent = pointerArmed ? "Pointer On" : "Pointer Off";
       pointerArm.setAttribute("aria-pressed", pointerArmed ? "true" : "false");
-      pointerArm.disabled = !frameReady;
+      pointerArm.disabled = !isLocalInputReady();
     }
 
     function updateModifierButtons() {
+      const disabled = !isLocalInputReady();
       for (const button of modifierButtons) {
         const modifier = button.dataset.keyModifier;
         const pressed = typeof modifier === "string" && activeModifiers.has(modifier);
         button.setAttribute("aria-pressed", pressed ? "true" : "false");
-        button.disabled = !frameReady;
+        button.disabled = disabled;
+      }
+    }
+
+    function updateInputControls() {
+      const disabled = !isLocalInputReady();
+      updatePointerArm();
+      updateModifierButtons();
+      sendButton.disabled = disabled;
+      for (const button of keyCommandButtons) {
+        button.disabled = disabled;
       }
     }
 
@@ -531,11 +554,32 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
       const response = await fetch("/status", { cache: "no-store" });
       const body = await response.json();
       if (body.ok && body.state) {
+        statusInputReady = body.state.state === "active" && body.state.visibleToHost === true && Number.isInteger(body.state.permissionCount) && body.state.permissionCount > 0;
         const signalAck = body.state.signalProbeAckReceived === true ? " signalProbeAckReceived=true" : "";
-        status.textContent = "state=" + body.state.state + " visibleToHost=" + body.state.visibleToHost + " permissionCount=" + body.state.permissionCount + signalAck;
+        status.textContent = "state=" + body.state.state + " visibleToHost=" + body.state.visibleToHost + " permissionCount=" + body.state.permissionCount + " inputReady=" + statusInputReady + signalAck;
       } else {
+        statusInputReady = false;
         status.textContent = "status=not-ready";
       }
+      updateInputControls();
+    }
+
+    function frameAgeBucket(ageMs) {
+      if (!Number.isFinite(ageMs) || ageMs < 0) return "unknown";
+      if (ageMs < 1000) return "0";
+      if (ageMs < 5000) return "1000";
+      if (ageMs < 15000) return "5000";
+      if (ageMs < 30000) return "15000";
+      return "30000";
+    }
+
+    function updateFrameFreshness() {
+      if (!frameReady || displayedFrameLoadedAt === undefined) {
+        return;
+      }
+      const ageMs = Date.now() - displayedFrameLoadedAt;
+      const stale = ageMs >= frameStaleAfterMs;
+      frameStatus.textContent = "frame=" + (stale ? "stale" : "ready") + " frameAgeMs=" + frameAgeBucket(ageMs);
     }
 
     function refreshFrame() {
@@ -548,19 +592,20 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
         if (requestSequence !== frameRequestSequence) return;
         frame.src = frameUrl;
         frameReady = true;
-        updatePointerArm();
-        frameStatus.textContent = "frame=ready";
+        displayedFrameLoadedAt = Date.now();
+        updateInputControls();
+        updateFrameFreshness();
       });
 
       nextFrame.addEventListener("error", () => {
         if (requestSequence !== frameRequestSequence) return;
         if (!frameReady) {
           pointerArmed = false;
-          updatePointerArm();
+          updateInputControls();
           frameStatus.textContent = "frame=not-ready";
           return;
         }
-        frameStatus.textContent = "frame=ready";
+        updateFrameFreshness();
       });
 
       nextFrame.src = frameUrl;
@@ -608,7 +653,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     }
 
     frame.addEventListener("pointerdown", (event) => {
-      if (!pointerArmed || !frameReady) return;
+      if (!pointerArmed || !isLocalInputReady()) return;
       const point = normalizedPointer(event);
       if (!point) return;
       event.preventDefault();
@@ -617,7 +662,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     frame.addEventListener("pointerup", (event) => {
-      if (!pointerArmed || !frameReady) return;
+      if (!pointerArmed || !isLocalInputReady()) return;
       const point = normalizedPointer(event);
       if (!point) return;
       event.preventDefault();
@@ -625,7 +670,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     frame.addEventListener("pointermove", (event) => {
-      if (!pointerArmed || !frameReady) return;
+      if (!pointerArmed || !isLocalInputReady()) return;
       const now = Date.now();
       if (now - lastMoveAt < 50) return;
       const point = normalizedPointer(event);
@@ -635,7 +680,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     frame.addEventListener("wheel", (event) => {
-      if (!pointerArmed || !frameReady) return;
+      if (!pointerArmed || !isLocalInputReady()) return;
       const point = normalizedPointer(event);
       if (!point) return;
       event.preventDefault();
@@ -651,14 +696,14 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     pointerArm.addEventListener("click", () => {
-      if (!frameReady) return;
+      if (!isLocalInputReady()) return;
       pointerArmed = !pointerArmed;
       updatePointerArm();
     });
 
     for (const button of modifierButtons) {
       button.addEventListener("click", () => {
-        if (!frameReady) return;
+        if (!isLocalInputReady()) return;
         const modifier = button.dataset.keyModifier;
         if (typeof modifier !== "string") return;
         if (activeModifiers.has(modifier)) {
@@ -671,18 +716,21 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     }
 
     document.getElementById("send").addEventListener("click", () => {
+      if (!isLocalInputReady()) return;
       void sendCommand(command.value);
       command.value = "";
     });
 
-    for (const button of document.querySelectorAll("[data-key-command]")) {
+    for (const button of keyCommandButtons) {
       button.addEventListener("click", () => {
+        if (!isLocalInputReady()) return;
         void sendKeyPress(button.dataset.keyCommand);
       });
     }
 
     command.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
+        if (!isLocalInputReady()) return;
         void sendCommand(command.value);
         command.value = "";
       }
@@ -695,10 +743,12 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
 
     setInterval(refreshStatus, 1000);
     setInterval(refreshFrame, 1000);
+    setInterval(updateFrameFreshness, 1000);
     void refreshStatus();
     refreshFrame();
     updatePointerArm();
     updateModifierButtons();
+    updateInputControls();
   </script>
 </body>
 </html>`;

@@ -101,124 +101,44 @@ dumps, evade AV/EDR, bypass Windows prompts, or keep background handles alive.
 The project SHALL provide a root development smoke check that starts a bounded
 local relay, host, and viewer session through the existing CLI entrypoints,
 using static development frames and explicit visible host authorization. The
-smoke check SHALL verify that the viewer publishes a latest-frame file for the
-current run, that the loopback viewer surface serves both the generated HTML
-and current frame endpoint, that the loopback viewer status endpoint reports
-the bounded host acknowledgement readiness flag
-`signalProbeAckReceived=true` for the current consent-bound signal probe, that
-the loopback viewer surface accepts one bounded pointer command and one bounded
-keyboard command with explicit modifiers through its token-protected local
-`/input` path, and that both configured host and viewer local JSONL audit files
-contain bounded schema-like audit records for the smoke run. The smoke check
-MUST stop all child processes after success, failure, timeout, or interrupt. By
-default, it SHALL remove the temporary smoke work directory before exit. When
-the developer explicitly passes `--keep-artifacts`, the smoke check SHALL
-retain the smoke work directory and print bounded metadata identifying that
-directory on success. When invoked with `--json`, the smoke check SHALL emit
-bounded machine-readable result metadata containing only `ok`, optional safe
-reason codes, per-check bounded status records, artifact cleanup state, and
-the retained artifact directory only when explicitly requested with
-`--keep-artifacts`. It MUST NOT invoke Windows capture, apply OS input, launch
-a browser, install services, configure startup persistence, run unattended,
-elevate privileges, collect credentials, read clipboard data, transfer files,
-collect diagnostics dumps, evade AV/EDR, bypass Windows prompts, or hide the
-host visible-session state.
+host CLI child process SHALL emit a bounded visible active-session indicator
+marker that the smoke check can observe in captured child output. The smoke
+check SHALL verify that this host indicator marker is active, visible to the
+host, and has a positive permission count before continuing to frame, surface,
+signal, input, audit, and lifecycle checks. The smoke check SHALL verify that
+the viewer publishes a latest-frame file for the current run, that the loopback
+viewer surface serves both the generated HTML and current frame endpoint, that
+the loopback viewer status endpoint reports the bounded host acknowledgement
+readiness flag `signalProbeAckReceived=true` for the current consent-bound
+signal probe, that the loopback viewer surface accepts one bounded pointer
+command and one bounded keyboard command with explicit modifiers through its
+token-protected local `/input` path, and that both configured host and viewer
+local JSONL audit files contain bounded schema-like audit records for the smoke
+run. The smoke check MUST stop all child processes after success, failure,
+timeout, or interrupt. By default, it SHALL remove the temporary smoke work
+directory before exit. When the developer explicitly passes `--keep-artifacts`,
+the smoke check SHALL retain the smoke work directory and print bounded
+metadata identifying that directory on success. When invoked with `--json`, the
+smoke check SHALL emit bounded machine-readable result metadata containing only
+`ok`, optional safe reason codes, per-check bounded status records, artifact
+cleanup state, and the retained artifact directory only when explicitly
+requested with `--keep-artifacts`. It MUST NOT invoke Windows capture, apply OS
+input, launch a browser, install services, configure startup persistence, run
+unattended, elevate privileges, collect credentials, read clipboard data,
+transfer files, collect diagnostics dumps, evade AV/EDR, bypass Windows
+prompts, or hide the host visible-session state.
 
-#### Scenario: Smoke check emits bounded JSON success
-
-- **WHEN** a developer runs the root MVP smoke check with `--json`
-- **THEN** it emits JSON with bounded success status and per-check metadata for
-  relay, frame, surface, signal, input, and audit readiness
-- **AND** default JSON output states artifacts were cleaned
-- **AND** JSON output MUST NOT include frame paths, surface URLs, audit paths,
-  raw audit contents, mutation tokens, authorization ids, raw signal payloads,
-  raw input commands, raw child process output, relay tokens, pairing codes,
-  credentials, private reasons, screen contents, input contents, clipboard
-  contents, file-transfer contents, diagnostics dumps, or full secrets
-
-#### Scenario: Smoke check emits bounded JSON failure
-
-- **WHEN** the smoke check fails while invoked with `--json`
-- **THEN** it emits JSON with `ok=false` and only a safe bounded reason code when
-  one is available
-- **AND** for known relay, frame, surface, signal, input, or audit step failures,
-  it MAY emit fixed subcheck status records using only fixed subcheck names,
-  boolean `ok` values, and optional boolean `skipped` markers
-- **AND** failure subcheck records MUST NOT include local paths, URLs, commands,
-  ports, process ids, raw exceptions, stdout, stderr, frame bytes, audit paths,
-  raw audit contents, mutation tokens, authorization ids, raw signal payloads,
-  raw input commands, tokens, pairing codes, credentials, private reasons,
-  screen contents, input contents, clipboard contents, file-transfer contents,
-  diagnostics dumps, or full secrets
-- **AND** diagnostics MUST NOT expose raw frame bytes, audit paths, raw audit
-  contents, mutation tokens, authorization ids, raw signal payloads, raw input
-  commands, tokens, pairing codes, credentials, private reasons, raw command
-  output, screen contents, input contents, clipboard contents, file-transfer
-  contents, diagnostics dumps, or full secrets
-
-#### Scenario: Smoke check succeeds for static frame transport
+#### Scenario: Smoke check observes CLI-visible host indicator
 
 - **WHEN** a developer runs the root MVP smoke check with default options
-- **THEN** it starts a local development relay, host, and viewer with a bounded
-  static frame stream, host signal acknowledgement enabled, bounded viewer
-  signal probe, and configured local host/viewer audit paths
-- **AND** it waits until the viewer latest-frame output exists for the current
-  run
-- **AND** it verifies that the loopback viewer surface returns HTML and a JPEG
-  or PNG frame response
-- **AND** it verifies that the sanitized loopback viewer status endpoint reports
-  `signalProbeAckReceived=true`
-- **AND** it verifies that the token-protected local `/input` endpoint accepts
-  one bounded pointer command
-- **AND** it verifies that the token-protected local `/input` endpoint accepts
-  one bounded keyboard command with explicit modifiers
-- **AND** it verifies that both host and viewer audit JSONL files contain
-  bounded schema-like audit records
-- **AND** it stops relay, host, and viewer processes before exiting
-- **AND** it removes the temporary smoke work directory before exit
-
-#### Scenario: Smoke check retains artifacts only when explicitly requested
-
-- **WHEN** a developer runs the root MVP smoke check with `--keep-artifacts`
-- **THEN** the same local static workflow checks run
-- **AND** relay, host, and viewer processes are still stopped before exit
-- **AND** the smoke work directory is retained for local troubleshooting
-- **AND** success output includes only bounded artifact directory metadata
-- **AND** diagnostics MUST NOT expose raw frame bytes, audit paths, raw audit
-  contents, local surface mutation tokens, authorization ids, raw signal
-  payloads, raw input commands, relay tokens, pairing codes, credentials,
-  private reasons, raw child process output, screen contents, input contents,
-  clipboard contents, file-transfer contents, or diagnostics dumps
-
-#### Scenario: Smoke check fails closed
-
-- **WHEN** the smoke check times out, a child exits unexpectedly, the frame file
-  is not published, the loopback viewer surface does not become ready, the
-  viewer signal acknowledgement readiness flag is not observed, the viewer
-  surface token is unavailable, the local `/input` endpoint does not accept a
-  bounded pointer or keyboard command, or either local audit JSONL file is
-  absent, empty, or malformed
-- **THEN** it exits non-zero with bounded diagnostics
-- **AND** it stops any started child processes before returning control
-- **AND** diagnostics MUST NOT expose raw frame bytes, audit paths, raw audit
-  contents, mutation tokens, authorization ids, raw signal payloads, raw input
-  commands, tokens, pairing codes, credentials, private reasons, raw command
-  output, screen contents, input contents, clipboard contents, file-transfer
-  contents, or diagnostics dumps
-
-#### Scenario: Smoke check remains development-scoped
-
-- **WHEN** the smoke check starts the local host and viewer processes
-- **THEN** the host approval is explicit in the command arguments and the host
-  visible-session option remains enabled
-- **AND** the development signal probe remains non-authorizing readiness
-  metadata
-- **AND** audit verification only reads the configured local smoke audit files
-- **AND** the check MUST NOT use `windows-capture`, `--host-apply-input true`,
-  browser automation, browser pointer control, keyboard buttons, clipboard,
-  macros, file transfer, diagnostics collection, services, startup persistence,
-  privilege elevation, unattended access, hidden sessions, or Windows prompt
-  bypass
+- **THEN** the host CLI child output includes a bounded
+  `[winbridge-agent] host indicator` marker for the active visible session
+- **AND** the smoke check verifies that marker before frame, surface, signal,
+  input, audit, and lifecycle checks
+- **AND** the marker and smoke diagnostics MUST NOT expose raw protocol
+  payloads, tokens, pairing codes, credentials, private reasons, screen
+  contents, input contents, clipboard contents, file-transfer contents,
+  diagnostics dumps, or full secrets
 
 ### Requirement: MVP doctor validates local readiness without side effects
 
@@ -226,26 +146,36 @@ host visible-session state.
 without starting relay, host, viewer, browser, capture, input, services,
 startup persistence, unattended access, or network listeners. The doctor SHALL
 check the local Windows platform, supported Node runtime, required root scripts
-including `mvp:ready` and `mvp:native-preflight`, required workspace manifests,
-required root MVP helper script entrypoints, and required source entrypoints for
-the relay, protocol, audit, Windows capture, Windows input, and critical
-agent-shell MVP modules including host controls, viewer controls, viewer frame
-output, viewer local control surface, screen-frame output, and CLI shutdown.
-Its default success output SHALL include bounded readiness lines for platform,
-Node, scripts, workspaces, entrypoints, and visible-consent safety. When invoked
-with `--json`, it SHALL emit bounded machine-readable readiness metadata
-containing only `ok`, optional bounded reason codes, and per-check bounded
-status records. Its failure output SHALL use bounded reason codes only and MUST
-NOT include raw paths, tokens, pairing codes, credentials, screen contents,
-keystrokes, or full secrets.
+including `mvp:ready` and `mvp:native-preflight`, required root script
+alignment for the reviewed `dev:agent`, `dev:relay`, and `mvp:smoke`
+workflows, required workspace manifests, required root MVP helper script
+entrypoints, and required source entrypoints for the relay, protocol, audit,
+Windows capture, Windows input, and critical agent-shell MVP modules including
+host controls, viewer controls, viewer frame output, viewer local control
+surface, screen-frame output, and CLI shutdown. The `dev:agent` script
+alignment check SHALL require the protocol, audit-log, Windows capture, and
+Windows input workspace builds before the agent-shell development entrypoint.
+The `dev:relay` script alignment check SHALL require the protocol and audit-log
+workspace builds before the relay development entrypoint. The `mvp:smoke`
+script alignment check SHALL require a root build before the smoke helper
+entrypoint. Its default success output SHALL include bounded readiness lines for
+platform, Node, scripts, workspaces, entrypoints, and visible-consent safety.
+When invoked with `--json`, it SHALL emit bounded machine-readable readiness
+metadata containing only `ok`, optional bounded reason codes, and per-check
+bounded status records. Its failure output SHALL use bounded reason codes only
+and MUST NOT include raw script bodies, package JSON content, raw paths, tokens,
+pairing codes, credentials, screen contents, keystrokes, environment values,
+stdout, stderr, or full secrets.
 
-#### Scenario: Doctor fails when a critical agent-shell MVP module is missing
+#### Scenario: Doctor fails when root scripts drift from the reviewed MVP workflow
 
-- **WHEN** a critical agent-shell MVP module required by the generated two-PC
-  command plan is missing
-- **THEN** the doctor exits with a bounded `missing-entrypoint` reason
-- **AND** the output MUST NOT include the missing path, tokens, pairing codes,
-  credentials, screen contents, keystrokes, or full secrets
+- **WHEN** a required root MVP script exists but no longer contains the
+  reviewed ordered workspace build or helper entrypoint chain
+- **THEN** the doctor exits with the bounded `script-misaligned` reason
+- **AND** output includes only fixed readiness check metadata
+- **AND** output MUST NOT echo script bodies, package JSON content, paths,
+  environment values, tokens, pairing codes, credentials, screen contents,
+  keystrokes, stdout, stderr, or full secrets
 
 ### Requirement: MVP native preflight validates native Windows readiness without side effects
 
@@ -288,45 +218,308 @@ keystrokes, private reasons, or full secrets.
 The project SHALL provide a root `npm run mvp:ready` helper that aggregates
 local MVP readiness checks before a two-PC trial. By default it SHALL run the
 root MVP doctor, root MVP native preflight, root MVP localhost command-plan
-validation, root MVP representative LAN command-plan validation, and root MVP
-shared-token command-plan validation sequentially, stop after the first failed
-check, and report only bounded check status metadata. The localhost
-command-plan validation SHALL run the existing non-executing MVP command kit in
-bounded JSON mode, verify that it emits an `ok=true` non-executing session
-command plan with the fixed command names `preflight.ready`,
-`preflight.doctor`, `preflight.native`, `preflight.smoke`, `relay`, `host`,
-`viewer`, and `browser`, and MUST NOT surface raw command strings or child
-output. The representative LAN command-plan validation SHALL run the existing
-non-executing MVP command kit in bounded JSON mode with a fixed safe LAN relay
-host, verify the same fixed command names, and verify that the relay, host, and
-viewer command entries target the derived LAN relay URL without surfacing raw
-command strings or child output. The shared-token command-plan validation SHALL
-run the existing non-executing MVP command kit in bounded JSON mode with a
-fixed safe token environment variable name, verify the same fixed command
-names, and verify that the host and viewer command entries reference that token
-environment variable without surfacing raw command strings or child output.
-When invoked with `--include-smoke`, it SHALL also run the existing root MVP
-smoke check after the default checks pass. The included smoke step SHALL use
-the smoke check's bounded JSON mode and MAY surface fixed safe smoke subchecks
-for relay, frame, surface, signal, input, and audit readiness or failure status
-in the aggregate ready output. Smoke subcheck records MUST be rejected unless
-they contain only the fixed safe `name`, boolean `ok`, and optional boolean
-`skipped` fields. When invoked with `--json`, it SHALL emit bounded
-machine-readable aggregate readiness metadata containing only `ok`, optional
-bounded reason codes, per-check bounded status records, optional fixed smoke
-subcheck status records, and safe skipped state. It MUST NOT echo raw child
-stdout/stderr, generated command strings, frame paths, surface URLs, audit
-paths, frame bytes, surface mutation tokens, raw input commands, relay tokens,
-pairing codes, credentials, private reasons, raw signal payloads, raw audit
-contents, screen contents, input contents, clipboard contents, file-transfer
-contents, diagnostics dumps, or full secrets.
+validation, root MVP representative LAN command-plan validation, root MVP
+shared-token command-plan validation, and fixed role-filter command validation
+for `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
+`preflight` sequentially, stop after the first failed check, and report only
+bounded check status metadata. The localhost command-plan validation SHALL run
+the existing non-executing MVP command kit in bounded JSON mode, verify that it
+emits an `ok=true` non-executing session command plan with the fixed command
+names `preflight.ready`, `preflight.doctor`, `preflight.native`,
+`preflight.smoke`, `relay`, `host`, `viewer`, and `browser`, and MUST NOT
+surface raw command strings, local paths, relay URLs, pairing codes, relay
+tokens, token environment values, stdout, stderr, or child output in readiness
+output. The LAN command-plan validation SHALL run the same non-executing command
+kit with a representative safe LAN relay host, verify the expected relay URL
+only as internal readiness metadata, and verify that the relay command binds
+with the reviewed `WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'` setting for the LAN
+trial path. The shared-token command-plan validation SHALL run the same
+non-executing command kit with a fixed relay token environment variable name
+and verify the expected token environment reference only as internal readiness
+metadata. The role-filter command validations SHALL run the same non-executing
+command kit in text mode with exactly one fixed `--only` target per check,
+verify bounded target-specific output for the selected relay, host, viewer,
+browser, or preflight block, reject malformed or cross-target command text, and
+MUST NOT echo the filtered command block, pairing, relay URL, local URLs, paths,
+tokens, token environment values, stdout, stderr, or child output in readiness
+output. With `--include-smoke`, the helper SHALL also run the root MVP smoke
+check and root MVP LAN smoke check in bounded JSON mode after the default checks
+pass. Without `--include-smoke`, the helper SHALL mark smoke and LAN smoke as
+explicitly skipped metadata only. The helper MUST stop on the first failed
+check and MUST NOT start relay, host, viewer, browser, capture, input, services,
+startup persistence, unattended access, privilege elevation, remote discovery,
+network probing, firewall changes, clipboard access, file transfer, diagnostics
+dumps, AV/EDR evasion, Windows prompt bypass, hidden sessions, or production
+deployment behavior.
 
-#### Scenario: Ready helper rejects smoke subchecks with unexpected fields
+#### Scenario: Ready rejects LAN command plan with unsafe relay bind
 
-- **WHEN** `npm run mvp:ready -- --include-smoke` receives smoke JSON where any
-  smoke subcheck includes an unexpected field such as raw output, path, URL,
-  token, or command metadata
-- **THEN** the ready helper treats the smoke output as malformed and fails
-  closed with bounded aggregate diagnostics
-- **AND** ready output MUST NOT include the unexpected field value
+- **WHEN** the representative LAN command-plan JSON routes host and viewer to
+  the expected LAN relay URL but omits the `0.0.0.0` relay bind or uses a
+  different bind value
+- **THEN** `mvp:ready` fails closed at the fixed `lan-command-plan` check
+- **AND** output includes only fixed check metadata and a safe reason code
+- **AND** output MUST NOT echo relay commands, relay URLs, ports, token
+  references, stdout, stderr, child output, package JSON content, paths,
+  pairing codes, credentials, screen contents, input contents, or full secrets
+
+### Requirement: MVP smoke check supports explicit LAN-style relay mode
+
+The root MVP smoke check SHALL support an explicit `--lan-relay` option that
+runs the same bounded local static workflow while connecting host and viewer
+through a loopback LAN-style relay URL using `127.0.0.1` and the smoke relay's
+resolved port. The option SHALL remain local and development-scoped: it MUST
+NOT discover local network addresses, probe remote hosts, open firewall ports,
+invoke Windows capture, apply OS input, launch browser automation, install
+services, configure startup persistence, elevate privileges, run unattended,
+use relay tokens, expose raw relay URLs or ports in diagnostics, or hide the
+host visible-session state. When invoked with `--json`, success and failure
+output MUST use the same bounded smoke result shape as the default smoke mode.
+
+#### Scenario: LAN-style smoke mode uses static local workflow
+
+- **WHEN** a developer runs `npm run mvp:smoke -- --lan-relay`
+- **THEN** the smoke check starts the bounded local development relay, host,
+  and viewer processes with static frames and visible host authorization
+- **AND** host and viewer connect through a `ws://127.0.0.1:<resolved-port>/`
+  relay URL for the current smoke run
+- **AND** it verifies frame, surface, signal, input, and audit readiness using
+  the same bounded checks as the default smoke mode
+- **AND** it stops all child processes before exiting
+
+#### Scenario: LAN-style smoke output stays bounded
+
+- **WHEN** the LAN-style smoke mode succeeds or fails with `--json`
+- **THEN** the emitted JSON contains only bounded `ok`, optional safe reason,
+  per-check status, and artifact cleanup metadata
+- **AND** it MUST NOT include relay URLs, ports, frame paths, surface URLs,
+  audit paths, mutation tokens, authorization ids, raw input commands, raw
+  child output, tokens, pairing codes, credentials, private reasons, screen
+  contents, input contents, clipboard contents, file-transfer contents,
+  diagnostics dumps, or full secrets
+
+#### Scenario: LAN-style smoke mode remains local
+
+- **WHEN** the LAN-style smoke mode prepares the relay URL
+- **THEN** it uses the local smoke relay port and a fixed loopback host
+  literal
+- **AND** it MUST NOT discover LAN interfaces, connect to remote hosts, probe
+  ports outside the local smoke workflow, configure firewall rules, bind a
+  production service, or make the smoke helper an Internet-facing relay
+
+### Requirement: MVP native preflight validates fixed probe JSON success markers
+
+The root MVP native preflight helper SHALL treat a fixed PowerShell prerequisite
+probe as successful only when the probe exits successfully and emits bounded
+JSON stdout with the exact top-level object shape `{ "ok": true }`. The helper
+MUST reject empty stdout, malformed JSON, arrays, null, non-object JSON,
+`ok=false`, missing `ok`, extra top-level fields, and oversized stdout. Rejected
+probe output MUST use the existing bounded per-probe failure reason and MUST
+NOT be echoed in human output, JSON output, thrown errors, logs, or aggregate
+readiness diagnostics.
+
+#### Scenario: Probe success marker is accepted
+
+- **WHEN** a fixed native preflight PowerShell probe exits successfully and emits
+  exactly `{ "ok": true }` as bounded JSON stdout
+- **THEN** the helper records that probe as passed
+- **AND** default and JSON CLI output contain only bounded readiness metadata
+
+#### Scenario: Malformed success marker fails closed
+
+- **WHEN** a fixed native preflight PowerShell probe exits successfully but emits
+  empty, malformed, false, array-shaped, non-object, extra-field, oversized, or
+  otherwise unexpected stdout
+- **THEN** the helper records that probe as failed with the same bounded reason
+  code used for that probe's execution failure
+- **AND** diagnostics MUST NOT expose raw PowerShell stdout, scripts, local
+  paths, tokens, pairing codes, credentials, screen contents, input contents,
+  keystrokes, private reasons, raw exceptions, environment values, or full
+  secrets
+
+#### Scenario: Strict marker validation remains read-only
+
+- **WHEN** the helper validates a fixed native preflight probe's stdout
+- **THEN** validation MUST NOT invoke screen capture, apply OS input, start
+  relay, host, viewer, browser, sockets, HTTP listeners, services, startup
+  persistence, unattended access, privilege elevation, clipboard, file transfer,
+  diagnostics dumps, AV/EDR evasion, Windows prompt bypass, or hidden session
+  behavior
+
+### Requirement: MVP smoke check verifies lifecycle-denial input failure
+
+The root MVP smoke check SHALL verify that the local static workflow fails
+input closed after a bounded lifecycle loss of input authorization. After the
+happy-path pointer and keyboard input checks have succeeded, the smoke check
+SHALL use existing host lifecycle control behavior to remove active input
+authorization through pause, revocation, termination, or an equivalent existing
+explicit host-side control, then SHALL verify that the token-protected loopback
+viewer surface no longer accepts a bounded input command. The smoke check MUST
+stop all child processes after success, failure, timeout, or interrupt. Human
+and JSON output MUST represent this verification using only fixed safe smoke
+subcheck metadata and bounded reason codes.
+
+#### Scenario: Lifecycle-denial smoke subcheck passes
+
+- **WHEN** the smoke workflow has verified frame, surface, signal, accepted
+  pointer input, accepted keyboard input, and audit readiness
+- **THEN** it performs a bounded lifecycle-denial input check using existing
+  explicit host-side lifecycle control behavior
+- **AND** it verifies that a subsequent token-protected local viewer surface
+  input command is rejected
+- **AND** it reports the fixed lifecycle-denial subcheck as passed
+
+#### Scenario: Lifecycle-denial smoke subcheck fails closed
+
+- **WHEN** lifecycle control cannot be applied, authorization loss is not
+  observed, the local viewer surface still accepts input after authorization
+  loss, or the check times out
+- **THEN** the smoke helper exits non-zero with bounded diagnostics
+- **AND** it stops any started child processes before returning control
+- **AND** diagnostics MUST NOT expose raw frame bytes, audit paths, raw audit
+  contents, mutation tokens, authorization ids, raw signal payloads, raw input
+  commands, tokens, pairing codes, credentials, private reasons, raw child
+  output, screen contents, input contents, clipboard contents, file-transfer
+  contents, diagnostics dumps, or full secrets
+
+#### Scenario: Lifecycle-denial smoke output stays bounded
+
+- **WHEN** the smoke check succeeds or fails with `--json`
+- **THEN** the emitted JSON contains only bounded `ok`, optional safe reason,
+  fixed per-check status records including the lifecycle-denial subcheck, and
+  artifact cleanup metadata
+- **AND** it MUST NOT include relay URLs, ports, frame paths, surface URLs,
+  audit paths, mutation tokens, authorization ids, raw input commands, raw
+  child output, tokens, pairing codes, credentials, private reasons, screen
+  contents, input contents, clipboard contents, file-transfer contents,
+  diagnostics dumps, or full secrets
+
+### Requirement: MVP smoke check reports bounded audit summary metadata
+
+The root MVP smoke check SHALL derive a read-only bounded audit summary from
+the existing configured local smoke audit files after audit readiness passes.
+The summary SHALL include only fixed role-local record counts, outcome counts,
+and known coverage booleans for expected MVP smoke evidence such as consent,
+screen-frame output, input sending, and lifecycle revocation. Human and JSON
+output MUST NOT include audit paths, raw audit lines, event ids, authorization
+ids, actor ids, target ids, detail values, reasons, raw action strings, raw
+child output, tokens, pairing codes, credentials, private reasons, screen
+contents, input contents, clipboard contents, file-transfer contents,
+diagnostics dumps, or full secrets.
+
+#### Scenario: Smoke JSON includes bounded audit summary
+
+- **WHEN** the smoke workflow verifies relay, frame, surface, signal, input,
+  audit, and lifecycle readiness and is invoked with `--json`
+- **THEN** the emitted JSON includes a fixed `auditSummary` object for host and
+  viewer audit coverage
+- **AND** the summary contains only bounded counts and fixed booleans
+- **AND** it does not include raw audit record content or local audit file
+  paths
+
+#### Scenario: Ready helper preserves bounded smoke audit summary
+
+- **WHEN** `npm run mvp:ready -- --include-smoke --json` consumes bounded
+  smoke JSON containing the fixed audit summary
+- **THEN** the ready helper accepts the smoke result and may include the same
+  bounded audit summary inside the aggregate smoke check metadata
+- **AND** ready output MUST NOT echo raw child output, generated command
+  strings, audit paths, raw audit records, raw action strings, event ids,
+  authorization ids, tokens, pairing codes, credentials, private reasons, or
+  full secrets
+
+#### Scenario: Malformed audit summary fails closed
+
+- **WHEN** a smoke result consumed by the ready helper contains malformed audit
+  summary shape, unexpected audit summary fields, unsafe counts, unsafe
+  strings, raw paths, raw actions, or private diagnostic metadata
+- **THEN** the ready helper treats the smoke output as malformed
+- **AND** aggregate diagnostics remain bounded and do not expose the unsafe
+  values
+
+### Requirement: MVP smoke check verifies host visible indicator readiness
+
+The root MVP smoke check SHALL verify that the local host process emits a
+bounded active visible host indicator marker during the same-machine smoke
+workflow. The check SHALL use only fixed safe metadata markers indicating host
+indicator state, active visibility, and a positive permission count. Human and
+JSON output MUST represent this verification using only fixed subcheck metadata
+and bounded reason codes. The smoke and ready helpers MUST NOT emit raw host
+stdout or stderr, authorization ids, local paths, process ids, tokens, pairing
+codes, credentials, private reasons, screen contents, input contents,
+clipboard contents, file-transfer contents, diagnostics dumps, or full secrets.
+
+#### Scenario: Host indicator smoke subcheck passes
+
+- **WHEN** the smoke host reaches active visible authorization
+- **THEN** the smoke check observes the bounded active host indicator marker in
+  the host process output
+- **AND** it reports the fixed `indicator` subcheck as passed
+
+#### Scenario: Host indicator smoke subcheck fails closed
+
+- **WHEN** the host process does not emit an active visible indicator marker
+  before the smoke deadline
+- **THEN** the smoke helper exits non-zero with a bounded
+  `indicator-not-ready` reason
+- **AND** it stops any started child processes before returning control
+- **AND** diagnostics MUST NOT expose raw child output or authorization ids
+
+#### Scenario: Ready helper aggregates indicator subcheck
+
+- **WHEN** `npm run mvp:ready -- --include-smoke` consumes bounded smoke JSON
+  containing the fixed `indicator` subcheck
+- **THEN** the ready helper accepts and reports that fixed subcheck
+- **AND** malformed or unexpected indicator metadata fails closed without
+  exposing unsafe values
+
+### Requirement: MVP command kit filters text output to one fixed target
+
+The MVP command kit SHALL support a text-mode `--only` option with only the
+fixed values `relay`, `host`, `viewer`, `browser`, and `preflight`. The option
+SHALL render only the selected non-executing command block plus bounded safety
+and preflight reminders. For session targets, the filtered output SHALL still
+be derived from the same fully validated command plan, including relay URL,
+pairing, display names, request reason, token environment references, audit
+paths, capture cadence, visible host consent prompt, host controls, viewer
+frame output, and loopback viewer surface settings. The option MUST NOT start
+relay, host, viewer, browser, capture, input, sockets, HTTP listeners, audit
+writes, services, startup persistence, unattended access, privilege elevation,
+remote discovery, network probing, firewall changes, hidden sessions, or
+Windows prompt bypass behavior.
+
+#### Scenario: Host target prints only host command
+
+- **WHEN** a developer runs `npm run mvp:commands -- --only host`
+- **THEN** the helper renders bounded text containing the validated host command
+- **AND** it includes manual preflight and host-control reminders
+- **AND** it does not render the relay, viewer, or browser command blocks
+
+#### Scenario: Viewer target prints only viewer command
+
+- **WHEN** a developer runs `npm run mvp:commands -- --only viewer`
+- **THEN** the helper renders bounded text containing the validated viewer
+  command
+- **AND** it includes a reminder that the viewer browser block is separate
+- **AND** it does not render the relay, host, or browser command blocks
+
+#### Scenario: Browser target prints only browser command
+
+- **WHEN** a developer runs `npm run mvp:commands -- --only browser`
+- **THEN** the helper renders bounded text containing only the loopback viewer
+  browser command and readiness reminders
+- **AND** it does not render relay, host, or viewer runtime commands
+
+#### Scenario: Preflight target prints preflight commands only
+
+- **WHEN** a developer runs `npm run mvp:commands -- --only preflight`
+- **THEN** the helper renders the bounded preflight command set
+- **AND** it does not render live session commands or browser commands
+
+#### Scenario: Invalid filter fails closed
+
+- **WHEN** a developer supplies an unknown, duplicate, JSON-combined, or
+  preflight-only-combined `--only` option
+- **THEN** the command kit rejects the input before rendering commands
+- **AND** diagnostics remain bounded and do not echo raw unsafe values
 

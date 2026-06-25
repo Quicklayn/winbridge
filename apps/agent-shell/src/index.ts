@@ -57,6 +57,7 @@ try {
       ? new FileViewerScreenFrameOutputSink(args.viewerScreenFrameOutputPath)
       : undefined,
     auditSink: args.auditLogPath ? new FileAuditSink(args.auditLogPath) : undefined,
+    logger: console,
     onEvent: (event) => {
       if (shouldStartHostControlPromptAfterEvent(args, hostControlPrompt !== undefined, event)) {
         startHostControlPrompt();

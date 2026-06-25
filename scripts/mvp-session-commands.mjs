@@ -41,6 +41,7 @@ export const MVP_SESSION_COMMAND_KIT_USAGE = [
   "  --capture-interval-ms 1000",
   "  --token-env WINBRIDGE_RELAY_SHARED_TOKEN",
   "  --generate-pairing",
+  "  --only relay|host|viewer|browser|preflight",
   "  --preflight-only",
   "  --json",
   "",
@@ -61,6 +62,7 @@ const RELAY_HOST_SHORTCUT_PATTERN =
 const IPV4_LITERAL_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]{0,127}$/;
 const TOKEN_OPTION_NAMES = new Set(["token"]);
+const COMMAND_ONLY_TARGETS = new Set(["relay", "host", "viewer", "browser", "preflight"]);
 const KNOWN_OPTIONS = new Set([
   "session",
   "pairing",
@@ -101,6 +103,9 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
   }
 
   const parsedFlags = parseCommandKitFlags(rawArgs);
+  if (parsedFlags.onlyTarget && (parsedFlags.json || parsedFlags.preflightOnly)) {
+    throw new MvpSessionCommandKitUsageError();
+  }
   if (parsedFlags.preflightOnly && parsedFlags.generatePairing) {
     throw new MvpSessionCommandKitUsageError();
   }
@@ -111,6 +116,13 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
 
   if (parsedFlags.preflightOnly) {
     return { help: false, json: parsedFlags.json, preflightOnly: true };
+  }
+
+  if (parsedFlags.onlyTarget === "preflight") {
+    if (parsedFlags.generatePairing || parsedFlags.remaining.length > 0) {
+      throw new MvpSessionCommandKitUsageError();
+    }
+    return { help: false, json: false, preflightOnly: false, onlyTarget: "preflight" };
   }
 
   const options = parseOptionMap(parsedFlags.remaining);
@@ -148,6 +160,7 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
     help: false,
     json: parsedFlags.json,
     preflightOnly: false,
+    ...(parsedFlags.onlyTarget ? { onlyTarget: parsedFlags.onlyTarget } : {}),
     session: parseProtocolIdentifier(options.get("session") ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.session),
     pairing,
     relay,
@@ -200,6 +213,10 @@ export function renderMvpSessionCommands(parsed) {
 
   if (parsed.preflightOnly) {
     return renderMvpPreflightOnlyCommands();
+  }
+
+  if (parsed.onlyTarget) {
+    return renderMvpFilteredCommandTarget(parsed);
   }
 
   const browserUrl = `http://127.0.0.1:${parsed.viewerControlSurfacePort}/`;
@@ -334,6 +351,63 @@ function renderMvpPreflightOnlyCommands() {
     .join("\n");
 }
 
+function renderMvpFilteredCommandTarget(parsed) {
+  if (parsed.onlyTarget === "preflight") {
+    return renderMvpPreflightOnlyCommands();
+  }
+
+  const browserUrl = `http://127.0.0.1:${parsed.viewerControlSurfacePort}/`;
+  const commandByTarget = {
+    relay: renderRelayCommand(parsed),
+    host: renderHostCommand(parsed),
+    viewer: renderViewerCommand(parsed),
+    browser: renderBrowserCommand(browserUrl)
+  };
+  const targetLabel = parsed.onlyTarget;
+
+  return [
+    `# WinBridge MVP ${targetLabel} command`,
+    "",
+    "Run this command manually in a visible PowerShell terminal.",
+    "Preflight reminder: run npm run mvp:ready on each Windows machine before a live trial.",
+    `Relay URL: ${parsed.relay}`,
+    "",
+    `${targetLabel} command:`,
+    commandByTarget[targetLabel],
+    "",
+    ...filteredTargetHints(parsed.onlyTarget),
+    "",
+    "Safety checks:",
+    "- Host consent and visible sessions are required before live assistance trials.",
+    "- This helper printed commands only; it did not start relay, host, viewer, capture, input, or browser processes.",
+    "- Stop from the host terminal with pause, revoke, terminate, disconnect, or Ctrl+C."
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+}
+
+function filteredTargetHints(target) {
+  switch (target) {
+    case "relay":
+      return ["Run the host and viewer commands on their respective Windows PCs after the relay is visible."];
+    case "host":
+      return [
+        "Host controls:",
+        "help | status | pause | resume | revoke screen:view | revoke input:pointer | revoke input:keyboard | terminate | disconnect"
+      ];
+    case "viewer":
+      return ["Open the separate browser command on the viewer PC after this viewer command is running."];
+    case "browser":
+      return [
+        "Open only on the viewer PC after the viewer command reports the local control surface URL.",
+        "- Wait for frame=ready before browser pointer control.",
+        "- Click the visible Pointer Off/On control before browser pointer movement, wheel, or button input."
+      ];
+    default:
+      return [];
+  }
+}
+
 export function formatMvpSessionCommandKitError(error) {
   if (error instanceof MvpSessionCommandKitUsageError) {
     return MVP_SESSION_COMMAND_KIT_USAGE;
@@ -346,9 +420,11 @@ function parseCommandKitFlags(rawArgs) {
   let json = false;
   let preflightOnly = false;
   let generatePairing = false;
+  let onlyTarget;
   const remaining = [];
 
-  for (const arg of rawArgs) {
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const arg = rawArgs[index];
     if (arg === "--json") {
       if (json) {
         throw new MvpSessionCommandKitUsageError();
@@ -373,10 +449,23 @@ function parseCommandKitFlags(rawArgs) {
       continue;
     }
 
+    if (arg === "--only") {
+      if (onlyTarget) {
+        throw new MvpSessionCommandKitUsageError();
+      }
+      const target = rawArgs[index + 1];
+      if (!COMMAND_ONLY_TARGETS.has(target)) {
+        throw new MvpSessionCommandKitUsageError();
+      }
+      onlyTarget = target;
+      index += 1;
+      continue;
+    }
+
     remaining.push(arg);
   }
 
-  return { json, preflightOnly, generatePairing, remaining };
+  return { json, preflightOnly, generatePairing, onlyTarget, remaining };
 }
 
 function generatePairingCode() {

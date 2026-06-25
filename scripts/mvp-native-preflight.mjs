@@ -64,6 +64,7 @@ const CHECKS = Object.freeze([
 ]);
 const DEFAULT_TIMEOUT_MS = 5_000;
 const MAX_OUTPUT_BYTES = 1024;
+const MAX_PROBE_OUTPUT_BYTES = 1024;
 
 export class MvpNativePreflightUsageError extends Error {
   constructor() {
@@ -100,7 +101,8 @@ export async function runMvpNativePreflightCheck(options = {}) {
   const checks = [{ name: "platform", ok: true }];
   for (const check of CHECKS) {
     try {
-      await runPowerShell(check.script, check.name);
+      const output = await runPowerShell(check.script, check.name);
+      validatePowerShellProbeSuccessOutput(output);
       checks.push({ name: check.name, ok: true });
     } catch {
       checks.push({ name: check.name, ok: false, reason: check.reason });
@@ -156,15 +158,47 @@ function runPowerShellPreflightScript(script) {
         maxBuffer: MAX_OUTPUT_BYTES,
         windowsHide: false
       },
-      (error) => {
+      (error, stdout) => {
         if (error) {
           reject(error);
           return;
         }
-        resolve();
+        resolve(stdout);
       }
     );
   });
+}
+
+export function validatePowerShellProbeSuccessOutput(output) {
+  if (typeof output !== "string") {
+    throw new Error("invalid-native-preflight-output");
+  }
+
+  if (Buffer.byteLength(output, "utf8") > MAX_PROBE_OUTPUT_BYTES) {
+    throw new Error("invalid-native-preflight-output");
+  }
+
+  const trimmed = output.trim();
+  if (trimmed.length === 0) {
+    throw new Error("invalid-native-preflight-output");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error("invalid-native-preflight-output");
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    parsed.ok !== true ||
+    Object.keys(parsed).length !== 1
+  ) {
+    throw new Error("invalid-native-preflight-output");
+  }
 }
 
 function safeNativePreflightReason(reason) {

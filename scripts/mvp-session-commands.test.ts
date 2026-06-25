@@ -104,6 +104,79 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("$env:WINBRIDGE_RELAY_SHARED_TOKEN");
   });
 
+  it("prints only the selected bounded command target", () => {
+    const relay = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "relay"]));
+    expect(relay).toContain("# WinBridge MVP relay command");
+    expect(relay).toContain("relay command:");
+    expect(relay).toContain("npm run dev:relay");
+    expect(relay).not.toContain("npm run dev:agent -- host");
+    expect(relay).not.toContain("npm run dev:agent -- viewer");
+    expect(relay).not.toContain("Start-Process");
+
+    const host = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "host"]));
+    expect(host).toContain("# WinBridge MVP host command");
+    expect(host).toContain("host command:");
+    expect(host).toContain("npm run dev:agent -- host");
+    expect(host).toContain("--host-consent-prompt 'true'");
+    expect(host).toContain("pause | resume");
+    expect(host).not.toContain("npm run dev:relay");
+    expect(host).not.toContain("npm run dev:agent -- viewer");
+    expect(host).not.toContain("Start-Process");
+
+    const viewer = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "viewer"]));
+    expect(viewer).toContain("# WinBridge MVP viewer command");
+    expect(viewer).toContain("viewer command:");
+    expect(viewer).toContain("npm run dev:agent -- viewer");
+    expect(viewer).toContain("Open the separate browser command");
+    expect(viewer).not.toContain("npm run dev:relay");
+    expect(viewer).not.toContain("npm run dev:agent -- host");
+    expect(viewer).not.toContain("Start-Process");
+
+    const browser = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "browser"]));
+    expect(browser).toContain("# WinBridge MVP browser command");
+    expect(browser).toContain("browser command:");
+    expect(browser).toContain("Start-Process 'http://127.0.0.1:35987/'");
+    expect(browser).toContain("Wait for frame=ready");
+    expect(browser).not.toContain("npm run dev:relay");
+    expect(browser).not.toContain("npm run dev:agent -- host");
+    expect(browser).not.toContain("npm run dev:agent -- viewer");
+
+    const preflight = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "preflight"]));
+    expect(preflight).toContain("# WinBridge MVP preflight commands");
+    expect(preflight).toContain("npm run mvp:ready");
+    expect(preflight).not.toContain("npm run dev:relay");
+    expect(preflight).not.toContain("npm run dev:agent -- host");
+    expect(preflight).not.toContain("Start-Process");
+  });
+
+  it("rejects malformed command target filters without echoing raw values", () => {
+    const invalidInputs = [
+      ["--only"],
+      ["--only", "raw-secret-token"],
+      ["--only", "host", "--only", "viewer"],
+      ["--only", "host", "--json"],
+      ["--json", "--only", "host"],
+      ["--only", "host", "--preflight-only"],
+      ["--preflight-only", "--only", "host"],
+      ["--only", "preflight", "--relay-host", "192.168.1.10"],
+      ["--only", "preflight", "--generate-pairing"]
+    ];
+
+    for (const invalidInput of invalidInputs) {
+      let thrown: unknown;
+
+      try {
+        parseMvpSessionCommandArgs(invalidInput);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(MvpSessionCommandKitUsageError);
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("raw-secret-token");
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("192.168.1.10");
+    }
+  });
+
   it("prints bounded JSON for the full session command plan", () => {
     const output = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--json"]));
     const parsed = JSON.parse(output);
