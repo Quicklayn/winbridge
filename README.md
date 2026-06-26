@@ -301,9 +301,11 @@ npm run mvp:smoke
 The smoke check builds the workspace, starts local relay, host, and viewer
 development processes, uses explicit static host approval with
 `--visible-session true`, publishes a static authorized frame to a temporary
-viewer output file, verifies the loopback viewer surface and `/frame` endpoint,
-verifies the host process emitted the bounded active visible host indicator
-marker with a positive permission count,
+viewer output file, starts the loopback viewer surface with
+`--viewer-control-surface-port 0`, resolves the actual `127.0.0.1` surface URL
+from the bounded viewer log marker, verifies the loopback viewer surface and
+`/frame` endpoint, verifies the host process emitted the bounded active visible
+host indicator marker with a positive permission count,
 verifies the sanitized viewer `/status` endpoint reports
 `state=active`, `visibleToHost=true`, `signalProbeAckReceived=true`, and
 bounded pointer/keyboard input readiness for the current consent-bound signal

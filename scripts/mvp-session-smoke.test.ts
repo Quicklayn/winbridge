@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  extractViewerSurfaceUrlFromOutput,
   extractViewerSurfaceMutationToken,
   formatMvpSessionSmokeError,
   formatMvpSessionSmokeJsonError,
@@ -332,6 +333,21 @@ describe("MVP session smoke check", () => {
     expect(serialized).not.toContain("viewer-signal-probe-raw");
   });
 
+  it("builds the default smoke viewer plan with an ephemeral local surface port", () => {
+    const plan = createMvpSmokePlan({
+      npmCommand: "npm",
+      workDir: "C:\\Temp\\winbridge-smoke",
+      relayPort: 18787,
+      surfacePort: 0,
+      session: "smoke-test"
+    });
+
+    expect(plan.viewer.args).toContain("--viewer-control-surface-port");
+    expect(plan.viewer.args).toContain("0");
+    expect(plan.surfaceUrl).toBeUndefined();
+    expect(JSON.stringify(plan)).not.toContain("http://127.0.0.1:0/");
+  });
+
   it("builds LAN-style smoke plans through a fixed loopback relay URL", () => {
     const plan = createMvpSmokePlan({
       npmCommand: "npm",
@@ -376,6 +392,41 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeJsonError(new Error("indicator-not-ready"))).not.toContain(
       "authz_private"
     );
+  });
+
+  it("extracts only bounded safe viewer surface URLs from child output", () => {
+    const readyLine =
+      "[winbridge-agent] viewer local control surface url=http://127.0.0.1:49152/";
+
+    expect(extractViewerSurfaceUrlFromOutput(readyLine)).toBe("http://127.0.0.1:49152/");
+    expect(extractViewerSurfaceUrlFromOutput(`${readyLine}\n${readyLine}`)).toBe(
+      "http://127.0.0.1:49152/"
+    );
+
+    for (const output of [
+      "",
+      "x".repeat(4097),
+      "[winbridge-agent] viewer local control surface url=http://localhost:49152/",
+      "[winbridge-agent] viewer local control surface url=http://127.0.0.1:0/",
+      "[winbridge-agent] viewer local control surface url=http://127.0.0.1:80/",
+      "[winbridge-agent] viewer local control surface url=http://127.0.0.1:49152/path",
+      "[winbridge-agent] viewer local control surface url=http://127.0.0.1:49152/?token=raw-secret-token",
+      "[winbridge-agent] viewer local control surface url=http://127.0.0.1:49152/#raw-secret-token",
+      "[winbridge-agent] viewer local control surface url=http://user:pass@127.0.0.1:49152/",
+      "[winbridge-agent] viewer local control surface url=https://127.0.0.1:49152/",
+      `${readyLine}\n[winbridge-agent] viewer local control surface url=http://127.0.0.1:49153/`
+    ]) {
+      expect(extractViewerSurfaceUrlFromOutput(output)).toBeUndefined();
+    }
+
+    const failure = formatMvpSessionSmokeJsonError(
+      new Error(
+        "[winbridge-agent] viewer local control surface url=http://127.0.0.1:49152/?token=raw-secret-token"
+      )
+    );
+    expect(failure).not.toContain("49152");
+    expect(failure).not.toContain("raw-secret-token");
+    expect(failure).not.toContain("127.0.0.1");
   });
 
   it("keeps the agent-shell CLI wired to bounded runtime logging for host indicator output", () => {

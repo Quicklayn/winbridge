@@ -272,7 +272,8 @@ export function createMvpSmokePlan(options) {
       ],
       env: {}
     },
-    surfaceUrl: `http://127.0.0.1:${options.surfacePort}/`
+    surfaceUrl:
+      options.surfacePort === 0 ? undefined : `http://127.0.0.1:${options.surfacePort}/`
   };
 }
 
@@ -290,7 +291,7 @@ export async function runMvpSessionSmokeCheck(rawOptions = {}) {
   const deadline = options.now() + options.timeoutMs;
   const workDir = rawOptions.workDir ?? mkdtempSync(join(tmpdir(), "winbridge-mvp-smoke-"));
   const relayPort = rawOptions.relayPort ?? 0;
-  const surfacePort = rawOptions.surfacePort ?? (await findAvailableLoopbackPort());
+  const surfacePort = rawOptions.surfacePort ?? 0;
   const plan = createMvpSmokePlan({ ...rawOptions, workDir, relayPort, surfacePort });
   const children = [];
   let cleanupPromise;
@@ -343,27 +344,28 @@ async function runMvpSessionSmokeSteps(context) {
 
   await waitForHostActiveVisibleIndicator(host, deadline, options);
   await waitForFrameFile(readyPlan.framePath, deadline, options);
-  const surface = await waitForViewerSurface(readyPlan.surfaceUrl, deadline, options);
-  await waitForViewerSignalReadiness(readyPlan.surfaceUrl, deadline, options);
-  await waitForViewerSurfaceGuards(readyPlan.surfaceUrl, surface.mutationToken, deadline, options);
-  await waitForViewerSurfaceInput(readyPlan.surfaceUrl, surface.mutationToken, deadline, options);
+  const surfaceUrl = readyPlan.surfaceUrl ?? (await waitForViewerSurfaceUrl(viewer, deadline, options));
+  const surface = await waitForViewerSurface(surfaceUrl, deadline, options);
+  await waitForViewerSignalReadiness(surfaceUrl, deadline, options);
+  await waitForViewerSurfaceGuards(surfaceUrl, surface.mutationToken, deadline, options);
+  await waitForViewerSurfaceInput(surfaceUrl, surface.mutationToken, deadline, options);
   await waitForSmokeAuditLogs(
     [readyPlan.hostAuditPath, readyPlan.viewerAuditPath],
     deadline,
     options
   );
-  await waitForViewerSurfaceInputDenied(readyPlan.surfaceUrl, surface.mutationToken, deadline, options);
+  await waitForViewerSurfaceInputDenied(surfaceUrl, surface.mutationToken, deadline, options);
   const auditSummary = tryReadSmokeAuditSummary(readyPlan.hostAuditPath, readyPlan.viewerAuditPath);
   if (!auditSummary) {
     throw new Error("audit-not-ready");
   }
-  await waitForViewerSurfaceDisconnect(readyPlan.surfaceUrl, surface.mutationToken, deadline, options);
+  await waitForViewerSurfaceDisconnect(surfaceUrl, surface.mutationToken, deadline, options);
 
   return {
     ok: true,
     workDir,
     framePath: readyPlan.framePath,
-    surfaceUrl: readyPlan.surfaceUrl,
+    surfaceUrl,
     auditSummary
   };
 }
@@ -600,6 +602,63 @@ async function waitForHostActiveVisibleIndicator(hostHandle, deadline, options) 
     await options.sleep(100);
   }
   throw new Error("indicator-not-ready");
+}
+
+async function waitForViewerSurfaceUrl(viewerHandle, deadline, options) {
+  while (options.now() <= deadline) {
+    assertChildRunning(viewerHandle);
+    const surfaceUrl = extractViewerSurfaceUrlFromOutput(viewerHandle.output);
+    if (surfaceUrl !== undefined) {
+      return surfaceUrl;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("surface-not-ready");
+}
+
+export function extractViewerSurfaceUrlFromOutput(output) {
+  if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
+    return undefined;
+  }
+
+  const pattern =
+    /\[winbridge-agent\] viewer local control surface url=(http:\/\/[^\s]+)/g;
+  const matches = [...output.matchAll(pattern)];
+  if (matches.length === 0) {
+    return undefined;
+  }
+
+  const urls = matches.map((match) => parseSafeViewerSurfaceUrl(match[1]));
+  if (urls.some((url) => url === undefined)) {
+    return undefined;
+  }
+
+  const uniqueUrls = new Set(urls);
+  return uniqueUrls.size === 1 ? urls[0] : undefined;
+}
+
+function parseSafeViewerSurfaceUrl(value) {
+  try {
+    const url = new URL(value);
+    const port = Number.parseInt(url.port, 10);
+    if (
+      url.protocol !== "http:" ||
+      url.hostname !== "127.0.0.1" ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.pathname !== "/" ||
+      url.search !== "" ||
+      url.hash !== "" ||
+      !Number.isInteger(port) ||
+      port < 1024 ||
+      port > 65535
+    ) {
+      return undefined;
+    }
+    return url.href;
+  } catch {
+    return undefined;
+  }
 }
 
 export function hasActiveVisibleHostIndicatorOutput(output) {
@@ -1101,25 +1160,6 @@ function parseIntegerOption(raw, min, max) {
     throw new MvpSessionSmokeUsageError();
   }
   return value;
-}
-
-async function findAvailableLoopbackPort() {
-  const { createServer } = await import("node:net");
-  return await new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      const port = typeof address === "object" && address ? address.port : undefined;
-      server.close(() => {
-        if (port === undefined) {
-          reject(new Error("port-unavailable"));
-          return;
-        }
-        resolve(port);
-      });
-    });
-  });
 }
 
 function defaultNpmInvocation() {
