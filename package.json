@@ -24,7 +24,6 @@
     "mvp:smoke": "npm run build && node scripts/mvp-session-smoke.mjs",
     "openspec:validate": "npx --yes @fission-ai/openspec@latest validate --all --strict --no-interactive",
     "test": "node scripts/run-tests.mjs",
-    "token:guard": "node scripts/token-budget-guard.mjs",
     "verify": "npm run check && npm test && npm run build && npm run openspec:validate"
   },
   "devDependencies": {
