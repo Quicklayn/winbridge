@@ -39,7 +39,13 @@ type LocalSurfaceJson =
   | { ok: true; state?: LocalSurfaceViewerStatus; action?: "input" | "disconnect"; kind?: string }
   | { ok: false; error: "not-found" | "method-not-allowed" | "rejected" | "failed" | "not-ready"; messageBytes?: number };
 
-type LocalSurfaceViewerStatus = Omit<AgentShellViewerStatusSnapshot, "authorizationId">;
+type LocalSurfaceViewerStatus = Omit<
+  AgentShellViewerStatusSnapshot,
+  "authorizationId" | "inputPointerReady" | "inputKeyboardReady"
+> & {
+  inputPointerReady: boolean;
+  inputKeyboardReady: boolean;
+};
 
 const VIEWER_LOCAL_CONTROL_SURFACE_HOST = "127.0.0.1";
 const VIEWER_LOCAL_CONTROL_SURFACE_BODY_BYTES = 1024;
@@ -381,7 +387,11 @@ function parseRequestUrl(request: IncomingMessage): URL | undefined {
 
 function sanitizeViewerStatus(status: AgentShellViewerStatusSnapshot): LocalSurfaceViewerStatus {
   const { authorizationId: _authorizationId, ...sanitized } = status;
-  return sanitized;
+  return {
+    ...sanitized,
+    inputPointerReady: status.inputPointerReady === true,
+    inputKeyboardReady: status.inputKeyboardReady === true
+  };
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
@@ -492,7 +502,8 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     let lastMoveAt = 0;
     let pointerArmed = false;
     let frameReady = false;
-    let statusInputReady = false;
+    let statusPointerReady = false;
+    let statusKeyboardReady = false;
     let frameRequestSequence = 0;
     let displayedFrameLoadedAt = undefined;
     const frameStaleAfterMs = 5000;
@@ -500,21 +511,29 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     const modifierButtons = Array.from(document.querySelectorAll("[data-key-modifier]"));
     const keyCommandButtons = Array.from(document.querySelectorAll("[data-key-command]"));
 
-    function isLocalInputReady() {
-      return frameReady && statusInputReady;
+    function isLocalPointerReady() {
+      return frameReady && statusPointerReady;
+    }
+
+    function isLocalKeyboardReady() {
+      return frameReady && statusKeyboardReady;
+    }
+
+    function isAnyLocalInputReady() {
+      return isLocalPointerReady() || isLocalKeyboardReady();
     }
 
     function updatePointerArm() {
-      if (!isLocalInputReady()) {
+      if (!isLocalPointerReady()) {
         pointerArmed = false;
       }
       pointerArm.textContent = pointerArmed ? "Pointer On" : "Pointer Off";
       pointerArm.setAttribute("aria-pressed", pointerArmed ? "true" : "false");
-      pointerArm.disabled = !isLocalInputReady();
+      pointerArm.disabled = !isLocalPointerReady();
     }
 
     function updateModifierButtons() {
-      const disabled = !isLocalInputReady();
+      const disabled = !isLocalKeyboardReady();
       for (const button of modifierButtons) {
         const modifier = button.dataset.keyModifier;
         const pressed = typeof modifier === "string" && activeModifiers.has(modifier);
@@ -524,12 +543,11 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     }
 
     function updateInputControls() {
-      const disabled = !isLocalInputReady();
       updatePointerArm();
       updateModifierButtons();
-      sendButton.disabled = disabled;
+      sendButton.disabled = !isAnyLocalInputReady();
       for (const button of keyCommandButtons) {
-        button.disabled = disabled;
+        button.disabled = !isLocalKeyboardReady();
       }
     }
 
@@ -554,11 +572,13 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
       const response = await fetch("/status", { cache: "no-store" });
       const body = await response.json();
       if (body.ok && body.state) {
-        statusInputReady = body.state.state === "active" && body.state.visibleToHost === true && Number.isInteger(body.state.permissionCount) && body.state.permissionCount > 0;
+        statusPointerReady = body.state.state === "active" && body.state.visibleToHost === true && body.state.inputPointerReady === true;
+        statusKeyboardReady = body.state.state === "active" && body.state.visibleToHost === true && body.state.inputKeyboardReady === true;
         const signalAck = body.state.signalProbeAckReceived === true ? " signalProbeAckReceived=true" : "";
-        status.textContent = "state=" + body.state.state + " visibleToHost=" + body.state.visibleToHost + " permissionCount=" + body.state.permissionCount + " inputReady=" + statusInputReady + signalAck;
+        status.textContent = "state=" + body.state.state + " visibleToHost=" + body.state.visibleToHost + " permissionCount=" + body.state.permissionCount + " pointerReady=" + statusPointerReady + " keyboardReady=" + statusKeyboardReady + signalAck;
       } else {
-        statusInputReady = false;
+        statusPointerReady = false;
+        statusKeyboardReady = false;
         status.textContent = "status=not-ready";
       }
       updateInputControls();
@@ -653,7 +673,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     }
 
     frame.addEventListener("pointerdown", (event) => {
-      if (!pointerArmed || !isLocalInputReady()) return;
+      if (!pointerArmed || !isLocalPointerReady()) return;
       const point = normalizedPointer(event);
       if (!point) return;
       event.preventDefault();
@@ -662,7 +682,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     frame.addEventListener("pointerup", (event) => {
-      if (!pointerArmed || !isLocalInputReady()) return;
+      if (!pointerArmed || !isLocalPointerReady()) return;
       const point = normalizedPointer(event);
       if (!point) return;
       event.preventDefault();
@@ -670,7 +690,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     frame.addEventListener("pointermove", (event) => {
-      if (!pointerArmed || !isLocalInputReady()) return;
+      if (!pointerArmed || !isLocalPointerReady()) return;
       const now = Date.now();
       if (now - lastMoveAt < 50) return;
       const point = normalizedPointer(event);
@@ -680,7 +700,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     frame.addEventListener("wheel", (event) => {
-      if (!pointerArmed || !isLocalInputReady()) return;
+      if (!pointerArmed || !isLocalPointerReady()) return;
       const point = normalizedPointer(event);
       if (!point) return;
       event.preventDefault();
@@ -696,14 +716,14 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     pointerArm.addEventListener("click", () => {
-      if (!isLocalInputReady()) return;
+      if (!isLocalPointerReady()) return;
       pointerArmed = !pointerArmed;
       updatePointerArm();
     });
 
     for (const button of modifierButtons) {
       button.addEventListener("click", () => {
-        if (!isLocalInputReady()) return;
+        if (!isLocalKeyboardReady()) return;
         const modifier = button.dataset.keyModifier;
         if (typeof modifier !== "string") return;
         if (activeModifiers.has(modifier)) {
@@ -716,21 +736,21 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     }
 
     document.getElementById("send").addEventListener("click", () => {
-      if (!isLocalInputReady()) return;
+      if (!isAnyLocalInputReady()) return;
       void sendCommand(command.value);
       command.value = "";
     });
 
     for (const button of keyCommandButtons) {
       button.addEventListener("click", () => {
-        if (!isLocalInputReady()) return;
+        if (!isLocalKeyboardReady()) return;
         void sendKeyPress(button.dataset.keyCommand);
       });
     }
 
     command.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
-        if (!isLocalInputReady()) return;
+        if (!isAnyLocalInputReady()) return;
         void sendCommand(command.value);
         command.value = "";
       }

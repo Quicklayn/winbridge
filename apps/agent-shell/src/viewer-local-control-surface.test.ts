@@ -50,11 +50,87 @@ describe("viewer local control surface", () => {
         visibleToHost: true,
         permissionCount: 3,
         authorizationStatus: "active",
-        expiresAt: "2026-06-17T12:00:00.000Z"
+        expiresAt: "2026-06-17T12:00:00.000Z",
+        inputPointerReady: false,
+        inputKeyboardReady: false
       }
     });
     expect(JSON.stringify(body)).not.toContain("authz_surface_private");
+    expect(JSON.stringify(body)).not.toContain("screen:view");
+    expect(JSON.stringify(body)).not.toContain("input:pointer");
+    expect(JSON.stringify(body)).not.toContain("input:keyboard");
     expect(JSON.stringify(body)).not.toContain("raw-token");
+  });
+
+  it("returns bounded input readiness booleans without raw permissions", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue({
+      state: "active",
+      visibleToHost: true,
+      permissionCount: 2,
+      authorizationStatus: "active",
+      authorizationId: "authz_surface_input_private",
+      inputPointerReady: true,
+      inputKeyboardReady: true
+    });
+    const handle = await startSurface(runtime);
+
+    const response = await fetch(`${handle.url}status`);
+    const body = await response.json() as {
+      ok: true;
+      state: Record<string, unknown>;
+    };
+    const serialized = JSON.stringify(body);
+
+    expect(response.status).toBe(200);
+    expect(body.state.inputPointerReady).toBe(true);
+    expect(body.state.inputKeyboardReady).toBe(true);
+    expect(serialized).not.toContain("authz_surface_input_private");
+    expect(serialized).not.toContain("screen:view");
+    expect(serialized).not.toContain("input:pointer");
+    expect(serialized).not.toContain("input:keyboard");
+    expect(serialized).not.toContain("raw-token");
+  });
+
+  it("represents pointer-only and keyboard-only readiness independently", async () => {
+    const pointerRuntime = createRuntimeSpy();
+    vi.mocked(pointerRuntime.getViewerStatus).mockReturnValue({
+      state: "active",
+      visibleToHost: true,
+      permissionCount: 1,
+      authorizationStatus: "active",
+      authorizationId: "authz_pointer_only",
+      inputPointerReady: true
+    });
+    const pointerHandle = await startSurface(pointerRuntime);
+
+    const keyboardRuntime = createRuntimeSpy();
+    vi.mocked(keyboardRuntime.getViewerStatus).mockReturnValue({
+      state: "active",
+      visibleToHost: true,
+      permissionCount: 1,
+      authorizationStatus: "active",
+      authorizationId: "authz_keyboard_only",
+      inputKeyboardReady: true
+    });
+    const keyboardHandle = await startSurface(keyboardRuntime);
+
+    const pointerBody = await (await fetch(`${pointerHandle.url}status`)).json() as {
+      state: Record<string, unknown>;
+    };
+    const keyboardBody = await (await fetch(`${keyboardHandle.url}status`)).json() as {
+      state: Record<string, unknown>;
+    };
+    const serialized = `${JSON.stringify(pointerBody)}\n${JSON.stringify(keyboardBody)}`;
+
+    expect(pointerBody.state.inputPointerReady).toBe(true);
+    expect(pointerBody.state.inputKeyboardReady).toBe(false);
+    expect(keyboardBody.state.inputPointerReady).toBe(false);
+    expect(keyboardBody.state.inputKeyboardReady).toBe(true);
+    expect(serialized).not.toContain("authz_pointer_only");
+    expect(serialized).not.toContain("authz_keyboard_only");
+    expect(serialized).not.toContain("input:pointer");
+    expect(serialized).not.toContain("input:keyboard");
   });
 
   it("returns bounded signal acknowledgement metadata without authorization ids", async () => {
@@ -138,7 +214,7 @@ describe("viewer local control surface", () => {
     expect(html).toContain("const activeModifiers = new Set();");
     expect(html).toContain('const modifierButtons = Array.from(document.querySelectorAll("[data-key-modifier]"));');
     expect(html).toContain("function updateModifierButtons()");
-    expect(html).toContain("const disabled = !isLocalInputReady();");
+    expect(html).toContain("const disabled = !isLocalKeyboardReady();");
     expect(html).toContain("button.disabled = disabled;");
     expect(html).toContain("function clearModifiers()");
     expect(html).toContain("activeModifiers.clear();");
@@ -148,7 +224,7 @@ describe("viewer local control surface", () => {
     expect(html).toContain("await sendCommand(\"key-up \" + key + suffix);");
     expect(html).toContain("finally {\n        clearModifiers();\n      }");
     expect(html).toContain('button.addEventListener("click", () => {');
-    expect(html).toContain("if (!isLocalInputReady()) return;");
+    expect(html).toContain("if (!isLocalKeyboardReady()) return;");
     expect(html).toContain("updateModifierButtons();");
     expect(html).not.toContain("activeModifiers.add(" + '"shift"' + ");");
     expect(html).not.toContain("sendCommand(\"key-down shift");
@@ -169,17 +245,18 @@ describe("viewer local control surface", () => {
     expect(html).toContain("Pointer On");
     expect(html).toContain("let pointerArmed = false;");
     expect(html).toContain("let frameReady = false;");
-    expect(html).toContain("let statusInputReady = false;");
+    expect(html).toContain("let statusPointerReady = false;");
+    expect(html).toContain("let statusKeyboardReady = false;");
     expect(html).toContain("let frameRequestSequence = 0;");
-    expect(html).toContain("function isLocalInputReady()");
-    expect(html).toContain("return frameReady && statusInputReady;");
+    expect(html).toContain("function isLocalPointerReady()");
+    expect(html).toContain("return frameReady && statusPointerReady;");
     expect(html).toContain("function updatePointerArm()");
     expect(html).toContain('pointerArm.setAttribute("aria-pressed", pointerArmed ? "true" : "false")');
-    expect(html).toContain("pointerArm.disabled = !isLocalInputReady();");
+    expect(html).toContain("pointerArm.disabled = !isLocalPointerReady();");
     expect(html).toContain('pointerArm.addEventListener("click"');
-    expect(html).toContain("if (!isLocalInputReady()) return;");
+    expect(html).toContain("if (!isLocalPointerReady()) return;");
     expect(html).toContain("pointerArmed = !pointerArmed;");
-    expect(html.match(/if \(!pointerArmed \|\| !isLocalInputReady\(\)\) return;/g)).toHaveLength(4);
+    expect(html.match(/if \(!pointerArmed \|\| !isLocalPointerReady\(\)\) return;/g)).toHaveLength(4);
     expect(html.match(/pointerArmed = false;/g)?.length).toBeGreaterThanOrEqual(2);
     expect(html).toContain("frameReady = true;");
     expect(html).toContain('frameStatus.textContent = frameReady ? "frame=refreshing" : "frame=loading"');
@@ -196,23 +273,27 @@ describe("viewer local control surface", () => {
     const html = await response.text();
 
     expect(response.status).toBe(200);
-    expect(html).toContain("let statusInputReady = false;");
-    expect(html).toContain("function isLocalInputReady()");
-    expect(html).toContain("return frameReady && statusInputReady;");
+    expect(html).toContain("let statusPointerReady = false;");
+    expect(html).toContain("let statusKeyboardReady = false;");
+    expect(html).toContain("function isAnyLocalInputReady()");
+    expect(html).toContain("return isLocalPointerReady() || isLocalKeyboardReady();");
     expect(html).toContain(
-      'statusInputReady = body.state.state === "active" && body.state.visibleToHost === true && Number.isInteger(body.state.permissionCount) && body.state.permissionCount > 0;',
+      'statusPointerReady = body.state.state === "active" && body.state.visibleToHost === true && body.state.inputPointerReady === true;',
     );
     expect(html).toContain(
-      'status.textContent = "state=" + body.state.state + " visibleToHost=" + body.state.visibleToHost + " permissionCount=" + body.state.permissionCount + " inputReady=" + statusInputReady + signalAck;',
+      'statusKeyboardReady = body.state.state === "active" && body.state.visibleToHost === true && body.state.inputKeyboardReady === true;',
+    );
+    expect(html).toContain(
+      'status.textContent = "state=" + body.state.state + " visibleToHost=" + body.state.visibleToHost + " permissionCount=" + body.state.permissionCount + " pointerReady=" + statusPointerReady + " keyboardReady=" + statusKeyboardReady + signalAck;',
     );
     expect(html).toContain('const keyCommandButtons = Array.from(document.querySelectorAll("[data-key-command]"));');
     expect(html).toContain("function updateInputControls()");
-    expect(html).toContain("sendButton.disabled = disabled;");
+    expect(html).toContain("sendButton.disabled = !isAnyLocalInputReady();");
     expect(html).toContain("for (const button of keyCommandButtons)");
-    expect(html).toContain("button.disabled = disabled;");
+    expect(html).toContain("button.disabled = !isLocalKeyboardReady();");
     expect(html).toContain("updateInputControls();");
     expect(html).toContain('if (event.key === "Enter")');
-    expect(html).toContain("if (!isLocalInputReady()) return;");
+    expect(html).toContain("if (!isAnyLocalInputReady()) return;");
     expect(html).not.toContain("authorizationId");
     expect(html).not.toContain("raw-token");
     expect(html).not.toContain("pairingCode");

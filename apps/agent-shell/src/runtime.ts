@@ -265,6 +265,8 @@ export type AgentShellViewerStatusSnapshot = Readonly<{
   expiresAt?: string;
   remoteDisconnectReasonCode?: AgentShellRemoteDisconnectReasonCode;
   localInactiveCause?: AgentShellViewerLocalInactiveCause;
+  inputPointerReady?: boolean;
+  inputKeyboardReady?: boolean;
   signalProbeAckReceived?: boolean;
 }>;
 
@@ -2706,6 +2708,14 @@ function getViewerStatusSnapshot(
   }
 
   const state = hostIndicatorStateForAuthorization(snapshot.status);
+  const inputReady =
+    state === "active" &&
+    snapshot.visibleToHost &&
+    snapshot.status === "active" &&
+    (!snapshot.expiresAt || !hasAuthorizationExpired(snapshot.expiresAt));
+  const inputPointerReady = inputReady && snapshot.permissions.includes("input:pointer");
+  const inputKeyboardReady = inputReady && snapshot.permissions.includes("input:keyboard");
+
   return freezeStatusSnapshot({
     state,
     authorizationId: snapshot.authorizationId,
@@ -2713,6 +2723,8 @@ function getViewerStatusSnapshot(
     ...(hostIndicatorHasActiveGrant(state) && snapshot.expiresAt ? { expiresAt: snapshot.expiresAt } : {}),
     visibleToHost: state === "inactive" ? false : snapshot.visibleToHost,
     permissionCount: state === "inactive" ? 0 : snapshot.permissions.length,
+    ...(inputPointerReady ? { inputPointerReady } : {}),
+    ...(inputKeyboardReady ? { inputKeyboardReady } : {}),
     ...(hasViewerSignalProbeAck(sessionState, snapshot)
       ? { signalProbeAckReceived: true }
       : {})

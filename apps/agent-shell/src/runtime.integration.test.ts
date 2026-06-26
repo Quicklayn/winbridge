@@ -1881,6 +1881,12 @@ describe("agent shell consent workflow", () => {
     );
     const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
     await waitForSentActiveAuthorizationId(hostEvents);
+    expect(viewer.getViewerStatus()).toMatchObject({
+      state: "active",
+      authorizationId,
+      inputPointerReady: true,
+      inputKeyboardReady: true
+    });
 
     viewer.sendInputEvent({
       authorizationId,
@@ -12375,6 +12381,8 @@ describe("agent shell consent workflow", () => {
         visibleToHost: true,
         permissionCount: 1
       });
+      expect(viewer.getViewerStatus()).not.toHaveProperty("inputPointerReady");
+      expect(viewer.getViewerStatus()).not.toHaveProperty("inputKeyboardReady");
       expect(viewer.getViewerStatus()).not.toHaveProperty("signalProbeAckReceived");
       expect(
         viewerEvents.filter((event) => event.direction === "received" && event.message.type === "signal")
