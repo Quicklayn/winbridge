@@ -107,6 +107,7 @@ describe("MVP session command kit", () => {
   it("prints only the selected bounded command target", () => {
     const relay = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "relay"]));
     expect(relay).toContain("# WinBridge MVP relay command");
+    expect(relay).toContain("Preflight reminder: run npm run mvp:ready -- --role relay on this machine before a live trial.");
     expect(relay).toContain("relay command:");
     expect(relay).toContain("npm run dev:relay");
     expect(relay).not.toContain("npm run dev:agent -- host");
@@ -115,6 +116,7 @@ describe("MVP session command kit", () => {
 
     const host = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "host"]));
     expect(host).toContain("# WinBridge MVP host command");
+    expect(host).toContain("Preflight reminder: run npm run mvp:ready -- --role host on this machine before a live trial.");
     expect(host).toContain("host command:");
     expect(host).toContain("npm run dev:agent -- host");
     expect(host).toContain("--host-consent-prompt 'true'");
@@ -126,6 +128,7 @@ describe("MVP session command kit", () => {
 
     const viewer = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "viewer"]));
     expect(viewer).toContain("# WinBridge MVP viewer command");
+    expect(viewer).toContain("Preflight reminder: run npm run mvp:ready -- --role viewer on this machine before a live trial.");
     expect(viewer).toContain("viewer command:");
     expect(viewer).toContain("npm run dev:agent -- viewer");
     expect(viewer).toContain("--pairing '123-456'");
@@ -136,6 +139,7 @@ describe("MVP session command kit", () => {
 
     const browser = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "browser"]));
     expect(browser).toContain("# WinBridge MVP browser command");
+    expect(browser).toContain("Preflight reminder: run npm run mvp:ready -- --role viewer on this machine before a live trial.");
     expect(browser).toContain("browser command:");
     expect(browser).toContain("Start-Process 'http://127.0.0.1:35987/'");
     expect(browser).toContain("Wait for frame=ready");

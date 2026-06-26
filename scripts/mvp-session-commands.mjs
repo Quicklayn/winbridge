@@ -372,7 +372,7 @@ function renderMvpFilteredCommandTarget(parsed) {
     `# WinBridge MVP ${targetLabel} command`,
     "",
     "Run this command manually in a visible PowerShell terminal.",
-    "Preflight reminder: run npm run mvp:ready on each Windows machine before a live trial.",
+    roleScopedReadyReminderForTarget(parsed.onlyTarget),
     `Relay URL: ${parsed.relay}`,
     "",
     `${targetLabel} command:`,
@@ -387,6 +387,11 @@ function renderMvpFilteredCommandTarget(parsed) {
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+function roleScopedReadyReminderForTarget(target) {
+  const role = target === "browser" ? "viewer" : target;
+  return `Preflight reminder: run npm run mvp:ready -- --role ${role} on this machine before a live trial.`;
 }
 
 function filteredTargetHints(target) {

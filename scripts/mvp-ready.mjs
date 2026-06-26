@@ -57,7 +57,6 @@ const ROLE_FILTER_STEP_TARGETS = new Map(
 );
 const ROLE_FILTER_SHARED_MARKERS = Object.freeze([
   "Run this command manually in a visible PowerShell terminal.",
-  "Preflight reminder: run npm run mvp:ready on each Windows machine before a live trial.",
   "Safety checks:",
   "This helper printed commands only"
 ]);
@@ -521,9 +520,16 @@ function roleFilterMarkersForTarget(target) {
   }
 
   const targetMarkers = {
-    relay: ["# WinBridge MVP relay command", "Relay URL:", "relay command:", "npm run dev:relay"],
+    relay: [
+      "# WinBridge MVP relay command",
+      "Preflight reminder: run npm run mvp:ready -- --role relay on this machine before a live trial.",
+      "Relay URL:",
+      "relay command:",
+      "npm run dev:relay"
+    ],
     host: [
       "# WinBridge MVP host command",
+      "Preflight reminder: run npm run mvp:ready -- --role host on this machine before a live trial.",
       "Relay URL:",
       "host command:",
       "npm run dev:agent -- host",
@@ -535,6 +541,7 @@ function roleFilterMarkersForTarget(target) {
     ],
     viewer: [
       "# WinBridge MVP viewer command",
+      "Preflight reminder: run npm run mvp:ready -- --role viewer on this machine before a live trial.",
       "Relay URL:",
       "viewer command:",
       "npm run dev:agent -- viewer",
@@ -545,6 +552,7 @@ function roleFilterMarkersForTarget(target) {
     ],
     browser: [
       "# WinBridge MVP browser command",
+      "Preflight reminder: run npm run mvp:ready -- --role viewer on this machine before a live trial.",
       "Relay URL:",
       "browser command:",
       "Start-Process 'http://127.0.0.1:35987/'",

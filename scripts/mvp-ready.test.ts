@@ -1224,7 +1224,7 @@ function roleFilterOutput(target: string) {
   return [
     `# WinBridge MVP ${target} command`,
     "Run this command manually in a visible PowerShell terminal.",
-    "Preflight reminder: run npm run mvp:ready on each Windows machine before a live trial.",
+    roleFilterReadyReminder(target),
     "Relay URL: ws://localhost:8787/",
     ...targetBodies[target],
     "Safety checks:",
@@ -1232,6 +1232,11 @@ function roleFilterOutput(target: string) {
     "- This helper printed commands only; it did not start relay, host, viewer, capture, input, or browser processes.",
     "- Stop from the host terminal with pause, revoke, terminate, disconnect, or Ctrl+C."
   ].join("\n");
+}
+
+function roleFilterReadyReminder(target: string) {
+  const role = target === "browser" ? "viewer" : target;
+  return `Preflight reminder: run npm run mvp:ready -- --role ${role} on this machine before a live trial.`;
 }
 
 function smokeSubchecks() {
