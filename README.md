@@ -175,8 +175,9 @@ are created by the audit and frame-output runtime sinks on first authorized
 write; the command kit itself still only prints commands and does not create
 files or directories. The generated browser step is a visible PowerShell
 `Start-Process 'http://127.0.0.1:<port>/'` command for the loopback viewer
-surface; it also reminds the developer to wait for `frame=ready` and click the
-visible `Pointer Off/On` control before browser pointer actions can send input.
+surface; it also reminds the developer to wait for `frame=ready`, pointer
+readiness, and the visible `Pointer Off/On` control before browser pointer
+actions can send input.
 It opens a browser only when the developer explicitly runs that printed command
 on the viewer PC.
 
@@ -512,15 +513,18 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 
 Open `http://127.0.0.1:35987/` on the viewer machine. The page displays only
 the latest authorized frame from the explicit output file. Visible input
-controls stay disabled until the page has both sanitized active visible viewer
-status with at least one granted permission and a ready displayed frame. Browser
-pointer actions on the displayed frame are disabled by default and require the
-visible `Pointer Off/On` control while local input readiness is true before
-pointer movement, wheel, or button events can send input. The page preloads
-replacement frames before swapping the displayed frame, so ordinary refreshes do
-not disarm pointer control while a ready frame remains visible; initial missing
-frames keep input controls disabled. The frame also suppresses browser-native
-context menu and image drag defaults only on that frame.
+controls stay disabled until the page has a ready displayed frame and sanitized
+active visible viewer status with matching bounded input readiness metadata.
+Browser pointer actions on the displayed frame are disabled by default and
+require `input:pointer` readiness plus the visible `Pointer Off/On` control
+before pointer movement, wheel, or button events can send input. Explicit key
+buttons and modifier toggles require `input:keyboard` readiness. The manual
+command box is available when at least one input readiness flag is true, but the
+runtime still rejects commands whose exact permission is absent. The page
+preloads replacement frames before swapping the displayed frame, so ordinary
+refreshes do not disarm pointer control while a ready frame remains visible;
+initial missing frames keep input controls disabled. The frame also suppresses
+browser-native context menu and image drag defaults only on that frame.
 Command-box input and browser pointer input use the same `sendInputEvent()`
 path as the terminal viewer prompt. It also provides
 explicit buttons for common keys such as Enter, Escape, Tab, Backspace, and

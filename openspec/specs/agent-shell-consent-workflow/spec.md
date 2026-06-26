@@ -3554,11 +3554,11 @@ or bypass runtime authorization gates.
 
 The opt-in viewer local control surface SHALL keep visible input-sending
 controls disabled until the generated page has both a ready displayed frame and
-sanitized viewer status indicating active visible authorization with at least
-one granted input permission. The generated page SHALL gate pointer arming and
-browser pointer interactions on bounded `input:pointer` readiness metadata,
-and SHALL gate explicit key buttons and modifier toggles on bounded
-`input:keyboard` readiness metadata. The manual send action SHALL remain
+sanitized viewer status indicating active visible authorization with bounded
+input readiness metadata for the matching input kind. The generated page SHALL
+gate pointer arming and browser pointer interactions on bounded `input:pointer`
+readiness metadata, and SHALL gate explicit key buttons and modifier toggles on
+bounded `input:keyboard` readiness metadata. The manual send action SHALL remain
 disabled until at least one input permission readiness flag is true. The
 disconnect action MAY remain available while input is not ready. This local UI
 gate MUST NOT replace runtime authorization: every input POST MUST still pass
@@ -3614,7 +3614,8 @@ input contents, clipboard contents, diagnostics dumps, or full secrets.
 - **THEN** the response may include only bounded boolean input readiness
   metadata for supported input kinds
 - **AND** it MUST NOT include raw permission arrays, authorization ids,
-  pairing codes, tokens, raw signal payloads, raw input commands, pointer
-  coordinates, key values, modifier values, screen contents, input contents, or
-  diagnostics dumps
+  command text, pointer coordinates, key values, modifier values, frame paths,
+  frame bytes, tokens, pairing codes, credentials, private reasons, screen
+  contents, input contents, clipboard contents, diagnostics dumps, or full
+  secrets
 
