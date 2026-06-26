@@ -470,6 +470,49 @@ describe("MVP session command kit", () => {
     expect(output).toContain("--relay 'ws://192.168.1.10:18787/'");
   });
 
+  it("rejects unsafe full relay URL connect targets without echoing raw values", () => {
+    const invalidInputs = [
+      ["--relay", "ws://0.0.0.0:8787"],
+      ["--relay", "ws://[::]:8787"],
+      ["--relay", "ws://192.168.1.10:8787/relay"],
+      ["--relay", "ws://192.168.1.10:8787/path/to/raw-secret-token"],
+      ["--relay", "ws://192.168.1.10:8787?token=raw-secret-token"],
+      ["--relay", "ws://user:raw-secret-token@192.168.1.10:8787"]
+    ];
+
+    for (const invalidInput of invalidInputs) {
+      let thrown: unknown;
+
+      try {
+        parseMvpSessionCommandArgs(invalidInput);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(MvpSessionCommandKitUsageError);
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("0.0.0.0");
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("192.168.1.10");
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("raw-secret-token");
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("/relay");
+    }
+  });
+
+  it("keeps root localhost and LAN relay URLs valid", () => {
+    const localhost = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--relay", "ws://localhost:18787/"])
+    );
+    expect(localhost).toContain("$env:WINBRIDGE_RELAY_PORT = '18787'; npm run dev:relay");
+    expect(localhost).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
+
+    const lan = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--relay", "ws://192.168.1.10:18787/"])
+    );
+    expect(lan).toContain(
+      "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; $env:WINBRIDGE_RELAY_PORT = '18787'; npm run dev:relay"
+    );
+    expect(lan).toContain("--relay 'ws://192.168.1.10:18787/'");
+  });
+
   it("keeps the root agent helper aligned with generated MVP dependencies", () => {
     const packageJson = JSON.parse(readFileSync(rootPackageJsonPath, "utf8")) as {
       scripts?: Record<string, string>;
@@ -522,6 +565,9 @@ describe("MVP session command kit", () => {
       ["--relay", "http://localhost:8787"],
       ["--relay", "ws://user:pass@localhost:8787"],
       ["--relay", "ws://localhost:8787?token=abc"],
+      ["--relay", "ws://0.0.0.0:8787"],
+      ["--relay", "ws://[::]:8787"],
+      ["--relay", "ws://localhost:8787/relay"],
       ["--relay-host", "localhost"],
       ["--relay-host", "127.0.0.1"],
       ["--relay-host", "0.0.0.0"],

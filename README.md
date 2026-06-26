@@ -188,7 +188,9 @@ custom relay port or full URL. For non-loopback relay URLs, the printed relay
 step explicitly sets
 `WINBRIDGE_RELAY_BIND_HOST=0.0.0.0` so the development relay can accept LAN
 connections. This is still an explicit development action; the command kit does
-not probe IP addresses, open firewall ports, or start background services.
+not probe IP addresses, open firewall ports, or start background services. Do
+not use `0.0.0.0` as the `--relay` connection target for host/viewer commands;
+the command kit accepts it only as the generated relay bind setting.
 
 Check local MVP prerequisites on each Windows machine before a two-PC trial:
 

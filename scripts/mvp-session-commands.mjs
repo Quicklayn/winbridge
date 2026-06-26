@@ -712,7 +712,16 @@ function parseRelayUrl(raw) {
     throw new MvpSessionCommandKitUsageError();
   }
 
+  if (isUnspecifiedRelayConnectHost(parsed.hostname) || parsed.pathname !== "/") {
+    throw new MvpSessionCommandKitUsageError();
+  }
+
   return parsed.toString();
+}
+
+function isUnspecifiedRelayConnectHost(hostname) {
+  const host = hostname.toLowerCase();
+  return host === "0.0.0.0" || host === "::" || host === "[::]";
 }
 
 function isLoopbackOrUnspecifiedRelayHost(raw) {
