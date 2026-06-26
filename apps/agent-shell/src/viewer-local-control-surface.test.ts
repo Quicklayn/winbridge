@@ -760,6 +760,52 @@ describe("viewer local control surface", () => {
     expect(runtime.sendInputEvent).not.toHaveBeenCalled();
   });
 
+  it("rejects disconnect from a foreign origin before leaving", async () => {
+    const runtime = createRuntimeSpy();
+    const handle = await startSurface(runtime);
+
+    const response = await fetch(`${handle.url}disconnect`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "http://example.invalid",
+        "x-winbridge-local-surface-token": handle.token
+      },
+      body: JSON.stringify({})
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(403);
+    expect(body).toContain("rejected");
+    expect(body).not.toContain(handle.token);
+    expect(body).not.toContain("example.invalid");
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects disconnect with an unsafe content type before leaving", async () => {
+    const runtime = createRuntimeSpy();
+    const handle = await startSurface(runtime);
+
+    const response = await fetch(`${handle.url}disconnect`, {
+      method: "POST",
+      headers: {
+        "content-type": "text/plain",
+        origin: originForHandle(handle),
+        "x-winbridge-local-surface-token": handle.token
+      },
+      body: "{}"
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(403);
+    expect(body).toContain("rejected");
+    expect(body).not.toContain(handle.token);
+    expect(body).not.toContain("text/plain");
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+  });
+
   it("stops the listener without leaving a background surface", async () => {
     const runtime = createRuntimeSpy();
     const handle = await startSurface(runtime);

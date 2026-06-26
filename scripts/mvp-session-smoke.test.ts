@@ -19,6 +19,7 @@ import {
   tryPostSurfaceGuardDenials,
   tryPostSurfaceInput,
   tryPostSurfaceInputDenied,
+  tryPostSurfaceDisconnect,
   tryPostSurfaceKeyboardInput
 } from "./mvp-session-smoke.mjs";
 
@@ -105,6 +106,7 @@ describe("MVP session smoke check", () => {
     expect(output).toContain("surface-guards=verified");
     expect(output).toContain("audit=verified");
     expect(output).toContain("lifecycle=verified");
+    expect(output).toContain("viewer-disconnect=verified");
     expect(output).toContain("artifacts=C:\\Temp\\winbridge-mvp-smoke-safe");
     expect(output).not.toContain("latest.png");
     expect(output).not.toContain("host-audit.jsonl");
@@ -138,7 +140,8 @@ describe("MVP session smoke check", () => {
         { name: "surface-guards", ok: true },
         { name: "input", ok: true },
         { name: "audit", ok: true },
-        { name: "lifecycle", ok: true }
+        { name: "lifecycle", ok: true },
+        { name: "viewer-disconnect", ok: true }
       ],
       artifacts: "cleaned"
     });
@@ -183,7 +186,8 @@ describe("MVP session smoke check", () => {
         { name: "surface-guards", ok: false, skipped: true },
         { name: "input", ok: false, skipped: true },
         { name: "audit", ok: false, skipped: true },
-        { name: "lifecycle", ok: false, skipped: true }
+        { name: "lifecycle", ok: false, skipped: true },
+        { name: "viewer-disconnect", ok: false, skipped: true }
       ]
     });
     expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready")))).toEqual({
@@ -198,7 +202,8 @@ describe("MVP session smoke check", () => {
         { name: "surface-guards", ok: false },
         { name: "input", ok: false, skipped: true },
         { name: "audit", ok: false, skipped: true },
-        { name: "lifecycle", ok: false, skipped: true }
+        { name: "lifecycle", ok: false, skipped: true },
+        { name: "viewer-disconnect", ok: false, skipped: true }
       ]
     });
     expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("audit-not-ready")))).toEqual({
@@ -213,7 +218,8 @@ describe("MVP session smoke check", () => {
         { name: "surface-guards", ok: true },
         { name: "input", ok: true },
         { name: "audit", ok: false },
-        { name: "lifecycle", ok: false, skipped: true }
+        { name: "lifecycle", ok: false, skipped: true },
+        { name: "viewer-disconnect", ok: false, skipped: true }
       ]
     });
     expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("lifecycle-not-ready")))).toEqual({
@@ -228,7 +234,24 @@ describe("MVP session smoke check", () => {
         { name: "surface-guards", ok: true },
         { name: "input", ok: true },
         { name: "audit", ok: true },
-        { name: "lifecycle", ok: false }
+        { name: "lifecycle", ok: false },
+        { name: "viewer-disconnect", ok: false, skipped: true }
+      ]
+    });
+    expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("viewer-disconnect-not-ready")))).toEqual({
+      ok: false,
+      reason: "viewer-disconnect-not-ready",
+      checks: [
+        { name: "relay", ok: true },
+        { name: "indicator", ok: true },
+        { name: "frame", ok: true },
+        { name: "surface", ok: true },
+        { name: "signal", ok: true },
+        { name: "surface-guards", ok: true },
+        { name: "input", ok: true },
+        { name: "audit", ok: true },
+        { name: "lifecycle", ok: true },
+        { name: "viewer-disconnect", ok: false }
       ]
     });
     expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("indicator-not-ready")))).toEqual({
@@ -243,7 +266,8 @@ describe("MVP session smoke check", () => {
         { name: "surface-guards", ok: false, skipped: true },
         { name: "input", ok: false, skipped: true },
         { name: "audit", ok: false, skipped: true },
-        { name: "lifecycle", ok: false, skipped: true }
+        { name: "lifecycle", ok: false, skipped: true },
+        { name: "viewer-disconnect", ok: false, skipped: true }
       ]
     });
     expect(formatMvpSessionSmokeJsonError(new Error("raw-secret-token"))).not.toContain(
@@ -604,6 +628,70 @@ describe("MVP session smoke check", () => {
       tryPostSurfaceInputDenied(
         async () => {
           throw new Error("raw-token network failure");
+        },
+        "http://127.0.0.1:35987/",
+        "safe-token"
+      )
+    ).resolves.toBe(false);
+  });
+
+  it("posts a bounded empty disconnect request through the token-protected surface path", async () => {
+    const calls: unknown[] = [];
+    const accepted = await tryPostSurfaceDisconnect(
+      async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return {
+          status: 202,
+          json: async () => ({ ok: true, action: "disconnect" })
+        } as Response;
+      },
+      "http://127.0.0.1:35987/",
+      "safe-token"
+    );
+
+    expect(accepted).toBe(true);
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:35987/disconnect",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://127.0.0.1:35987",
+            "x-winbridge-local-surface-token": "safe-token"
+          },
+          body: JSON.stringify({})
+        }
+      }
+    ]);
+    expect(formatMvpSessionSmokeError(new Error("viewer-disconnect-not-ready"))).toBe(
+      "WinBridge MVP smoke check failed. reason=viewer-disconnect-not-ready"
+    );
+    expect(formatMvpSessionSmokeJsonError(new Error("viewer-disconnect-not-ready"))).not.toContain(
+      "safe-token"
+    );
+    expect(formatMvpSessionSmokeJsonError(new Error("viewer-disconnect-not-ready"))).not.toContain(
+      "127.0.0.1:35987"
+    );
+  });
+
+  it("does not treat unexpected disconnect responses or network failures as accepted", async () => {
+    await expect(
+      tryPostSurfaceDisconnect(
+        async () =>
+          ({
+            status: 200,
+            json: async () => ({ ok: true, action: "disconnect", token: "raw-secret-token" })
+          }) as Response,
+        "http://127.0.0.1:35987/",
+        "safe-token"
+      )
+    ).resolves.toBe(false);
+
+    await expect(
+      tryPostSurfaceDisconnect(
+        async () => {
+          throw new Error("raw-secret-token network failure");
         },
         "http://127.0.0.1:35987/",
         "safe-token"

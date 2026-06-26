@@ -42,7 +42,8 @@ const MVP_SMOKE_CHECK_NAMES = Object.freeze([
   "surface-guards",
   "input",
   "audit",
-  "lifecycle"
+  "lifecycle",
+  "viewer-disconnect"
 ]);
 const SMOKE_AUDIT_SUMMARY_FLAGS = Object.freeze([
   "authorizationApproved",
@@ -70,7 +71,8 @@ const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "surface-guards-not-ready": 5,
   "input-not-ready": 6,
   "audit-not-ready": 7,
-  "lifecycle-not-ready": 8
+  "lifecycle-not-ready": 8,
+  "viewer-disconnect-not-ready": 9
 });
 
 export class MvpSessionSmokeUsageError extends Error {
@@ -342,6 +344,7 @@ async function runMvpSessionSmokeSteps(context) {
   if (!auditSummary) {
     throw new Error("audit-not-ready");
   }
+  await waitForViewerSurfaceDisconnect(readyPlan.surfaceUrl, surface.mutationToken, deadline, options);
 
   return {
     ok: true,
@@ -454,6 +457,7 @@ export function formatMvpSessionSmokeSuccess(result, options = {}) {
     "input=verified",
     "audit=verified",
     "lifecycle=verified",
+    "viewer-disconnect=verified",
     ...formatSmokeAuditSummaryLines(result.auditSummary),
     options.keepArtifacts ? `artifacts=${result.workDir}` : "artifacts=cleaned"
   ].join("\n");
@@ -534,6 +538,7 @@ function safeSmokeFailureReason(error) {
       "input-not-ready",
       "audit-not-ready",
       "lifecycle-not-ready",
+      "viewer-disconnect-not-ready",
       "port-unavailable"
     ].includes(error.message)
   ) {
@@ -762,6 +767,35 @@ export async function tryPostSurfaceInputDenied(fetchImpl, surfaceUrl, mutationT
     "pointer-move 0.5 0.5"
   );
   return result === "denied";
+}
+
+async function waitForViewerSurfaceDisconnect(surfaceUrl, mutationToken, deadline, options) {
+  while (options.now() <= deadline) {
+    const accepted = await tryPostSurfaceDisconnect(options.fetchImpl, surfaceUrl, mutationToken);
+    if (accepted) {
+      return;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("viewer-disconnect-not-ready");
+}
+
+export async function tryPostSurfaceDisconnect(fetchImpl, surfaceUrl, mutationToken) {
+  try {
+    const response = await fetchImpl(`${surfaceUrl}disconnect`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: surfaceUrl.replace(/\/$/, ""),
+        "x-winbridge-local-surface-token": mutationToken
+      },
+      body: JSON.stringify({})
+    });
+    const body = await response.json();
+    return response.status === 202 && body?.ok === true && body.action === "disconnect";
+  } catch {
+    return false;
+  }
 }
 
 async function tryPostSurfaceInputCommand(fetchImpl, surfaceUrl, mutationToken, command, expectedKind) {

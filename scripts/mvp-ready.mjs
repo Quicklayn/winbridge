@@ -22,7 +22,8 @@ const SAFE_SMOKE_SUBCHECK_NAMES = new Set([
   "surface-guards",
   "input",
   "audit",
-  "lifecycle"
+  "lifecycle",
+  "viewer-disconnect"
 ]);
 const SAFE_SMOKE_AUDIT_SUMMARY_ROLES = Object.freeze(["host", "viewer"]);
 const SAFE_SMOKE_AUDIT_SUMMARY_COUNTS = Object.freeze(["records", "accepted", "denied", "failed"]);

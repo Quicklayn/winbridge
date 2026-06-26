@@ -269,8 +269,8 @@ npm run mvp:ready -- --json --include-smoke
 
 The aggregate JSON keeps child output and generated command strings hidden and
 may include fixed smoke subchecks for relay, host indicator, frame, surface,
-signal, surface guard, input, audit, and lifecycle readiness for the default
-smoke and LAN-style smoke steps.
+signal, surface guard, input, audit, lifecycle, and viewer-disconnect readiness
+for the default smoke and LAN-style smoke steps.
 
 Run a bounded local MVP smoke check before a two-PC trial:
 
@@ -292,9 +292,11 @@ accepted input handling, submits one bounded pointer command and one bounded
 keyboard command with explicit modifiers through the token-protected local `/input` path,
 verifies that both configured host and viewer JSONL audit logs contain bounded
 audit records, verifies that scheduled host revocation of `input:pointer` makes
-a later pointer command fail closed through the same local `/input` path, and
-then stops the child processes. The host indicator, signal readiness, audit,
-surface guard, and lifecycle checks are metadata-only. Successful JSON output may include a
+a later pointer command fail closed through the same local `/input` path,
+verifies that the token-protected local `/disconnect` path closes the viewer
+side through the existing local surface route, and then stops the child
+processes. The host indicator, signal readiness, audit, surface guard,
+lifecycle, and viewer-disconnect checks are metadata-only. Successful JSON output may include a
 fixed audit summary with host/viewer record counts, outcome counts, and coverage booleans
 for expected smoke evidence such as consent, frame, input, and revocation. The
 summary is read-only and does not print raw signal payloads, authorization ids,

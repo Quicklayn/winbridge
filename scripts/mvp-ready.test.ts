@@ -639,7 +639,23 @@ describe("MVP ready helper", () => {
       parseSmokeSubchecks(
         JSON.stringify({
           ok: true,
+          checks: smokeSubchecks().filter((check) => check.name !== "viewer-disconnect")
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeSubchecks(
+        JSON.stringify({
+          ok: true,
           checks: [...smokeSubchecks(), { name: "relay", ok: true }]
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeSubchecks(
+        JSON.stringify({
+          ok: true,
+          checks: [...smokeSubchecks(), { name: "viewer-disconnect", ok: true }]
         })
       )
     ).toBeUndefined();
@@ -650,6 +666,18 @@ describe("MVP ready helper", () => {
           checks: smokeSubchecks().map((check) =>
             check.name === "input"
               ? { ...check, command: "key-down KeyA shift,control", token: "raw-secret-token" }
+              : check
+          )
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeSubchecks(
+        JSON.stringify({
+          ok: true,
+          checks: smokeSubchecks().map((check) =>
+            check.name === "viewer-disconnect"
+              ? { ...check, surfaceUrl: "http://127.0.0.1:1/", token: "raw-secret-token" }
               : check
           )
         })
@@ -1065,7 +1093,8 @@ function smokeSubchecks() {
     { name: "surface-guards", ok: true },
     { name: "input", ok: true },
     { name: "audit", ok: true },
-    { name: "lifecycle", ok: true }
+    { name: "lifecycle", ok: true },
+    { name: "viewer-disconnect", ok: true }
   ];
 }
 
@@ -1079,7 +1108,8 @@ function smokeFailureSubchecks() {
     { name: "surface-guards", ok: false, skipped: true },
     { name: "input", ok: false, skipped: true },
     { name: "audit", ok: false, skipped: true },
-    { name: "lifecycle", ok: false, skipped: true }
+    { name: "lifecycle", ok: false, skipped: true },
+    { name: "viewer-disconnect", ok: false, skipped: true }
   ];
 }
 
