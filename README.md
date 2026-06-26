@@ -244,8 +244,9 @@ ephemeral viewer surface command-plan validation with
 command-plan validation, and a non-executing shared-token command-plan
 validation sequentially. It also validates the target-specific text outputs
 from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
-`preflight`, so the per-machine operator blocks are checked before a live
-trial. It then prints only bounded step status. The LAN
+`preflight`, plus the explicit ephemeral browser-only output for
+`--viewer-control-surface-port 0`, so the per-machine operator blocks are
+checked before a live trial. It then prints only bounded step status. The LAN
 validation uses a fixed safe `--relay-host` value only to exercise the two-PC
 command generator path; the token validation uses the fixed
 `WINBRIDGE_RELAY_SHARED_TOKEN` environment variable name only to exercise the

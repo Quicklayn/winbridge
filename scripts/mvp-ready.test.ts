@@ -5,6 +5,7 @@ import {
   formatMvpReadyJsonResult,
   formatMvpReadyResult,
   MvpReadyUsageError,
+  parseEphemeralBrowserRoleFilteredCommandReadiness,
   parseCommandPlanReadiness,
   parseEphemeralCommandPlanReadiness,
   parseMvpReadyArgs,
@@ -256,6 +257,7 @@ describe("MVP ready helper", () => {
         "role-filter-viewer-command=ok",
         "role-filter-browser-command=ok",
         "role-filter-preflight-command=ok",
+        "ephemeral-role-filter-browser-command=ok",
         "smoke=skipped",
         "lan-smoke=skipped"
       ].join("\n")
@@ -645,6 +647,62 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyResult(result)).not.toContain("123-456");
     expect(formatMvpReadyJsonResult(result)).not.toContain("npm run dev:agent");
     expect(formatMvpReadyJsonResult(result)).not.toContain("123-456");
+  });
+
+  it("fails closed when ephemeral browser role-filter output drifts", () => {
+    const result = runMvpReadyCheck({
+      includeSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "ephemeral-role-filter-browser-command") {
+          return {
+            ok: true,
+            output: roleFilterOutput("browser", {
+              browserCommand: "Start-Process 'http://127.0.0.1:0/'"
+            })
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        ...roleFilterTargets().map((target) => ({
+          name: `role-filter-${target}-command`,
+          ok: true
+        })),
+        { name: "ephemeral-role-filter-browser-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("127.0.0.1");
+    expect(formatMvpReadyResult(result)).not.toContain("Start-Process");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("127.0.0.1");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("Start-Process");
   });
 
   it("fails closed when included smoke output is missing or malformed", () => {
@@ -1144,6 +1202,28 @@ describe("MVP ready helper", () => {
     expect(parseRoleFilteredCommandReadiness(roleFilterOutput("relay"), "unsafe")).toBe(false);
   });
 
+  it("parses only reviewed ephemeral browser role-filter output", () => {
+    expect(parseEphemeralBrowserRoleFilteredCommandReadiness(ephemeralBrowserRoleFilterOutput())).toBe(
+      true
+    );
+    expect(
+      parseEphemeralBrowserRoleFilteredCommandReadiness(
+        roleFilterOutput("browser", { browserCommand: "Start-Process 'http://127.0.0.1:0/'" })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralBrowserRoleFilteredCommandReadiness(
+        roleFilterOutput("browser", { browserCommand: "Open http://127.0.0.1:49152/" })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralBrowserRoleFilteredCommandReadiness(
+        `${ephemeralBrowserRoleFilterOutput()}\nviewer command:\nnpm run dev:agent -- viewer`
+      )
+    ).toBe(false);
+    expect(parseEphemeralBrowserRoleFilteredCommandReadiness("x".repeat(32769))).toBe(false);
+  });
+
   it("formats bounded JSON success and failure output without child output leakage", () => {
     const success = formatMvpReadyJsonResult({
       ok: true,
@@ -1271,11 +1351,26 @@ function roleFilterTargets() {
 }
 
 function roleFilterPlanSteps() {
-  return roleFilterTargets().map((target) => ({
-    name: `role-filter-${target}-command`,
-    command: "npm",
-    args: ["run", "mvp:commands", "--", "--only", target]
-  }));
+  return [
+    ...roleFilterTargets().map((target) => ({
+      name: `role-filter-${target}-command`,
+      command: "npm",
+      args: ["run", "mvp:commands", "--", "--only", target]
+    })),
+    {
+      name: "ephemeral-role-filter-browser-command",
+      command: "npm",
+      args: [
+        "run",
+        "mvp:commands",
+        "--",
+        "--only",
+        "browser",
+        "--viewer-control-surface-port",
+        "0"
+      ]
+    }
+  ];
 }
 
 function defaultReadyCheckNames() {
@@ -1286,18 +1381,26 @@ function defaultReadyCheckNames() {
     "ephemeral-command-plan",
     "lan-command-plan",
     "token-command-plan",
-    ...roleFilterTargets().map((target) => `role-filter-${target}-command`)
+    ...roleFilterTargets().map((target) => `role-filter-${target}-command`),
+    "ephemeral-role-filter-browser-command"
   ];
 }
 
 function roleFilterCheckResults() {
-  return roleFilterTargets().map((target) => ({
-    name: `role-filter-${target}-command`,
-    ok: true
-  }));
+  return [
+    ...roleFilterTargets().map((target) => ({
+      name: `role-filter-${target}-command`,
+      ok: true
+    })),
+    { name: "ephemeral-role-filter-browser-command", ok: true }
+  ];
 }
 
 function roleFilterOutputForStep(name: string) {
+  if (name === "ephemeral-role-filter-browser-command") {
+    return ephemeralBrowserRoleFilterOutput();
+  }
+
   const prefix = "role-filter-";
   const suffix = "-command";
   if (!name.startsWith(prefix) || !name.endsWith(suffix)) {
@@ -1308,7 +1411,7 @@ function roleFilterOutputForStep(name: string) {
   return roleFilterTargets().includes(target) ? roleFilterOutput(target) : undefined;
 }
 
-function roleFilterOutput(target: string) {
+function roleFilterOutput(target: string, options: { browserCommand?: string } = {}) {
   if (target === "preflight") {
     return [
       "# WinBridge MVP preflight commands",
@@ -1343,7 +1446,7 @@ function roleFilterOutput(target: string) {
     ],
     browser: [
       "browser command:",
-      "Start-Process 'http://127.0.0.1:35987/'",
+      options.browserCommand ?? "Start-Process 'http://127.0.0.1:35987/'",
       "Open only on the viewer PC after the viewer command reports the local control surface URL.",
       "- Wait for frame=ready before browser pointer control.",
       "- Click the visible Pointer Off/On control before browser pointer movement, wheel, or button input."
@@ -1361,6 +1464,12 @@ function roleFilterOutput(target: string) {
     "- This helper printed commands only; it did not start relay, host, viewer, capture, input, or browser processes.",
     "- Stop from the host terminal with pause, revoke, terminate, disconnect, or Ctrl+C."
   ].join("\n");
+}
+
+function ephemeralBrowserRoleFilterOutput() {
+  return roleFilterOutput("browser", {
+    browserCommand: EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION
+  });
 }
 
 function roleFilterReadyReminder(target: string) {

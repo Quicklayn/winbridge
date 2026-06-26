@@ -178,6 +178,10 @@ export function createMvpReadyPlan(options = {}) {
       name: `role-filter-${target}-command`,
       ...commandWithArgs("mvp:commands", ["--only", target])
     })),
+    {
+      name: "ephemeral-role-filter-browser-command",
+      ...commandWithArgs("mvp:commands", ["--only", "browser", "--viewer-control-surface-port", "0"])
+    },
     ...(options.includeSmoke
       ? [
           { name: "smoke", ...commandWithArgs("mvp:smoke", ["--json"]) },
@@ -284,6 +288,23 @@ export function runMvpReadyCheck(options = {}) {
     if (
       roleFilterTarget !== undefined &&
       !parseRoleFilteredCommandReadiness(result.output, roleFilterTarget)
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (
+      step.name === "ephemeral-role-filter-browser-command" &&
+      !parseEphemeralBrowserRoleFilteredCommandReadiness(result.output)
     ) {
       const failed = {
         name: step.name,
@@ -589,7 +610,20 @@ export function parseRoleFilteredCommandReadiness(output, target) {
     roleFilterForbiddenMarkersForTarget(target).every((marker) => !output.includes(marker));
 }
 
-function roleFilterMarkersForTarget(target) {
+export function parseEphemeralBrowserRoleFilteredCommandReadiness(output) {
+  if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
+    return false;
+  }
+
+  return roleFilterMarkersForTarget("browser", { ephemeralSurface: true }).every((marker) =>
+    output.includes(marker)
+  ) &&
+    roleFilterForbiddenMarkersForTarget("browser", { ephemeralSurface: true }).every(
+      (marker) => !output.includes(marker)
+    );
+}
+
+function roleFilterMarkersForTarget(target, options = {}) {
   if (target === "preflight") {
     return [
       "# WinBridge MVP preflight commands",
@@ -639,7 +673,9 @@ function roleFilterMarkersForTarget(target) {
       "Preflight reminder: run npm run mvp:ready -- --role viewer on this machine before a live trial.",
       "Relay URL:",
       "browser command:",
-      "Start-Process 'http://127.0.0.1:35987/'",
+      options.ephemeralSurface
+        ? EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION
+        : "Start-Process 'http://127.0.0.1:35987/'",
       "Wait for frame=ready",
       "Click the visible Pointer Off/On control"
     ]
@@ -648,7 +684,7 @@ function roleFilterMarkersForTarget(target) {
   return [...ROLE_FILTER_SHARED_MARKERS, ...targetMarkers[target]];
 }
 
-function roleFilterForbiddenMarkersForTarget(target) {
+function roleFilterForbiddenMarkersForTarget(target, options = {}) {
   if (target === "preflight") {
     return [
       "Relay URL:",
@@ -662,17 +698,24 @@ function roleFilterForbiddenMarkersForTarget(target) {
 
   return [
     ...ROLE_FILTER_RUNTIME_BLOCK_MARKERS.filter((marker) => marker !== `${target} command:`),
-    ...ROLE_FILTER_LIVE_COMMAND_MARKERS.filter((marker) => !roleFilterAllowedLiveMarker(target, marker)),
+    ...ROLE_FILTER_LIVE_COMMAND_MARKERS.filter((marker) =>
+      !roleFilterAllowedLiveMarker(target, marker, options)
+    ),
+    ...(target === "browser" && options.ephemeralSurface
+      ? ["http://127.0.0.1:0/", "Start-Process 'http://127.0.0.1:0/'"]
+      : []),
     "# WinBridge MVP preflight commands"
   ];
 }
 
-function roleFilterAllowedLiveMarker(target, marker) {
+function roleFilterAllowedLiveMarker(target, marker, options = {}) {
   return (
     (target === "relay" && marker === "npm run dev:relay") ||
     (target === "host" && marker === "npm run dev:agent -- host") ||
     (target === "viewer" && marker === "npm run dev:agent -- viewer") ||
-    (target === "browser" && marker === "Start-Process 'http://127.0.0.1:35987/'")
+    (target === "browser" &&
+      !options.ephemeralSurface &&
+      marker === "Start-Process 'http://127.0.0.1:35987/'")
   );
 }
 
