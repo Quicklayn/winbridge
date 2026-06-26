@@ -777,7 +777,11 @@ function parseViewerControlSurfacePort(
     throw new AgentShellUsageError();
   }
 
-  return parseIntegerOption(raw, 1024, 65535);
+  const port = parseIntegerOption(raw, 0, 65535);
+  if (port !== 0 && port < 1024) {
+    throw new AgentShellUsageError();
+  }
+  return port;
 }
 
 function parseRequestReason(

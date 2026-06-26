@@ -254,6 +254,30 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("dev-shared-token");
   });
 
+  it("prints bounded ephemeral viewer surface instructions without fabricating a browser URL", () => {
+    const text = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--viewer-control-surface-port", "0"])
+    );
+    const json = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--viewer-control-surface-port", "0", "--json"])
+    );
+    const filteredBrowser = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--viewer-control-surface-port", "0", "--only", "browser"])
+    );
+    const parsed = JSON.parse(json);
+    const browserCommand = parsed.commands.find((command: { name: string }) => command.name === "browser")
+      ?.command;
+
+    expect(text).toContain("--viewer-control-surface-port '0'");
+    expect(text).toContain("Open the viewer local control surface URL printed by the viewer command log.");
+    expect(text).not.toContain("http://127.0.0.1:0/");
+    expect(browserCommand).toBe("Open the viewer local control surface URL printed by the viewer command log.");
+    expect(json).not.toContain("http://127.0.0.1:0/");
+    expect(filteredBrowser).toContain("browser command:");
+    expect(filteredBrowser).toContain("Open the viewer local control surface URL printed by the viewer command log.");
+    expect(filteredBrowser).not.toContain("http://127.0.0.1:0/");
+  });
+
   it("uses a deterministic generated pairing code consistently in text output", () => {
     const output = renderMvpSessionCommands(
       parseMvpSessionCommandArgs(["--generate-pairing"], {

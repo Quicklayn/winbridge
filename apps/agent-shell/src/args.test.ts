@@ -251,6 +251,25 @@ describe("agent shell arguments", () => {
 
     expect(args.viewerControlSurfacePort).toBe(35987);
     expect(args.viewerScreenFrameOutputPath).toBe("frames/latest.png");
+
+    const ephemeralArgs = parseArgs(
+      [
+        "viewer",
+        "--request",
+        "screen:view,input:pointer",
+        "--audit-log",
+        "logs/viewer-audit.jsonl",
+        "--viewer-screen-frame-output",
+        "frames/latest.png",
+        "--viewer-control-surface-port",
+        "0"
+      ],
+      {},
+      42
+    );
+
+    expect(ephemeralArgs.viewerControlSurfacePort).toBe(0);
+    expect(ephemeralArgs.viewerScreenFrameOutputPath).toBe("frames/latest.png");
   });
 
   it("rejects viewer local control surface without explicit frame output", () => {
@@ -272,7 +291,7 @@ describe("agent shell arguments", () => {
   });
 
   it("rejects malformed viewer local control surface ports", () => {
-    for (const port of ["0", "1023", "65536", "1.5", "-1", "35987 "]) {
+    for (const port of ["1023", "65536", "1.5", "-1", "35987 "]) {
       expect(() =>
         parseArgs(
           [

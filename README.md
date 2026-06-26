@@ -557,10 +557,18 @@ before request bodies or authorization state are read. The local readiness gate
 is only a UI affordance: token, origin, content-type, active visible
 authorization, permission, routing, socket, audit, pause, revoke, termination,
 expiration, disconnect, and redaction gates still run for every input POST.
-Disconnect remains available even while input controls are not ready. It does
-not expose a LAN/public server, read arbitrary files, capture keyboard input
-outside the visible page, send modifier-only input, buffer typed text, create
-macros, sync clipboard, transfer files,
+Disconnect remains available even while input controls are not ready.
+
+If the default local surface port is already occupied on the viewer PC, pass
+`--viewer-control-surface-port 0` explicitly. The surface still binds only to
+`127.0.0.1`, the OS chooses an available port, and the viewer log prints the
+resolved `http://127.0.0.1:<port>/` URL to open. In command-kit output with
+port `0`, the browser step tells the operator to open that logged URL instead
+of printing a fabricated `http://127.0.0.1:0/` command.
+
+The surface does not expose a LAN/public server, read arbitrary files, capture
+keyboard input outside the visible page, send modifier-only input, buffer typed
+text, create macros, sync clipboard, transfer files,
 install services, configure startup persistence, elevate privileges, run
 unattended, hide the host indicator, or bypass Windows prompts. HTTP responses
 and CLI diagnostics stay metadata-only and do not echo pointer coordinates,

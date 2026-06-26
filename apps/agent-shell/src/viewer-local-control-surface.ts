@@ -114,7 +114,11 @@ export function assertViewerLocalControlSurfacePort(
     value < (allowEphemeralPort ? 0 : 1024) ||
     value > 65535
   ) {
-    throw new Error("Viewer local control surface port must be an integer from 1024 through 65535");
+    throw new Error(
+      allowEphemeralPort
+        ? "Viewer local control surface port must be 0 or an integer from 1024 through 65535"
+        : "Viewer local control surface port must be an integer from 1024 through 65535"
+    );
   }
 }
 

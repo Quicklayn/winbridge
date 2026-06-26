@@ -85,6 +85,8 @@ const KNOWN_OPTIONS = new Set([
 const SECRET_MARKER_PATTERN =
   /(^|[._:\-/\\])(token|credential|credentials|password|passphrase|secret|api[-_:.]?key|access[-_:.]?key|cookie|private[-_:.]?key|ssh[-_:.]?key|authorization|auth[-_:.]?header|proxy[-_:.]?authorization)([=._:\-/\\]|$)/i;
 const WINDOWS_RESERVED_PATH_SEGMENT_PATTERN = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
+  "Open the viewer local control surface URL printed by the viewer command log.";
 
 export class MvpSessionCommandKitUsageError extends Error {
   constructor() {
@@ -181,11 +183,9 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
     viewerFrameOutput: parseSafePath(
       options.get("viewer-frame-output") ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.viewerFrameOutput
     ),
-    viewerControlSurfacePort: parseIntegerOption(
+    viewerControlSurfacePort: parseViewerControlSurfacePortOption(
       options.get("viewer-control-surface-port") ??
-        String(DEFAULT_MVP_SESSION_COMMAND_OPTIONS.viewerControlSurfacePort),
-      1024,
-      65535
+        String(DEFAULT_MVP_SESSION_COMMAND_OPTIONS.viewerControlSurfacePort)
     ),
     viewerSignalProbeAfterMs: parseIntegerOption(
       options.get("viewer-signal-probe-after-ms") ??
@@ -222,7 +222,7 @@ export function renderMvpSessionCommands(parsed) {
     return renderMvpFilteredCommandTarget(parsed);
   }
 
-  const browserUrl = `http://127.0.0.1:${parsed.viewerControlSurfacePort}/`;
+  const browserCommand = renderBrowserCommandForViewerSurfacePort(parsed.viewerControlSurfacePort);
   const tokenNote = parsed.tokenEnv
     ? [
         "",
@@ -273,7 +273,7 @@ export function renderMvpSessionCommands(parsed) {
     "- Host acknowledgement is metadata-only and does not grant access.",
     "",
     "4. Browser on the viewer PC:",
-    renderBrowserCommand(browserUrl),
+    browserCommand,
     "- Wait for frame=ready before browser pointer control.",
     "- Click the visible Pointer Off/On control before browser pointer movement, wheel, or button input.",
     "",
@@ -314,7 +314,7 @@ export function formatMvpSessionCommandsJson(parsed) {
     });
   }
 
-  const browserUrl = `http://127.0.0.1:${parsed.viewerControlSurfacePort}/`;
+  const browserCommand = renderBrowserCommandForViewerSurfacePort(parsed.viewerControlSurfacePort);
   return JSON.stringify({
     ok: true,
     mode: "session",
@@ -324,7 +324,7 @@ export function formatMvpSessionCommandsJson(parsed) {
       { name: "relay", command: renderRelayCommand(parsed) },
       { name: "host", command: renderHostCommand(parsed) },
       { name: "viewer", command: renderViewerCommand(parsed) },
-      { name: "browser", command: renderBrowserCommand(browserUrl) }
+      { name: "browser", command: browserCommand }
     ],
     safety
   });
@@ -359,12 +359,12 @@ function renderMvpFilteredCommandTarget(parsed) {
     return renderMvpPreflightOnlyCommands();
   }
 
-  const browserUrl = `http://127.0.0.1:${parsed.viewerControlSurfacePort}/`;
+  const browserCommand = renderBrowserCommandForViewerSurfacePort(parsed.viewerControlSurfacePort);
   const commandByTarget = {
     relay: renderRelayCommand(parsed),
     host: renderHostCommand(parsed),
     viewer: renderViewerCommand(parsed),
-    browser: renderBrowserCommand(browserUrl)
+    browser: browserCommand
   };
   const targetLabel = parsed.onlyTarget;
 
@@ -570,6 +570,14 @@ function renderAgentCommand(role, optionPairs, tokenEnv) {
 
 function renderBrowserCommand(browserUrl) {
   return `Start-Process ${quotePowerShellArgument(browserUrl)}`;
+}
+
+function renderBrowserCommandForViewerSurfacePort(port) {
+  if (port === 0) {
+    return EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION;
+  }
+
+  return renderBrowserCommand(`http://127.0.0.1:${port}/`);
 }
 
 function parseOptionMap(rawArgs) {
@@ -794,6 +802,14 @@ function parseIntegerOption(raw, min, max) {
   }
 
   return value;
+}
+
+function parseViewerControlSurfacePortOption(raw) {
+  const port = parseIntegerOption(raw, 0, 65535);
+  if (port !== 0 && port < 1024) {
+    throw new MvpSessionCommandKitUsageError();
+  }
+  return port;
 }
 
 function relayUrlHasTokenQueryParameter(relayUrl) {
