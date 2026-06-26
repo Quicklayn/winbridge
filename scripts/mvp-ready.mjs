@@ -336,6 +336,40 @@ export function runMvpReadyCheck(options = {}) {
       };
     }
 
+    if (
+      step.name === "lan-role-filter-host-command" &&
+      !parseLanAgentRoleFilteredCommandReadiness(result.output, "host")
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (
+      step.name === "lan-role-filter-viewer-command" &&
+      !parseLanAgentRoleFilteredCommandReadiness(result.output, "viewer")
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
     if (isSmokeStep(step.name)) {
       const smokeResult = parseSmokeReadiness(result.output);
       if (smokeResult?.ok !== true) {
@@ -481,12 +515,30 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
     steps.push({ name: "native-preflight", ...command("mvp:native-preflight") });
   }
 
-  const targets =
-    role === "viewer" ? ["viewer", "browser"] : [role];
-  for (const target of targets) {
+  if (role === "viewer") {
     steps.push({
-      name: `role-filter-${target}-command`,
-      ...commandWithArgs("mvp:commands", ["--only", target])
+      name: "role-filter-viewer-command",
+      ...commandWithArgs("mvp:commands", ["--only", "viewer"])
+    });
+    steps.push({
+      name: "lan-role-filter-viewer-command",
+      ...commandWithArgs("mvp:commands", ["--only", "viewer", "--relay-host", MVP_READY_LAN_RELAY_HOST])
+    });
+    steps.push({
+      name: "role-filter-browser-command",
+      ...commandWithArgs("mvp:commands", ["--only", "browser"])
+    });
+  } else {
+    steps.push({
+      name: `role-filter-${role}-command`,
+      ...commandWithArgs("mvp:commands", ["--only", role])
+    });
+  }
+
+  if (role === "host") {
+    steps.push({
+      name: "lan-role-filter-host-command",
+      ...commandWithArgs("mvp:commands", ["--only", "host", "--relay-host", MVP_READY_LAN_RELAY_HOST])
     });
   }
 
@@ -657,6 +709,15 @@ export function parseEphemeralBrowserRoleFilteredCommandReadiness(output) {
 export function parseLanRelayRoleFilteredCommandReadiness(output) {
   return parseRoleFilteredCommandReadiness(output, "relay") &&
     output.includes("WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'");
+}
+
+export function parseLanAgentRoleFilteredCommandReadiness(output, target) {
+  return (
+    (target === "host" || target === "viewer") &&
+    parseRoleFilteredCommandReadiness(output, target) &&
+    output.includes(MVP_READY_LAN_RELAY_URL) &&
+    !output.includes("ws://localhost:8787/")
+  );
 }
 
 function roleFilterMarkersForTarget(target, options = {}) {

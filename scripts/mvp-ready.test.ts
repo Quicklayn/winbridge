@@ -8,6 +8,7 @@ import {
   parseEphemeralBrowserRoleFilteredCommandReadiness,
   parseCommandPlanReadiness,
   parseEphemeralCommandPlanReadiness,
+  parseLanAgentRoleFilteredCommandReadiness,
   parseLanRelayRoleFilteredCommandReadiness,
   parseMvpReadyArgs,
   parseRoleFilteredCommandReadiness,
@@ -187,6 +188,11 @@ describe("MVP ready helper", () => {
         name: "role-filter-host-command",
         command: "npm",
         args: ["run", "mvp:commands", "--", "--only", "host"]
+      },
+      {
+        name: "lan-role-filter-host-command",
+        command: "npm",
+        args: ["run", "mvp:commands", "--", "--only", "host", "--relay-host", "192.168.1.10"]
       }
     ]);
     expect(createMvpReadyPlan({ npmCommand: "npm", role: "viewer" })).toEqual([
@@ -196,6 +202,11 @@ describe("MVP ready helper", () => {
         name: "role-filter-viewer-command",
         command: "npm",
         args: ["run", "mvp:commands", "--", "--only", "viewer"]
+      },
+      {
+        name: "lan-role-filter-viewer-command",
+        command: "npm",
+        args: ["run", "mvp:commands", "--", "--only", "viewer", "--relay-host", "192.168.1.10"]
       },
       {
         name: "role-filter-browser-command",
@@ -358,6 +369,7 @@ describe("MVP ready helper", () => {
       "doctor",
       "native-preflight",
       "role-filter-viewer-command",
+      "lan-role-filter-viewer-command",
       "role-filter-browser-command",
       "ephemeral-role-filter-browser-command"
     ]);
@@ -367,6 +379,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "role-filter-viewer-command", ok: true },
+        { name: "lan-role-filter-viewer-command", ok: true },
         { name: "role-filter-browser-command", ok: true },
         { name: "ephemeral-role-filter-browser-command", ok: true }
       ]
@@ -377,6 +390,7 @@ describe("MVP ready helper", () => {
         "doctor=ok",
         "native-preflight=ok",
         "role-filter-viewer-command=ok",
+        "lan-role-filter-viewer-command=ok",
         "role-filter-browser-command=ok",
         "ephemeral-role-filter-browser-command=ok"
       ].join("\n")
@@ -421,6 +435,39 @@ describe("MVP ready helper", () => {
         "lan-role-filter-relay-command=ok"
       ].join("\n")
     );
+    expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
+  });
+
+  it("reports host role-scoped LAN agent readiness success", () => {
+    const calls: string[] = [];
+    const result = runMvpReadyCheck({
+      role: "host",
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "host" }),
+      runCommand: (step: { name: string }) => {
+        calls.push(step.name);
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(calls).toEqual([
+      "doctor",
+      "native-preflight",
+      "role-filter-host-command",
+      "lan-role-filter-host-command"
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "role-filter-host-command", ok: true },
+        { name: "lan-role-filter-host-command", ok: true }
+      ]
+    });
     expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
   });
 
@@ -481,6 +528,35 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
   });
 
+  it("fails closed when host role-scoped LAN agent output drifts", () => {
+    const result = runMvpReadyCheck({
+      role: "host",
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "host" }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "lan-role-filter-host-command") {
+          return { ok: true, output: roleFilterOutput("host") };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "role-filter-host-command", ok: true },
+        { name: "lan-role-filter-host-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
+  });
+
   it("fails closed when viewer role-scoped ephemeral browser output drifts", () => {
     const result = runMvpReadyCheck({
       role: "viewer",
@@ -509,6 +585,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "role-filter-viewer-command", ok: true },
+        { name: "lan-role-filter-viewer-command", ok: true },
         { name: "role-filter-browser-command", ok: true },
         { name: "ephemeral-role-filter-browser-command", ok: false, reason: "exit-nonzero" }
       ]
@@ -1347,6 +1424,29 @@ describe("MVP ready helper", () => {
     expect(parseLanRelayRoleFilteredCommandReadiness("x".repeat(32769))).toBe(false);
   });
 
+  it("parses only reviewed LAN agent role-filter output", () => {
+    expect(parseLanAgentRoleFilteredCommandReadiness(lanAgentRoleFilterOutput("host"), "host")).toBe(
+      true
+    );
+    expect(
+      parseLanAgentRoleFilteredCommandReadiness(lanAgentRoleFilterOutput("viewer"), "viewer")
+    ).toBe(true);
+    expect(parseLanAgentRoleFilteredCommandReadiness(roleFilterOutput("host"), "host")).toBe(false);
+    expect(
+      parseLanAgentRoleFilteredCommandReadiness(lanAgentRoleFilterOutput("host"), "viewer")
+    ).toBe(false);
+    expect(
+      parseLanAgentRoleFilteredCommandReadiness(
+        `${lanAgentRoleFilterOutput("viewer")}\nhost command:\nnpm run dev:agent -- host`,
+        "viewer"
+      )
+    ).toBe(false);
+    expect(parseLanAgentRoleFilteredCommandReadiness(lanAgentRoleFilterOutput("host"), "relay")).toBe(
+      false
+    );
+    expect(parseLanAgentRoleFilteredCommandReadiness("x".repeat(32769), "host")).toBe(false);
+  });
+
   it("parses only reviewed ephemeral browser role-filter output", () => {
     expect(parseEphemeralBrowserRoleFilteredCommandReadiness(ephemeralBrowserRoleFilterOutput())).toBe(
       true
@@ -1548,6 +1648,12 @@ function roleFilterOutputForStep(name: string) {
   if (name === "lan-role-filter-relay-command") {
     return lanRelayRoleFilterOutput();
   }
+  if (name === "lan-role-filter-host-command") {
+    return lanAgentRoleFilterOutput("host");
+  }
+  if (name === "lan-role-filter-viewer-command") {
+    return lanAgentRoleFilterOutput("viewer");
+  }
 
   const prefix = "role-filter-";
   const suffix = "-command";
@@ -1586,13 +1692,13 @@ function roleFilterOutput(
     relay: ["relay command:", options.relayCommand ?? "npm run dev:relay"],
     host: [
       "host command:",
-      "npm run dev:agent -- host --relay 'ws://localhost:8787/' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true' --visible-session 'true' --host-control-prompt 'true' --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl' --host-apply-input 'true' --dev-screen-frame-after-ms '1000' --dev-screen-frame-source 'windows-capture' --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'",
+      `npm run dev:agent -- host --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true' --visible-session 'true' --host-control-prompt 'true' --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl' --host-apply-input 'true' --dev-screen-frame-after-ms '1000' --dev-screen-frame-source 'windows-capture' --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'`,
       "Host controls:",
       "help | status | pause | resume | revoke screen:view | revoke input:pointer | revoke input:keyboard | terminate | disconnect"
     ],
     viewer: [
       "viewer command:",
-      "npm run dev:agent -- viewer --relay 'ws://localhost:8787/' --session 'demo' --pairing '123-456' --name 'WinBridge Support Viewer' --request 'screen:view,input:pointer,input:keyboard' --request-reason 'MVP remote assistance session' --viewer-signal-probe-after-ms '1000' --audit-log 'logs\\viewer-audit.jsonl' --viewer-screen-frame-output 'frames\\latest.jpg' --viewer-control-surface-port '35987'",
+      `npm run dev:agent -- viewer --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Support Viewer' --request 'screen:view,input:pointer,input:keyboard' --request-reason 'MVP remote assistance session' --viewer-signal-probe-after-ms '1000' --audit-log 'logs\\viewer-audit.jsonl' --viewer-screen-frame-output 'frames\\latest.jpg' --viewer-control-surface-port '35987'`,
       "Open the separate browser command on the viewer PC after this viewer command is running."
     ],
     browser: [
@@ -1629,6 +1735,12 @@ function lanRelayRoleFilterOutput(options: { relayCommand?: string } = {}) {
     relayCommand:
       options.relayCommand ??
       "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; npm run dev:relay"
+  });
+}
+
+function lanAgentRoleFilterOutput(target: "host" | "viewer") {
+  return roleFilterOutput(target, {
+    relayUrl: "ws://192.168.1.10:8787/"
   });
 }
 
