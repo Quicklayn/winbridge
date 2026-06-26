@@ -301,6 +301,19 @@ may include fixed smoke subchecks for relay, host indicator, frame, surface,
 signal, surface guard, input, audit, lifecycle, and viewer-disconnect readiness
 for the default smoke and LAN-style smoke steps.
 
+To also aggregate the token-protected local smoke path, set a bounded relay
+token environment variable and include the explicit token smoke flag:
+
+```powershell
+$env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
+npm run mvp:ready -- --include-token-smoke
+```
+
+This adds a `token-smoke` readiness step that runs
+`mvp:smoke -- --json --token-env WINBRIDGE_RELAY_SHARED_TOKEN`. It can be
+combined with `--include-smoke`; without `--include-token-smoke`, token smoke
+is reported as skipped metadata only.
+
 Run a bounded local MVP smoke check before a two-PC trial:
 
 ```powershell
