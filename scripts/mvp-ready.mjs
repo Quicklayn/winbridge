@@ -473,6 +473,13 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
     });
   }
 
+  if (role === "viewer") {
+    steps.push({
+      name: "ephemeral-role-filter-browser-command",
+      ...commandWithArgs("mvp:commands", ["--only", "browser", "--viewer-control-surface-port", "0"])
+    });
+  }
+
   return steps;
 }
 

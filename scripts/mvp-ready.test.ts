@@ -195,6 +195,19 @@ describe("MVP ready helper", () => {
         name: "role-filter-browser-command",
         command: "npm",
         args: ["run", "mvp:commands", "--", "--only", "browser"]
+      },
+      {
+        name: "ephemeral-role-filter-browser-command",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--only",
+          "browser",
+          "--viewer-control-surface-port",
+          "0"
+        ]
       }
     ]);
     expect(() => createMvpReadyPlan({ npmCommand: "npm", role: "unsafe" })).toThrow(
@@ -339,7 +352,8 @@ describe("MVP ready helper", () => {
       "doctor",
       "native-preflight",
       "role-filter-viewer-command",
-      "role-filter-browser-command"
+      "role-filter-browser-command",
+      "ephemeral-role-filter-browser-command"
     ]);
     expect(result).toEqual({
       ok: true,
@@ -347,7 +361,8 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "role-filter-viewer-command", ok: true },
-        { name: "role-filter-browser-command", ok: true }
+        { name: "role-filter-browser-command", ok: true },
+        { name: "ephemeral-role-filter-browser-command", ok: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toBe(
@@ -356,7 +371,8 @@ describe("MVP ready helper", () => {
         "doctor=ok",
         "native-preflight=ok",
         "role-filter-viewer-command=ok",
-        "role-filter-browser-command=ok"
+        "role-filter-browser-command=ok",
+        "ephemeral-role-filter-browser-command=ok"
       ].join("\n")
     );
     expect(formatMvpReadyResult(result)).not.toContain("smoke=skipped");
@@ -386,6 +402,42 @@ describe("MVP ready helper", () => {
       ]
     });
     expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+  });
+
+  it("fails closed when viewer role-scoped ephemeral browser output drifts", () => {
+    const result = runMvpReadyCheck({
+      role: "viewer",
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "viewer" }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "ephemeral-role-filter-browser-command") {
+          return {
+            ok: true,
+            output: roleFilterOutput("browser", {
+              browserCommand: "Start-Process 'http://127.0.0.1:0/'"
+            })
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "role-filter-viewer-command", ok: true },
+        { name: "role-filter-browser-command", ok: true },
+        { name: "ephemeral-role-filter-browser-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("127.0.0.1");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("127.0.0.1");
   });
 
   it("stops after the first failed check with bounded reason metadata", () => {
