@@ -49,6 +49,8 @@ const REQUIRED_COMMAND_PLAN_NAMES = new Set([
 const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
 const MVP_READY_LAN_RELAY_URL = `ws://${MVP_READY_LAN_RELAY_HOST}:8787/`;
 const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
+const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
+  "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
 const MVP_READY_ROLES = Object.freeze(["relay", "host", "viewer"]);
 const ROLE_FILTER_TARGETS = Object.freeze(["relay", "host", "viewer", "browser", "preflight"]);
@@ -161,6 +163,10 @@ export function createMvpReadyPlan(options = {}) {
     { name: "native-preflight", ...command("mvp:native-preflight") },
     { name: "command-plan", ...commandWithArgs("mvp:commands", ["--json"]) },
     {
+      name: "ephemeral-command-plan",
+      ...commandWithArgs("mvp:commands", ["--json", "--viewer-control-surface-port", "0"])
+    },
+    {
       name: "lan-command-plan",
       ...commandWithArgs("mvp:commands", ["--json", "--relay-host", MVP_READY_LAN_RELAY_HOST])
     },
@@ -210,6 +216,20 @@ export function runMvpReadyCheck(options = {}) {
 
     const check = { name: step.name, ok: true };
     if (step.name === "command-plan" && !parseCommandPlanReadiness(result.output)) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (step.name === "ephemeral-command-plan" && !parseEphemeralCommandPlanReadiness(result.output)) {
       const failed = {
         name: step.name,
         ok: false,
@@ -489,6 +509,70 @@ export function parseCommandPlanReadiness(output, options = {}) {
   }
 
   return true;
+}
+
+export function parseEphemeralCommandPlanReadiness(output) {
+  const commandsByName = parseCommandPlanCommandsByName(output);
+  if (!commandsByName) {
+    return false;
+  }
+
+  const viewerCommand = commandsByName.get("viewer")?.command;
+  const browserCommand = commandsByName.get("browser")?.command;
+  const allCommands = [...commandsByName.values()].map((command) => command.command).join("\n");
+
+  return (
+    typeof viewerCommand === "string" &&
+    typeof browserCommand === "string" &&
+    viewerCommand.includes("--viewer-control-surface-port '0'") &&
+    browserCommand === EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION &&
+    !allCommands.includes("http://127.0.0.1:0/")
+  );
+}
+
+function parseCommandPlanCommandsByName(output) {
+  if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
+    return undefined;
+  }
+
+  const parsed = parseLastJsonOutputLine(output);
+  if (
+    !parsed ||
+    !hasExactCommandPlanShape(parsed) ||
+    parsed.ok !== true ||
+    parsed.mode !== "session" ||
+    parsed.nonExecuting !== true ||
+    !Array.isArray(parsed.commands)
+  ) {
+    return undefined;
+  }
+
+  const seen = new Set();
+  const commandsByName = new Map();
+  for (const command of parsed.commands) {
+    if (
+      !command ||
+      typeof command.name !== "string" ||
+      typeof command.command !== "string" ||
+      seen.has(command.name)
+    ) {
+      return undefined;
+    }
+    seen.add(command.name);
+    commandsByName.set(command.name, command);
+  }
+
+  if (seen.size !== REQUIRED_COMMAND_PLAN_NAMES.size) {
+    return undefined;
+  }
+
+  for (const name of REQUIRED_COMMAND_PLAN_NAMES) {
+    if (!seen.has(name)) {
+      return undefined;
+    }
+  }
+
+  return commandsByName;
 }
 
 export function parseRoleFilteredCommandReadiness(output, target) {

@@ -6,12 +6,16 @@ import {
   formatMvpReadyResult,
   MvpReadyUsageError,
   parseCommandPlanReadiness,
+  parseEphemeralCommandPlanReadiness,
   parseMvpReadyArgs,
   parseRoleFilteredCommandReadiness,
   parseSmokeReadiness,
   parseSmokeSubchecks,
   runMvpReadyCheck
 } from "./mvp-ready.mjs";
+
+const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
+  "Open the viewer local control surface URL printed by the viewer command log.";
 
 describe("MVP ready helper", () => {
   it("parses bounded flag-only options", () => {
@@ -84,6 +88,18 @@ describe("MVP ready helper", () => {
       { name: "native-preflight", command: "npm", args: ["run", "mvp:native-preflight"] },
       { name: "command-plan", command: "npm", args: ["run", "mvp:commands", "--", "--json"] },
       {
+        name: "ephemeral-command-plan",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--json",
+          "--viewer-control-surface-port",
+          "0"
+        ]
+      },
+      {
         name: "lan-command-plan",
         command: "npm",
         args: ["run", "mvp:commands", "--", "--json", "--relay-host", "192.168.1.10"]
@@ -109,6 +125,18 @@ describe("MVP ready helper", () => {
       { name: "doctor", command: "npm", args: ["run", "mvp:doctor"] },
       { name: "native-preflight", command: "npm", args: ["run", "mvp:native-preflight"] },
       { name: "command-plan", command: "npm", args: ["run", "mvp:commands", "--", "--json"] },
+      {
+        name: "ephemeral-command-plan",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--json",
+          "--viewer-control-surface-port",
+          "0"
+        ]
+      },
       {
         name: "lan-command-plan",
         command: "npm",
@@ -182,6 +210,9 @@ describe("MVP ready helper", () => {
         if (step.name === "command-plan") {
           return { ok: true, output: commandPlanOutput() };
         }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
         }
@@ -203,6 +234,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         ...roleFilterCheckResults(),
@@ -216,6 +248,7 @@ describe("MVP ready helper", () => {
         "doctor=ok",
         "native-preflight=ok",
         "command-plan=ok",
+        "ephemeral-command-plan=ok",
         "lan-command-plan=ok",
         "token-command-plan=ok",
         "role-filter-relay-command=ok",
@@ -244,6 +277,9 @@ describe("MVP ready helper", () => {
         if (step.name === "command-plan") {
           return { ok: true, output: commandPlanOutput() };
         }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
         }
@@ -267,6 +303,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         ...roleFilterCheckResults(),
@@ -404,6 +441,41 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyJsonResult(result)).not.toContain("123-456");
   });
 
+  it("fails closed when ephemeral command-plan output drifts", () => {
+    const result = runMvpReadyCheck({
+      includeSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        return step.name === "ephemeral-command-plan"
+          ? {
+              ok: true,
+              output: ephemeralCommandPlanOutput({
+                browserCommand: "Start-Process 'http://127.0.0.1:0/'"
+              })
+            }
+          : { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("127.0.0.1");
+    expect(formatMvpReadyResult(result)).not.toContain("Start-Process");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("127.0.0.1");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("Start-Process");
+  });
+
   it("fails closed when LAN command-plan output does not target the LAN relay URL", () => {
     const result = runMvpReadyCheck({
       includeSmoke: true,
@@ -411,6 +483,9 @@ describe("MVP ready helper", () => {
       runCommand: (step: { name: string }) => {
         if (step.name === "command-plan") {
           return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
         }
         if (step.name === "lan-command-plan") {
           return {
@@ -429,6 +504,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: false, reason: "exit-nonzero" }
       ]
     });
@@ -445,6 +521,9 @@ describe("MVP ready helper", () => {
       runCommand: (step: { name: string }) => {
         if (step.name === "command-plan") {
           return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
         }
         if (step.name === "lan-command-plan") {
           return {
@@ -466,6 +545,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: false, reason: "exit-nonzero" }
       ]
     });
@@ -482,6 +562,9 @@ describe("MVP ready helper", () => {
       runCommand: (step: { name: string }) => {
         if (step.name === "command-plan") {
           return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
         }
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
@@ -500,6 +583,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: false, reason: "exit-nonzero" }
       ]
@@ -519,6 +603,9 @@ describe("MVP ready helper", () => {
       runCommand: (step: { name: string }) => {
         if (step.name === "command-plan") {
           return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
         }
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
@@ -547,6 +634,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         { name: "role-filter-relay-command", ok: true },
@@ -566,6 +654,9 @@ describe("MVP ready helper", () => {
       runCommand: (step: { name: string }) => {
         if (step.name === "command-plan") {
           return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
         }
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
@@ -590,6 +681,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         ...roleFilterCheckResults(),
@@ -607,6 +699,9 @@ describe("MVP ready helper", () => {
       runCommand: (step: { name: string }) => {
         if (step.name === "command-plan") {
           return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
         }
         if (step.name === "lan-command-plan") {
           return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
@@ -642,6 +737,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         ...roleFilterCheckResults(),
@@ -657,6 +753,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         ...roleFilterCheckResults(),
@@ -992,6 +1089,33 @@ describe("MVP ready helper", () => {
     ).toBe(false);
   });
 
+  it("parses only reviewed ephemeral command-plan readiness metadata", () => {
+    expect(parseEphemeralCommandPlanReadiness(ephemeralCommandPlanOutput())).toBe(true);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ viewerSurfacePort: undefined })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ browserCommand: "Start-Process 'http://127.0.0.1:0/'" })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ browserCommand: "Open http://127.0.0.1:49152/" })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        JSON.stringify({
+          ...JSON.parse(ephemeralCommandPlanOutput()),
+          stdout: "raw-secret-token"
+        })
+      )
+    ).toBe(false);
+  });
+
   it("parses only bounded target-specific role-filter command output", () => {
     for (const target of roleFilterTargets()) {
       expect(parseRoleFilteredCommandReadiness(roleFilterOutput(target), target)).toBe(true);
@@ -1027,6 +1151,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         ...roleFilterCheckResults(),
@@ -1048,6 +1173,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         ...roleFilterCheckResults(),
@@ -1091,6 +1217,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         ...roleFilterCheckResults(),
@@ -1125,6 +1252,7 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "native-preflight", ok: true },
         { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         ...roleFilterCheckResults(),
@@ -1155,6 +1283,7 @@ function defaultReadyCheckNames() {
     "doctor",
     "native-preflight",
     "command-plan",
+    "ephemeral-command-plan",
     "lan-command-plan",
     "token-command-plan",
     ...roleFilterTargets().map((target) => `role-filter-${target}-command`)
@@ -1298,7 +1427,15 @@ function smokeAuditSummary() {
   };
 }
 
-function commandPlanOutput(options: { relayUrl?: string; tokenEnv?: string; relayBindHost?: string | null } = {}) {
+type CommandPlanFixtureOptions = {
+  relayUrl?: string;
+  tokenEnv?: string;
+  relayBindHost?: string | null;
+  viewerSurfacePort?: number;
+  browserCommand?: string;
+};
+
+function commandPlanOutput(options: CommandPlanFixtureOptions = {}) {
   return JSON.stringify({
     ok: true,
     mode: "session",
@@ -1308,9 +1445,21 @@ function commandPlanOutput(options: { relayUrl?: string; tokenEnv?: string; rela
   });
 }
 
-function commandPlanCommands(options: { relayUrl?: string; tokenEnv?: string; relayBindHost?: string | null } = {}) {
+function ephemeralCommandPlanOutput(options: CommandPlanFixtureOptions = {}) {
+  return commandPlanOutput({
+    viewerSurfacePort: 0,
+    browserCommand: EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION,
+    ...options
+  });
+}
+
+function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
   const relayUrl = options.relayUrl ?? "ws://localhost:8787/";
   const tokenArg = options.tokenEnv ? ` --token $env:${options.tokenEnv}` : "";
+  const viewerSurfaceArg =
+    options.viewerSurfacePort === undefined
+      ? ""
+      : ` --viewer-control-surface-port '${options.viewerSurfacePort}'`;
   const relayBindHost = Object.hasOwn(options, "relayBindHost") ? options.relayBindHost : "0.0.0.0";
   const relayCommand = commandPlanRelayCommand(relayUrl, relayBindHost);
 
@@ -1326,9 +1475,9 @@ function commandPlanCommands(options: { relayUrl?: string; tokenEnv?: string; re
     },
     {
       name: "viewer",
-      command: `npm run dev:agent -- viewer --relay '${relayUrl}' --pairing '123-456'${tokenArg}`
+      command: `npm run dev:agent -- viewer --relay '${relayUrl}' --pairing '123-456'${tokenArg}${viewerSurfaceArg}`
     },
-    { name: "browser", command: "Start-Process 'http://127.0.0.1:35987/'" }
+    { name: "browser", command: options.browserCommand ?? "Start-Process 'http://127.0.0.1:35987/'" }
   ];
 }
 
