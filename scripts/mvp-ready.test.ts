@@ -8,6 +8,7 @@ import {
   parseEphemeralBrowserRoleFilteredCommandReadiness,
   parseCommandPlanReadiness,
   parseEphemeralCommandPlanReadiness,
+  parseLanRelayRoleFilteredCommandReadiness,
   parseMvpReadyArgs,
   parseRoleFilteredCommandReadiness,
   parseSmokeReadiness,
@@ -172,6 +173,11 @@ describe("MVP ready helper", () => {
         name: "role-filter-relay-command",
         command: "npm",
         args: ["run", "mvp:commands", "--", "--only", "relay"]
+      },
+      {
+        name: "lan-role-filter-relay-command",
+        command: "npm",
+        args: ["run", "mvp:commands", "--", "--only", "relay", "--relay-host", "192.168.1.10"]
       }
     ]);
     expect(createMvpReadyPlan({ npmCommand: "npm", role: "host" })).toEqual([
@@ -379,6 +385,45 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
   });
 
+  it("reports relay role-scoped LAN bind readiness success", () => {
+    const calls: string[] = [];
+    const result = runMvpReadyCheck({
+      role: "relay",
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "relay" }),
+      runCommand: (step: { name: string }) => {
+        calls.push(step.name);
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(calls).toEqual([
+      "doctor",
+      "role-filter-relay-command",
+      "lan-role-filter-relay-command"
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "role-filter-relay-command", ok: true },
+        { name: "lan-role-filter-relay-command", ok: true }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).toBe(
+      [
+        "WinBridge MVP readiness passed.",
+        "doctor=ok",
+        "role-filter-relay-command=ok",
+        "lan-role-filter-relay-command=ok"
+      ].join("\n")
+    );
+    expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
+  });
+
   it("stops role-scoped readiness after the first failed check", () => {
     const calls: string[] = [];
     const result = runMvpReadyCheck({
@@ -402,6 +447,38 @@ describe("MVP ready helper", () => {
       ]
     });
     expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+  });
+
+  it("fails closed when relay role-scoped LAN bind output drifts", () => {
+    const result = runMvpReadyCheck({
+      role: "relay",
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "relay" }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "lan-role-filter-relay-command") {
+          return {
+            ok: true,
+            output: lanRelayRoleFilterOutput({ relayCommand: "npm run dev:relay" })
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "role-filter-relay-command", ok: true },
+        { name: "lan-role-filter-relay-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
   });
 
   it("fails closed when viewer role-scoped ephemeral browser output drifts", () => {
@@ -1254,6 +1331,22 @@ describe("MVP ready helper", () => {
     expect(parseRoleFilteredCommandReadiness(roleFilterOutput("relay"), "unsafe")).toBe(false);
   });
 
+  it("parses only reviewed LAN relay role-filter output", () => {
+    expect(parseLanRelayRoleFilteredCommandReadiness(lanRelayRoleFilterOutput())).toBe(true);
+    expect(parseLanRelayRoleFilteredCommandReadiness(roleFilterOutput("relay"))).toBe(false);
+    expect(
+      parseLanRelayRoleFilteredCommandReadiness(
+        lanRelayRoleFilterOutput({ relayCommand: "npm run dev:relay" })
+      )
+    ).toBe(false);
+    expect(
+      parseLanRelayRoleFilteredCommandReadiness(
+        `${lanRelayRoleFilterOutput()}\nhost command:\nnpm run dev:agent -- host`
+      )
+    ).toBe(false);
+    expect(parseLanRelayRoleFilteredCommandReadiness("x".repeat(32769))).toBe(false);
+  });
+
   it("parses only reviewed ephemeral browser role-filter output", () => {
     expect(parseEphemeralBrowserRoleFilteredCommandReadiness(ephemeralBrowserRoleFilterOutput())).toBe(
       true
@@ -1452,6 +1545,9 @@ function roleFilterOutputForStep(name: string) {
   if (name === "ephemeral-role-filter-browser-command") {
     return ephemeralBrowserRoleFilterOutput();
   }
+  if (name === "lan-role-filter-relay-command") {
+    return lanRelayRoleFilterOutput();
+  }
 
   const prefix = "role-filter-";
   const suffix = "-command";
@@ -1463,7 +1559,10 @@ function roleFilterOutputForStep(name: string) {
   return roleFilterTargets().includes(target) ? roleFilterOutput(target) : undefined;
 }
 
-function roleFilterOutput(target: string, options: { browserCommand?: string } = {}) {
+function roleFilterOutput(
+  target: string,
+  options: { browserCommand?: string; relayCommand?: string; relayUrl?: string } = {}
+) {
   if (target === "preflight") {
     return [
       "# WinBridge MVP preflight commands",
@@ -1484,7 +1583,7 @@ function roleFilterOutput(target: string, options: { browserCommand?: string } =
   }
 
   const targetBodies: Record<string, string[]> = {
-    relay: ["relay command:", "npm run dev:relay"],
+    relay: ["relay command:", options.relayCommand ?? "npm run dev:relay"],
     host: [
       "host command:",
       "npm run dev:agent -- host --relay 'ws://localhost:8787/' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true' --visible-session 'true' --host-control-prompt 'true' --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl' --host-apply-input 'true' --dev-screen-frame-after-ms '1000' --dev-screen-frame-source 'windows-capture' --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'",
@@ -1509,7 +1608,7 @@ function roleFilterOutput(target: string, options: { browserCommand?: string } =
     `# WinBridge MVP ${target} command`,
     "Run this command manually in a visible PowerShell terminal.",
     roleFilterReadyReminder(target),
-    "Relay URL: ws://localhost:8787/",
+    `Relay URL: ${options.relayUrl ?? "ws://localhost:8787/"}`,
     ...targetBodies[target],
     "Safety checks:",
     "- Host consent and visible sessions are required before live assistance trials.",
@@ -1521,6 +1620,15 @@ function roleFilterOutput(target: string, options: { browserCommand?: string } =
 function ephemeralBrowserRoleFilterOutput() {
   return roleFilterOutput("browser", {
     browserCommand: EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION
+  });
+}
+
+function lanRelayRoleFilterOutput(options: { relayCommand?: string } = {}) {
+  return roleFilterOutput("relay", {
+    relayUrl: "ws://192.168.1.10:8787/",
+    relayCommand:
+      options.relayCommand ??
+      "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; npm run dev:relay"
   });
 }
 

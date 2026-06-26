@@ -319,6 +319,23 @@ export function runMvpReadyCheck(options = {}) {
       };
     }
 
+    if (
+      step.name === "lan-role-filter-relay-command" &&
+      !parseLanRelayRoleFilteredCommandReadiness(result.output)
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
     if (isSmokeStep(step.name)) {
       const smokeResult = parseSmokeReadiness(result.output);
       if (smokeResult?.ok !== true) {
@@ -470,6 +487,13 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
     steps.push({
       name: `role-filter-${target}-command`,
       ...commandWithArgs("mvp:commands", ["--only", target])
+    });
+  }
+
+  if (role === "relay") {
+    steps.push({
+      name: "lan-role-filter-relay-command",
+      ...commandWithArgs("mvp:commands", ["--only", "relay", "--relay-host", MVP_READY_LAN_RELAY_HOST])
     });
   }
 
@@ -628,6 +652,11 @@ export function parseEphemeralBrowserRoleFilteredCommandReadiness(output) {
     roleFilterForbiddenMarkersForTarget("browser", { ephemeralSurface: true }).every(
       (marker) => !output.includes(marker)
     );
+}
+
+export function parseLanRelayRoleFilteredCommandReadiness(output) {
+  return parseRoleFilteredCommandReadiness(output, "relay") &&
+    output.includes("WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'");
 }
 
 function roleFilterMarkersForTarget(target, options = {}) {

@@ -264,11 +264,12 @@ npm run mvp:ready -- --json
 ```
 
 For a machine-specific local gate, use an explicit role. Relay readiness checks
-the doctor and relay command block. Host readiness checks the doctor, native
-Windows preflight, and host command block. Viewer readiness checks the doctor,
-native Windows preflight, viewer command block, browser command block, and
-explicit ephemeral browser-only block. Role mode is local and does not run
-smoke; `--include-smoke` is rejected with `--role`.
+the doctor, relay command block, and representative LAN relay-bind command
+block. Host readiness checks the doctor, native Windows preflight, and host
+command block. Viewer readiness checks the doctor, native Windows preflight,
+viewer command block, browser command block, and explicit ephemeral
+browser-only block. Role mode is local and does not run smoke;
+`--include-smoke` is rejected with `--role`.
 
 ```powershell
 npm run mvp:ready -- --role relay
