@@ -39,6 +39,7 @@ const MVP_SMOKE_CHECK_NAMES = Object.freeze([
   "frame",
   "surface",
   "signal",
+  "surface-guards",
   "input",
   "audit",
   "lifecycle"
@@ -66,9 +67,10 @@ const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "frame-not-ready": 2,
   "surface-not-ready": 3,
   "signal-not-ready": 4,
-  "input-not-ready": 5,
-  "audit-not-ready": 6,
-  "lifecycle-not-ready": 7
+  "surface-guards-not-ready": 5,
+  "input-not-ready": 6,
+  "audit-not-ready": 7,
+  "lifecycle-not-ready": 8
 });
 
 export class MvpSessionSmokeUsageError extends Error {
@@ -328,6 +330,7 @@ async function runMvpSessionSmokeSteps(context) {
   await waitForFrameFile(readyPlan.framePath, deadline, options);
   const surface = await waitForViewerSurface(readyPlan.surfaceUrl, deadline, options);
   await waitForViewerSignalReadiness(readyPlan.surfaceUrl, deadline, options);
+  await waitForViewerSurfaceGuards(readyPlan.surfaceUrl, surface.mutationToken, deadline, options);
   await waitForViewerSurfaceInput(readyPlan.surfaceUrl, surface.mutationToken, deadline, options);
   await waitForSmokeAuditLogs(
     [readyPlan.hostAuditPath, readyPlan.viewerAuditPath],
@@ -447,6 +450,7 @@ export function formatMvpSessionSmokeSuccess(result, options = {}) {
     "surface=verified",
     "frame=verified",
     "signal=verified",
+    "surface-guards=verified",
     "input=verified",
     "audit=verified",
     "lifecycle=verified",
@@ -526,6 +530,7 @@ function safeSmokeFailureReason(error) {
       "frame-not-ready",
       "surface-not-ready",
       "signal-not-ready",
+      "surface-guards-not-ready",
       "input-not-ready",
       "audit-not-ready",
       "lifecycle-not-ready",
@@ -651,6 +656,55 @@ export async function tryFetchSurfaceSignalReadiness(fetchImpl, surfaceUrl) {
 
     const body = await response.json();
     return body?.ok === true && body.state?.signalProbeAckReceived === true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForViewerSurfaceGuards(surfaceUrl, mutationToken, deadline, options) {
+  while (options.now() <= deadline) {
+    const guarded = await tryPostSurfaceGuardDenials(options.fetchImpl, surfaceUrl, mutationToken);
+    if (guarded) {
+      return;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("surface-guards-not-ready");
+}
+
+export async function tryPostSurfaceGuardDenials(fetchImpl, surfaceUrl, mutationToken) {
+  const localOrigin = surfaceUrl.replace(/\/$/, "");
+  const guarded = await Promise.all([
+    tryPostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
+      "content-type": "application/json",
+      origin: localOrigin
+    }),
+    tryPostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
+      "content-type": "application/json",
+      origin: "http://example.invalid",
+      "x-winbridge-local-surface-token": mutationToken
+    }),
+    tryPostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
+      "content-type": "text/plain",
+      origin: localOrigin,
+      "x-winbridge-local-surface-token": mutationToken
+    })
+  ]);
+  return guarded.every(Boolean);
+}
+
+async function tryPostSurfaceGuardProbe(fetchImpl, surfaceUrl, headers) {
+  try {
+    const response = await fetchImpl(`${surfaceUrl}input`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ command: "pointer-move 0.5 0.5" })
+    });
+    if (response.status < 400 || response.status >= 500) {
+      return false;
+    }
+    const body = await response.json();
+    return body?.ok === false && body.error === "rejected";
   } catch {
     return false;
   }

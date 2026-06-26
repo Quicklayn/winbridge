@@ -19,6 +19,7 @@ const SAFE_SMOKE_SUBCHECK_NAMES = new Set([
   "frame",
   "surface",
   "signal",
+  "surface-guards",
   "input",
   "audit",
   "lifecycle"

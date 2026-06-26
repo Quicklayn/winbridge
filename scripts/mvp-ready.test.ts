@@ -1062,6 +1062,7 @@ function smokeSubchecks() {
     { name: "frame", ok: true },
     { name: "surface", ok: true },
     { name: "signal", ok: true },
+    { name: "surface-guards", ok: true },
     { name: "input", ok: true },
     { name: "audit", ok: true },
     { name: "lifecycle", ok: true }
@@ -1075,6 +1076,7 @@ function smokeFailureSubchecks() {
     { name: "frame", ok: true },
     { name: "surface", ok: true },
     { name: "signal", ok: false },
+    { name: "surface-guards", ok: false, skipped: true },
     { name: "input", ok: false, skipped: true },
     { name: "audit", ok: false, skipped: true },
     { name: "lifecycle", ok: false, skipped: true }

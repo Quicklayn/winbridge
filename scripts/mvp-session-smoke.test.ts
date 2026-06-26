@@ -16,6 +16,7 @@ import {
   stopSmokeProcesses,
   summarizeSmokeAuditLogContent,
   tryFetchSurfaceSignalReadiness,
+  tryPostSurfaceGuardDenials,
   tryPostSurfaceInput,
   tryPostSurfaceInputDenied,
   tryPostSurfaceKeyboardInput
@@ -101,6 +102,7 @@ describe("MVP session smoke check", () => {
 
     expect(output).toContain("WinBridge MVP smoke check passed.");
     expect(output).toContain("signal=verified");
+    expect(output).toContain("surface-guards=verified");
     expect(output).toContain("audit=verified");
     expect(output).toContain("lifecycle=verified");
     expect(output).toContain("artifacts=C:\\Temp\\winbridge-mvp-smoke-safe");
@@ -133,6 +135,7 @@ describe("MVP session smoke check", () => {
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
+        { name: "surface-guards", ok: true },
         { name: "input", ok: true },
         { name: "audit", ok: true },
         { name: "lifecycle", ok: true }
@@ -177,6 +180,22 @@ describe("MVP session smoke check", () => {
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: false },
+        { name: "surface-guards", ok: false, skipped: true },
+        { name: "input", ok: false, skipped: true },
+        { name: "audit", ok: false, skipped: true },
+        { name: "lifecycle", ok: false, skipped: true }
+      ]
+    });
+    expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready")))).toEqual({
+      ok: false,
+      reason: "surface-guards-not-ready",
+      checks: [
+        { name: "relay", ok: true },
+        { name: "indicator", ok: true },
+        { name: "frame", ok: true },
+        { name: "surface", ok: true },
+        { name: "signal", ok: true },
+        { name: "surface-guards", ok: false },
         { name: "input", ok: false, skipped: true },
         { name: "audit", ok: false, skipped: true },
         { name: "lifecycle", ok: false, skipped: true }
@@ -191,6 +210,7 @@ describe("MVP session smoke check", () => {
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
+        { name: "surface-guards", ok: true },
         { name: "input", ok: true },
         { name: "audit", ok: false },
         { name: "lifecycle", ok: false, skipped: true }
@@ -205,6 +225,7 @@ describe("MVP session smoke check", () => {
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
+        { name: "surface-guards", ok: true },
         { name: "input", ok: true },
         { name: "audit", ok: true },
         { name: "lifecycle", ok: false }
@@ -219,6 +240,7 @@ describe("MVP session smoke check", () => {
         { name: "frame", ok: false, skipped: true },
         { name: "surface", ok: false, skipped: true },
         { name: "signal", ok: false, skipped: true },
+        { name: "surface-guards", ok: false, skipped: true },
         { name: "input", ok: false, skipped: true },
         { name: "audit", ok: false, skipped: true },
         { name: "lifecycle", ok: false, skipped: true }
@@ -436,6 +458,96 @@ describe("MVP session smoke check", () => {
     expect(accepted).toBe(false);
     expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("KeyA");
     expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("key-down");
+  });
+
+  it("verifies local surface token origin and content-type guard denials", async () => {
+    const calls: unknown[] = [];
+    const guarded = await tryPostSurfaceGuardDenials(
+      async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return {
+          status: 403,
+          json: async () => ({ ok: false, error: "rejected", token: "raw-secret-token" })
+        } as Response;
+      },
+      "http://127.0.0.1:35987/",
+      "safe-token"
+    );
+
+    expect(guarded).toBe(true);
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:35987/input",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://127.0.0.1:35987"
+          },
+          body: JSON.stringify({ command: "pointer-move 0.5 0.5" })
+        }
+      },
+      {
+        url: "http://127.0.0.1:35987/input",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://example.invalid",
+            "x-winbridge-local-surface-token": "safe-token"
+          },
+          body: JSON.stringify({ command: "pointer-move 0.5 0.5" })
+        }
+      },
+      {
+        url: "http://127.0.0.1:35987/input",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "text/plain",
+            origin: "http://127.0.0.1:35987",
+            "x-winbridge-local-surface-token": "safe-token"
+          },
+          body: JSON.stringify({ command: "pointer-move 0.5 0.5" })
+        }
+      }
+    ]);
+    expect(formatMvpSessionSmokeError(new Error("surface-guards-not-ready"))).toBe(
+      "WinBridge MVP smoke check failed. reason=surface-guards-not-ready"
+    );
+    expect(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready"))).not.toContain(
+      "safe-token"
+    );
+    expect(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready"))).not.toContain(
+      "example.invalid"
+    );
+    expect(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready"))).not.toContain(
+      "raw-secret-token"
+    );
+  });
+
+  it("does not treat accepted guard probes or network failures as guarded", async () => {
+    await expect(
+      tryPostSurfaceGuardDenials(
+        async () =>
+          ({
+            status: 202,
+            json: async () => ({ ok: true, action: "input", kind: "pointer-move" })
+          }) as Response,
+        "http://127.0.0.1:35987/",
+        "safe-token"
+      )
+    ).resolves.toBe(false);
+
+    await expect(
+      tryPostSurfaceGuardDenials(
+        async () => {
+          throw new Error("raw-secret-token network failure");
+        },
+        "http://127.0.0.1:35987/",
+        "safe-token"
+      )
+    ).resolves.toBe(false);
   });
 
   it("recognizes explicit lifecycle denial from the token-protected surface input path", async () => {
