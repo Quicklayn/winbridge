@@ -370,6 +370,40 @@ export function runMvpReadyCheck(options = {}) {
       };
     }
 
+    if (
+      step.name === "token-role-filter-host-command" &&
+      !parseTokenEnvAgentRoleFilteredCommandReadiness(result.output, "host")
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (
+      step.name === "token-role-filter-viewer-command" &&
+      !parseTokenEnvAgentRoleFilteredCommandReadiness(result.output, "viewer")
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
     if (isSmokeStep(step.name)) {
       const smokeResult = parseSmokeReadiness(result.output);
       if (smokeResult?.ok !== true) {
@@ -525,6 +559,10 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
       ...commandWithArgs("mvp:commands", ["--only", "viewer", "--relay-host", MVP_READY_LAN_RELAY_HOST])
     });
     steps.push({
+      name: "token-role-filter-viewer-command",
+      ...commandWithArgs("mvp:commands", ["--only", "viewer", "--token-env", MVP_READY_TOKEN_ENV_NAME])
+    });
+    steps.push({
       name: "role-filter-browser-command",
       ...commandWithArgs("mvp:commands", ["--only", "browser"])
     });
@@ -539,6 +577,10 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
     steps.push({
       name: "lan-role-filter-host-command",
       ...commandWithArgs("mvp:commands", ["--only", "host", "--relay-host", MVP_READY_LAN_RELAY_HOST])
+    });
+    steps.push({
+      name: "token-role-filter-host-command",
+      ...commandWithArgs("mvp:commands", ["--only", "host", "--token-env", MVP_READY_TOKEN_ENV_NAME])
     });
   }
 
@@ -717,6 +759,16 @@ export function parseLanAgentRoleFilteredCommandReadiness(output, target) {
     parseRoleFilteredCommandReadiness(output, target) &&
     output.includes(MVP_READY_LAN_RELAY_URL) &&
     !output.includes("ws://localhost:8787/")
+  );
+}
+
+export function parseTokenEnvAgentRoleFilteredCommandReadiness(output, target) {
+  return (
+    (target === "host" || target === "viewer") &&
+    parseRoleFilteredCommandReadiness(output, target) &&
+    output.includes(`--token $env:${MVP_READY_TOKEN_ENV_NAME}`) &&
+    !output.includes("--token '") &&
+    !output.includes("--token raw-secret-token")
   );
 }
 
