@@ -339,6 +339,20 @@ codes. It is a local preflight only: it does not use Windows capture, apply OS
 input, launch a browser, install services, configure startup persistence, run
 unattended, elevate privileges, or bypass Windows prompts.
 
+To exercise the same smoke workflow through the development relay shared-token
+gate, set a bounded token in an environment variable and pass only the variable
+name to the smoke helper:
+
+```powershell
+$env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
+npm run mvp:smoke -- --token-env WINBRIDGE_RELAY_SHARED_TOKEN
+```
+
+The helper configures the local relay with `WINBRIDGE_RELAY_SHARED_TOKEN` and
+passes the resolved value to the local host and viewer child processes without
+printing that value in human or JSON smoke output. Raw `--token` values are not
+accepted by `mvp:smoke`.
+
 For troubleshooting, run `npm run mvp:smoke -- --keep-artifacts` to retain the
 temporary smoke work directory after the bounded local check. The retained
 directory is for local inspection only; smoke diagnostics still avoid printing
@@ -360,6 +374,8 @@ cleanup behavior. It does not discover
 LAN interfaces, connect to remote hosts, open firewall ports, use Windows
 capture, apply OS input, launch a browser, install services, configure startup
 persistence, run unattended, elevate privileges, or bypass Windows prompts.
+The LAN-style smoke option can be combined with `--token-env` and still does
+not configure LAN or public relay bind settings.
 
 Run the development relay:
 

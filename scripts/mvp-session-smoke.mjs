@@ -22,15 +22,20 @@ export const MVP_SESSION_SMOKE_USAGE = [
   "  --timeout-ms 45000",
   "  --keep-artifacts",
   "  --lan-relay",
+  "  --token-env WINBRIDGE_RELAY_SHARED_TOKEN",
   "  --json",
   "",
   "The smoke check starts local relay, host, and viewer development processes",
-  "with static frames only. It does not use Windows capture, OS input, tokens,",
+  "with static frames only. By default it does not use relay shared tokens;",
+  "with --token-env it references one bounded environment variable without",
+  "printing the token value. It does not use Windows capture, OS input,",
   "browser automation, services, startup persistence, or unattended access."
 ].join("\n");
 
 const SAFE_TIMER_DELAY_MS = 2_147_483_647;
 const OUTPUT_LIMIT_BYTES = 4096;
+const RELAY_SHARED_TOKEN_MAX_BYTES = 1024;
+const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]{0,127}$/;
 const SMOKE_AUDIT_LOG_CONTENT_LIMIT_BYTES = 256 * 1024;
 const SMOKE_AUDIT_LOG_LINE_LIMIT_BYTES = 4096;
 const MVP_SMOKE_CHECK_NAMES = Object.freeze([
@@ -115,7 +120,9 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
   let keepArtifacts = false;
   let json = false;
   let lanRelay = false;
+  let tokenEnv;
   let sawTimeout = false;
+  let sawTokenEnv = false;
 
   for (let index = 0; index < rawArgs.length;) {
     const key = rawArgs[index];
@@ -161,6 +168,20 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
       continue;
     }
 
+    if (key === "--token-env") {
+      if (sawTokenEnv) {
+        throw new MvpSessionSmokeUsageError();
+      }
+      const value = rawArgs[index + 1];
+      if (value === undefined || value.startsWith("--")) {
+        throw new MvpSessionSmokeUsageError();
+      }
+      tokenEnv = parseSmokeTokenEnvName(value);
+      sawTokenEnv = true;
+      index += 2;
+      continue;
+    }
+
     if (!key?.startsWith("--")) {
       throw new MvpSessionSmokeUsageError();
     }
@@ -172,6 +193,7 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
     timeoutMs,
     keepArtifacts,
     lanRelay,
+    ...(tokenEnv ? { tokenEnv } : {}),
     json
   };
 }
@@ -186,6 +208,8 @@ export function createMvpSmokePlan(options) {
   const framePath = join(options.workDir, "frames", "latest.png");
   const hostAuditPath = join(options.workDir, "logs", "host-audit.jsonl");
   const viewerAuditPath = join(options.workDir, "logs", "viewer-audit.jsonl");
+  const sharedToken = parseOptionalSmokeSharedToken(options.sharedToken);
+  const tokenArgs = sharedToken ? ["--token", sharedToken] : [];
 
   return {
     session,
@@ -196,7 +220,10 @@ export function createMvpSmokePlan(options) {
       label: "relay",
       command: npmInvocation.command,
       args: [...npmInvocation.argsPrefix, "--workspace", "@winbridge/relay", "run", "dev"],
-      env: { WINBRIDGE_RELAY_PORT: String(options.relayPort) }
+      env: {
+        WINBRIDGE_RELAY_PORT: String(options.relayPort),
+        ...(sharedToken ? { WINBRIDGE_RELAY_SHARED_TOKEN: sharedToken } : {})
+      }
     },
     host: {
       label: "host",
@@ -236,7 +263,8 @@ export function createMvpSmokePlan(options) {
         "--dev-screen-frame-count",
         String(DEFAULT_MVP_SMOKE_OPTIONS.captureCount),
         "--dev-screen-frame-interval-ms",
-        String(DEFAULT_MVP_SMOKE_OPTIONS.captureIntervalMs)
+        String(DEFAULT_MVP_SMOKE_OPTIONS.captureIntervalMs),
+        ...tokenArgs
       ],
       env: {}
     },
@@ -268,7 +296,8 @@ export function createMvpSmokePlan(options) {
         "--viewer-screen-frame-output",
         framePath,
         "--viewer-control-surface-port",
-        String(options.surfacePort)
+        String(options.surfacePort),
+        ...tokenArgs
       ],
       env: {}
     },
@@ -292,7 +321,8 @@ export async function runMvpSessionSmokeCheck(rawOptions = {}) {
   const workDir = rawOptions.workDir ?? mkdtempSync(join(tmpdir(), "winbridge-mvp-smoke-"));
   const relayPort = rawOptions.relayPort ?? 0;
   const surfacePort = rawOptions.surfacePort ?? 0;
-  const plan = createMvpSmokePlan({ ...rawOptions, workDir, relayPort, surfacePort });
+  const sharedToken = parseOptionalSmokeSharedToken(rawOptions.sharedToken);
+  const plan = createMvpSmokePlan({ ...rawOptions, workDir, relayPort, surfacePort, sharedToken });
   const children = [];
   let cleanupPromise;
   const cleanupOnce = () => {
@@ -333,7 +363,8 @@ async function runMvpSessionSmokeSteps(context) {
           ...rawOptions,
           workDir,
           relayPort: resolvedRelayPort,
-          surfacePort
+          surfacePort,
+          sharedToken: rawOptions.sharedToken
         });
 
   const host = startSmokeProcess(readyPlan.host, options);
@@ -1162,6 +1193,51 @@ function parseIntegerOption(raw, min, max) {
   return value;
 }
 
+function parseSmokeTokenEnvName(raw) {
+  if (typeof raw !== "string" || raw.trim() !== raw || !ENV_NAME_PATTERN.test(raw)) {
+    throw new MvpSessionSmokeUsageError();
+  }
+  return raw;
+}
+
+function parseOptionalSmokeSharedToken(raw) {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (
+    typeof raw !== "string" ||
+    raw.length === 0 ||
+    raw.trim() !== raw ||
+    Buffer.byteLength(raw, "utf8") > RELAY_SHARED_TOKEN_MAX_BYTES ||
+    hasAsciiControlCharacter(raw) ||
+    hasUnicodeFormatControl(raw)
+  ) {
+    throw new MvpSessionSmokeUsageError();
+  }
+
+  return raw;
+}
+
+export function resolveMvpSmokeTokenEnv(env, tokenEnv) {
+  if (tokenEnv === undefined) {
+    return undefined;
+  }
+  const envName = parseSmokeTokenEnvName(tokenEnv);
+  if (typeof env?.[envName] !== "string") {
+    throw new MvpSessionSmokeUsageError();
+  }
+  return parseOptionalSmokeSharedToken(env[envName]);
+}
+
+function hasAsciiControlCharacter(value) {
+  return /[\u0000-\u001F\u007F]/u.test(value);
+}
+
+function hasUnicodeFormatControl(value) {
+  return /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/u.test(value);
+}
+
 function defaultNpmInvocation() {
   if (process.env.npm_execpath) {
     return { command: process.execPath, argsPrefix: [process.env.npm_execpath] };
@@ -1201,10 +1277,12 @@ async function runCli(rawArgs = process.argv.slice(2), streams = process) {
       return 0;
     }
 
+    const sharedToken = resolveMvpSmokeTokenEnv(process.env, parsed.tokenEnv);
     const result = await runMvpSessionSmokeCheck({
       timeoutMs: parsed.timeoutMs,
       keepArtifacts: parsed.keepArtifacts,
-      lanRelay: parsed.lanRelay
+      lanRelay: parsed.lanRelay,
+      sharedToken
     });
     streams.stdout.write(
       `${

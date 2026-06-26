@@ -13,6 +13,7 @@ import {
   MvpSessionSmokeUsageError,
   parseMvpSessionSmokeArgs,
   createMvpSmokePlan,
+  resolveMvpSmokeTokenEnv,
   runMvpSessionSmokeCheck,
   stopSmokeProcesses,
   summarizeSmokeAuditLogContent,
@@ -46,11 +47,20 @@ describe("MVP session smoke check", () => {
       json: false
     });
     expect(
-      parseMvpSessionSmokeArgs(["--json", "--keep-artifacts", "--lan-relay", "--timeout-ms", "5000"])
+      parseMvpSessionSmokeArgs([
+        "--json",
+        "--keep-artifacts",
+        "--lan-relay",
+        "--token-env",
+        "WINBRIDGE_TEST_RELAY_TOKEN",
+        "--timeout-ms",
+        "5000"
+      ])
     ).toMatchObject({
       timeoutMs: 5000,
       keepArtifacts: true,
       lanRelay: true,
+      tokenEnv: "WINBRIDGE_TEST_RELAY_TOKEN",
       json: true
     });
     expect(parseMvpSessionSmokeArgs(["--help"])).toEqual({ help: true });
@@ -88,7 +98,49 @@ describe("MVP session smoke check", () => {
     expect(() => parseMvpSessionSmokeArgs(["--json", "--json"])).toThrow(
       MvpSessionSmokeUsageError
     );
+    expect(() => parseMvpSessionSmokeArgs(["--token-env"])).toThrow(MvpSessionSmokeUsageError);
+    expect(() => parseMvpSessionSmokeArgs(["--token-env", "relay-token"])).toThrow(
+      MvpSessionSmokeUsageError
+    );
+    expect(() =>
+      parseMvpSessionSmokeArgs([
+        "--token-env",
+        "WINBRIDGE_TEST_RELAY_TOKEN",
+        "--token-env",
+        "WINBRIDGE_OTHER_TOKEN"
+      ])
+    ).toThrow(MvpSessionSmokeUsageError);
     expect(formatMvpSessionSmokeJsonError(thrown)).not.toContain("raw-secret-token");
+  });
+
+  it("resolves token-env values without echoing unsafe values", () => {
+    expect(
+      resolveMvpSmokeTokenEnv(
+        { WINBRIDGE_TEST_RELAY_TOKEN: "dev-shared-token" },
+        "WINBRIDGE_TEST_RELAY_TOKEN"
+      )
+    ).toBe("dev-shared-token");
+    expect(resolveMvpSmokeTokenEnv({}, undefined)).toBeUndefined();
+
+    for (const env of [
+      {},
+      { WINBRIDGE_TEST_RELAY_TOKEN: "" },
+      { WINBRIDGE_TEST_RELAY_TOKEN: " raw-secret-token" },
+      { WINBRIDGE_TEST_RELAY_TOKEN: "raw-secret-token\n" },
+      { WINBRIDGE_TEST_RELAY_TOKEN: "x".repeat(1025) },
+      { WINBRIDGE_TEST_RELAY_TOKEN: `safe\u200Btoken` }
+    ]) {
+      let thrown: unknown;
+      try {
+        resolveMvpSmokeTokenEnv(env, "WINBRIDGE_TEST_RELAY_TOKEN");
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(MvpSessionSmokeUsageError);
+      expect(formatMvpSessionSmokeError(thrown)).not.toContain("raw-secret-token");
+      expect(formatMvpSessionSmokeJsonError(thrown)).not.toContain("raw-secret-token");
+      expect(formatMvpSessionSmokeError(thrown)).not.toContain("safe\u200Btoken");
+    }
   });
 
   it("formats retained artifact success output without sensitive runtime contents", () => {
@@ -364,6 +416,51 @@ describe("MVP session smoke check", () => {
     expect(serialized).not.toContain("windows-capture");
     expect(serialized).not.toContain("host-apply-input");
     expect(serialized).not.toContain("Start-Process");
+    expect(serialized).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
+    expect(serialized).not.toContain("0.0.0.0");
+  });
+
+  it("builds token-protected smoke plans without changing local static safety boundaries", () => {
+    const plan = createMvpSmokePlan({
+      npmCommand: "npm",
+      workDir: "C:\\Temp\\winbridge-smoke",
+      relayPort: 18787,
+      surfacePort: 35987,
+      session: "smoke-test",
+      sharedToken: "dev-shared-token"
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.relay.env).toEqual({
+      WINBRIDGE_RELAY_PORT: "18787",
+      WINBRIDGE_RELAY_SHARED_TOKEN: "dev-shared-token"
+    });
+    expect(plan.host.args).toEqual(expect.arrayContaining(["--token", "dev-shared-token"]));
+    expect(plan.viewer.args).toEqual(expect.arrayContaining(["--token", "dev-shared-token"]));
+    expect(plan.host.args).toContain("ws://localhost:18787/");
+    expect(plan.viewer.args).toContain("ws://localhost:18787/");
+    expect(serialized).not.toContain("windows-capture");
+    expect(serialized).not.toContain("host-apply-input");
+    expect(serialized).not.toContain("Start-Process");
+    expect(serialized).not.toContain("playwright");
+    expect(serialized).not.toContain("browser");
+  });
+
+  it("keeps token-protected LAN-style smoke on loopback without public relay bind", () => {
+    const plan = createMvpSmokePlan({
+      npmCommand: "npm",
+      workDir: "C:\\Temp\\winbridge-smoke",
+      relayPort: 18787,
+      surfacePort: 35987,
+      session: "smoke-test",
+      lanRelay: true,
+      sharedToken: "dev-shared-token"
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.host.args).toContain("ws://127.0.0.1:18787/");
+    expect(plan.viewer.args).toContain("ws://127.0.0.1:18787/");
+    expect(plan.relay.env.WINBRIDGE_RELAY_SHARED_TOKEN).toBe("dev-shared-token");
     expect(serialized).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
     expect(serialized).not.toContain("0.0.0.0");
   });
