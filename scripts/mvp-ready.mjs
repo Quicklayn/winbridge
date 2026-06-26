@@ -179,6 +179,14 @@ export function createMvpReadyPlan(options = {}) {
       ...commandWithArgs("mvp:commands", ["--only", target])
     })),
     {
+      name: "token-role-filter-host-command",
+      ...commandWithArgs("mvp:commands", ["--only", "host", "--token-env", MVP_READY_TOKEN_ENV_NAME])
+    },
+    {
+      name: "token-role-filter-viewer-command",
+      ...commandWithArgs("mvp:commands", ["--only", "viewer", "--token-env", MVP_READY_TOKEN_ENV_NAME])
+    },
+    {
       name: "ephemeral-role-filter-browser-command",
       ...commandWithArgs("mvp:commands", ["--only", "browser", "--viewer-control-surface-port", "0"])
     },

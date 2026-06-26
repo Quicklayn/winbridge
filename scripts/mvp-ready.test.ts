@@ -314,11 +314,64 @@ describe("MVP ready helper", () => {
         "role-filter-viewer-command=ok",
         "role-filter-browser-command=ok",
         "role-filter-preflight-command=ok",
+        "token-role-filter-host-command=ok",
+        "token-role-filter-viewer-command=ok",
         "ephemeral-role-filter-browser-command=ok",
         "smoke=skipped",
         "lan-smoke=skipped"
       ].join("\n")
     );
+  });
+
+  it("fails closed when default token-env role-filter output drifts", () => {
+    const result = runMvpReadyCheck({
+      plan: createMvpReadyPlan({ npmCommand: "npm" }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "token-role-filter-viewer-command") {
+          return {
+            ok: true,
+            output: roleFilterOutput("viewer", { tokenArgument: "--token raw-secret-token" })
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        ...roleFilterCheckResults().filter(
+          (check) => check.name !== "token-role-filter-viewer-command" &&
+            check.name !== "ephemeral-role-filter-browser-command"
+        ),
+        { name: "token-role-filter-viewer-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
   });
 
   it("runs smoke after default checks when explicitly included", () => {
@@ -969,6 +1022,8 @@ describe("MVP ready helper", () => {
           name: `role-filter-${target}-command`,
           ok: true
         })),
+        { name: "token-role-filter-host-command", ok: true },
+        { name: "token-role-filter-viewer-command", ok: true },
         { name: "ephemeral-role-filter-browser-command", ok: false, reason: "exit-nonzero" }
       ]
     });
@@ -1696,6 +1751,32 @@ function roleFilterPlanSteps() {
       args: ["run", "mvp:commands", "--", "--only", target]
     })),
     {
+      name: "token-role-filter-host-command",
+      command: "npm",
+      args: [
+        "run",
+        "mvp:commands",
+        "--",
+        "--only",
+        "host",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ]
+    },
+    {
+      name: "token-role-filter-viewer-command",
+      command: "npm",
+      args: [
+        "run",
+        "mvp:commands",
+        "--",
+        "--only",
+        "viewer",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ]
+    },
+    {
       name: "ephemeral-role-filter-browser-command",
       command: "npm",
       args: [
@@ -1720,6 +1801,8 @@ function defaultReadyCheckNames() {
     "lan-command-plan",
     "token-command-plan",
     ...roleFilterTargets().map((target) => `role-filter-${target}-command`),
+    "token-role-filter-host-command",
+    "token-role-filter-viewer-command",
     "ephemeral-role-filter-browser-command"
   ];
 }
@@ -1730,6 +1813,8 @@ function roleFilterCheckResults() {
       name: `role-filter-${target}-command`,
       ok: true
     })),
+    { name: "token-role-filter-host-command", ok: true },
+    { name: "token-role-filter-viewer-command", ok: true },
     { name: "ephemeral-role-filter-browser-command", ok: true }
   ];
 }
