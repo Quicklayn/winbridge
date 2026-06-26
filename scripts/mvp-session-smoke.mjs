@@ -61,6 +61,19 @@ const SMOKE_AUDIT_SUMMARY_ACTIONS = Object.freeze({
   "agent-shell.remote-interaction.input-event.sent": "inputSent",
   "agent-shell.permission.revoked": "permissionRevoked"
 });
+const SAFE_SURFACE_STATUS_TOP_LEVEL_KEYS = Object.freeze(["ok", "state"]);
+const SAFE_SURFACE_STATUS_STATE_KEYS = Object.freeze([
+  "state",
+  "authorizationStatus",
+  "expiresAt",
+  "remoteDisconnectReasonCode",
+  "localInactiveCause",
+  "visibleToHost",
+  "permissionCount",
+  "inputPointerReady",
+  "inputKeyboardReady",
+  "signalProbeAckReceived"
+]);
 const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "relay-not-ready": 0,
   "port-unavailable": 0,
@@ -660,10 +673,46 @@ export async function tryFetchSurfaceSignalReadiness(fetchImpl, surfaceUrl) {
     }
 
     const body = await response.json();
-    return body?.ok === true && body.state?.signalProbeAckReceived === true;
+    return isBoundedSurfaceStatusReady(body);
   } catch {
     return false;
   }
+}
+
+function isBoundedSurfaceStatusReady(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return false;
+  }
+
+  const keys = Object.keys(body);
+  if (
+    !keys.includes("ok") ||
+    !keys.includes("state") ||
+    !keys.every((key) => SAFE_SURFACE_STATUS_TOP_LEVEL_KEYS.includes(key))
+  ) {
+    return false;
+  }
+
+  const state = body.state;
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    return false;
+  }
+
+  const stateKeys = Object.keys(state);
+  if (!stateKeys.every((key) => SAFE_SURFACE_STATUS_STATE_KEYS.includes(key))) {
+    return false;
+  }
+
+  return (
+    body.ok === true &&
+    state.state === "active" &&
+    state.visibleToHost === true &&
+    Number.isInteger(state.permissionCount) &&
+    state.permissionCount > 0 &&
+    state.signalProbeAckReceived === true &&
+    state.inputPointerReady === true &&
+    state.inputKeyboardReady === true
+  );
 }
 
 async function waitForViewerSurfaceGuards(surfaceUrl, mutationToken, deadline, options) {

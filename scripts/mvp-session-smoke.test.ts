@@ -709,9 +709,13 @@ describe("MVP session smoke check", () => {
           json: async () => ({
             ok: true,
             state: {
+              state: "active",
+              visibleToHost: true,
+              permissionCount: 3,
+              authorizationStatus: "active",
               signalProbeAckReceived: true,
-              authorizationId: "authz_private",
-              signalKind: "host-signal-probe-ack"
+              inputPointerReady: true,
+              inputKeyboardReady: true
             }
           })
         } as Response;
@@ -732,30 +736,52 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeError(new Error("authz_private"))).not.toContain("authz_private");
   });
 
-  it("rejects missing signal readiness without exposing raw status data", async () => {
-    const ready = await tryFetchSurfaceSignalReadiness(
-      async () =>
-        ({
-          ok: true,
-          json: async () => ({
-            ok: true,
-            state: {
-              signalProbeAckReceived: false,
-              authorizationId: "authz_private",
-              rawSignalMarker: "viewer-signal-probe-raw"
-            }
-          })
-        }) as Response,
-      "http://127.0.0.1:35987/"
-    );
+  it("rejects incomplete or unsafe status readiness without exposing raw status data", async () => {
+    const readyStatus = {
+      ok: true,
+      state: {
+        state: "active",
+        visibleToHost: true,
+        permissionCount: 3,
+        authorizationStatus: "active",
+        signalProbeAckReceived: true,
+        inputPointerReady: true,
+        inputKeyboardReady: true
+      }
+    };
+    const unsafeStatuses = [
+      { ...readyStatus, authorizationId: "authz_private" },
+      { ...readyStatus, state: { ...readyStatus.state, authorizationId: "authz_private" } },
+      { ...readyStatus, state: { ...readyStatus.state, permissions: ["screen:view"] } },
+      { ...readyStatus, state: { ...readyStatus.state, token: "raw-secret-token" } },
+      { ...readyStatus, state: { ...readyStatus.state, pairingCode: "123-456" } },
+      { ...readyStatus, state: { ...readyStatus.state, signalKind: "host-signal-probe-ack" } },
+      { ...readyStatus, state: { ...readyStatus.state, rawSignalMarker: "viewer-signal-probe-raw" } },
+      { ...readyStatus, state: { ...readyStatus.state, inputPointerReady: false } },
+      { ...readyStatus, state: { ...readyStatus.state, inputKeyboardReady: false } },
+      { ...readyStatus, state: { ...readyStatus.state, visibleToHost: false } },
+      { ...readyStatus, state: { ...readyStatus.state, state: "inactive" } },
+      { ...readyStatus, state: { ...readyStatus.state, signalProbeAckReceived: false } }
+    ];
 
-    expect(ready).toBe(false);
-    expect(formatMvpSessionSmokeJsonError(new Error("signal-not-ready"))).not.toContain(
-      "viewer-signal-probe-raw"
-    );
-    expect(formatMvpSessionSmokeJsonError(new Error("signal-not-ready"))).not.toContain(
-      "authz_private"
-    );
+    for (const status of unsafeStatuses) {
+      await expect(
+        tryFetchSurfaceSignalReadiness(
+          async () =>
+            ({
+              ok: true,
+              json: async () => status
+            }) as Response,
+          "http://127.0.0.1:35987/"
+        )
+      ).resolves.toBe(false);
+    }
+
+    const failure = formatMvpSessionSmokeJsonError(new Error("signal-not-ready"));
+    expect(failure).not.toContain("viewer-signal-probe-raw");
+    expect(failure).not.toContain("authz_private");
+    expect(failure).not.toContain("raw-secret-token");
+    expect(failure).not.toContain("123-456");
   });
 
   it("accepts bounded schema-like smoke audit records without exposing raw contents", () => {

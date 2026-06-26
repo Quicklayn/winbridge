@@ -285,11 +285,13 @@ viewer output file, verifies the loopback viewer surface and `/frame` endpoint,
 verifies the host process emitted the bounded active visible host indicator
 marker with a positive permission count,
 verifies the sanitized viewer `/status` endpoint reports
-`signalProbeAckReceived=true` for the bounded development signal readiness
-probe, verifies that the local `/input` endpoint rejects fixed unsafe mutation
-requests with missing token, foreign origin, and unsafe content type before
-accepted input handling, submits one bounded pointer command and one bounded
-keyboard command with explicit modifiers through the token-protected local `/input` path,
+`state=active`, `visibleToHost=true`, `signalProbeAckReceived=true`, and
+bounded pointer/keyboard input readiness for the current consent-bound signal
+readiness probe without raw authorization ids or permission arrays, verifies
+that the local `/input` endpoint rejects fixed unsafe mutation requests with
+missing token, foreign origin, and unsafe content type before accepted input
+handling, submits one bounded pointer command and one bounded keyboard command
+with explicit modifiers through the token-protected local `/input` path,
 verifies that both configured host and viewer JSONL audit logs contain bounded
 audit records, verifies that scheduled host revocation of `input:pointer` makes
 a later pointer command fail closed through the same local `/input` path,
