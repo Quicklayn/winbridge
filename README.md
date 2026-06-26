@@ -122,9 +122,11 @@ and browser steps. It does not start processes, open sockets, capture the
 screen, apply input, write files, install services, configure startup
 persistence, run unattended, elevate privileges, or bypass Windows prompts. The
 `--only` filter is text-only, rejects unknown or incompatible values, and still
-derives the selected block from the same fully validated non-executing plan.
-generated host command uses the interactive host consent prompt, visible session
-state, metadata-only audit,
+derives the selected block from the same fully validated non-executing plan. Do
+not combine `--only` with `--generate-pairing`; print the full generated plan
+once or pass the same explicit `--pairing` value to every role-filtered
+command. The generated host command uses the interactive host consent prompt,
+visible session state, metadata-only audit,
 `--host-apply-input true`, finite Windows capture, and
 `--host-control-prompt true`. Host controls start after approved active visible
 authorization, so the host terminal can run `pause`, `resume`,

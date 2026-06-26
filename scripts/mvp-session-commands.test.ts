@@ -118,6 +118,7 @@ describe("MVP session command kit", () => {
     expect(host).toContain("host command:");
     expect(host).toContain("npm run dev:agent -- host");
     expect(host).toContain("--host-consent-prompt 'true'");
+    expect(host).toContain("--pairing '123-456'");
     expect(host).toContain("pause | resume");
     expect(host).not.toContain("npm run dev:relay");
     expect(host).not.toContain("npm run dev:agent -- viewer");
@@ -127,6 +128,7 @@ describe("MVP session command kit", () => {
     expect(viewer).toContain("# WinBridge MVP viewer command");
     expect(viewer).toContain("viewer command:");
     expect(viewer).toContain("npm run dev:agent -- viewer");
+    expect(viewer).toContain("--pairing '123-456'");
     expect(viewer).toContain("Open the separate browser command");
     expect(viewer).not.toContain("npm run dev:relay");
     expect(viewer).not.toContain("npm run dev:agent -- host");
@@ -159,7 +161,8 @@ describe("MVP session command kit", () => {
       ["--only", "host", "--preflight-only"],
       ["--preflight-only", "--only", "host"],
       ["--only", "preflight", "--relay-host", "192.168.1.10"],
-      ["--only", "preflight", "--generate-pairing"]
+      ["--only", "preflight", "--generate-pairing"],
+      ["--generate-pairing", "--only", "preflight"]
     ];
 
     for (const invalidInput of invalidInputs) {
@@ -175,6 +178,47 @@ describe("MVP session command kit", () => {
       expect(formatMvpSessionCommandKitError(thrown)).not.toContain("raw-secret-token");
       expect(formatMvpSessionCommandKitError(thrown)).not.toContain("192.168.1.10");
     }
+  });
+
+  it("rejects generated pairing with role filters before generating a code", () => {
+    const targets = ["relay", "host", "viewer", "browser", "preflight"];
+
+    for (const target of targets) {
+      for (const invalidInput of [
+        ["--only", target, "--generate-pairing"],
+        ["--generate-pairing", "--only", target]
+      ]) {
+        let thrown: unknown;
+
+        try {
+          parseMvpSessionCommandArgs(invalidInput, {
+            generatePairingCode: () => {
+              throw new Error("pairing generation should not run");
+            }
+          });
+        } catch (error) {
+          thrown = error;
+        }
+
+        expect(thrown).toBeInstanceOf(MvpSessionCommandKitUsageError);
+        expect(formatMvpSessionCommandKitError(thrown)).not.toContain("234-567");
+        expect(formatMvpSessionCommandKitError(thrown)).not.toContain("raw-secret-token");
+      }
+    }
+  });
+
+  it("keeps role filters available with an explicit shared pairing code", () => {
+    const host = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--only", "host", "--pairing", "234-567"])
+    );
+    const viewer = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--only", "viewer", "--pairing", "234-567"])
+    );
+
+    expect(host).toContain("--pairing '234-567'");
+    expect(viewer).toContain("--pairing '234-567'");
+    expect(host).not.toContain("--pairing '123-456'");
+    expect(viewer).not.toContain("--pairing '123-456'");
   });
 
   it("prints bounded JSON for the full session command plan", () => {

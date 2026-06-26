@@ -106,6 +106,9 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
   if (parsedFlags.onlyTarget && (parsedFlags.json || parsedFlags.preflightOnly)) {
     throw new MvpSessionCommandKitUsageError();
   }
+  if (parsedFlags.onlyTarget && parsedFlags.generatePairing) {
+    throw new MvpSessionCommandKitUsageError();
+  }
   if (parsedFlags.preflightOnly && parsedFlags.generatePairing) {
     throw new MvpSessionCommandKitUsageError();
   }
