@@ -7,6 +7,7 @@ export const MVP_READY_USAGE = [
   "Options:",
   "  --json",
   "  --include-smoke",
+  "  --role relay|host|viewer",
   "",
   "Runs local WinBridge MVP readiness checks. Default mode runs only",
   "read-only doctor and native preflight checks; smoke is explicit."
@@ -49,6 +50,7 @@ const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
 const MVP_READY_LAN_RELAY_URL = `ws://${MVP_READY_LAN_RELAY_HOST}:8787/`;
 const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
 const OUTPUT_LIMIT_BYTES = 32768;
+const MVP_READY_ROLES = Object.freeze(["relay", "host", "viewer"]);
 const ROLE_FILTER_TARGETS = Object.freeze(["relay", "host", "viewer", "browser", "preflight"]);
 const ROLE_FILTER_STEP_TARGETS = new Map(
   ROLE_FILTER_TARGETS.map((target) => [`role-filter-${target}-command`, target])
@@ -94,8 +96,10 @@ export function parseMvpReadyArgs(rawArgs) {
 
   let json = false;
   let includeSmoke = false;
+  let role;
 
-  for (const arg of rawArgs) {
+  for (let index = 0; index < rawArgs.length; index += 1) {
+    const arg = rawArgs[index];
     if (arg === "--json") {
       if (json) {
         throw new MvpReadyUsageError();
@@ -112,13 +116,31 @@ export function parseMvpReadyArgs(rawArgs) {
       continue;
     }
 
+    if (arg === "--role") {
+      if (role !== undefined) {
+        throw new MvpReadyUsageError();
+      }
+      const value = rawArgs[index + 1];
+      if (typeof value !== "string" || value.startsWith("--") || !MVP_READY_ROLES.includes(value)) {
+        throw new MvpReadyUsageError();
+      }
+      role = value;
+      index += 1;
+      continue;
+    }
+
     throw new MvpReadyUsageError();
   }
 
-  return { help: false, json, includeSmoke };
+  if (role !== undefined && includeSmoke) {
+    throw new MvpReadyUsageError();
+  }
+
+  return { help: false, json, includeSmoke, ...(role ? { role } : {}) };
 }
 
 export function createMvpReadyPlan(options = {}) {
+  const role = normalizeMvpReadyRole(options.role);
   const npmInvocation = options.npmCommand
     ? { command: options.npmCommand, argsPrefix: [] }
     : defaultNpmInvocation();
@@ -130,6 +152,10 @@ export function createMvpReadyPlan(options = {}) {
     command: npmInvocation.command,
     args: [...npmInvocation.argsPrefix, "run", script, "--", ...args]
   });
+
+  if (role) {
+    return createRoleMvpReadyPlan(role, command, commandWithArgs);
+  }
 
   return [
     { name: "doctor", ...command("mvp:doctor") },
@@ -157,6 +183,7 @@ export function createMvpReadyPlan(options = {}) {
 }
 
 export function runMvpReadyCheck(options = {}) {
+  const role = normalizeMvpReadyRole(options.role);
   const plan = options.plan ?? createMvpReadyPlan(options);
   const runCommand = options.runCommand ?? runReadyCommand;
   const checks = [];
@@ -277,7 +304,7 @@ export function runMvpReadyCheck(options = {}) {
     checks.push(check);
   }
 
-  if (!options.includeSmoke) {
+  if (!options.includeSmoke && !role) {
     checks.push({ name: "smoke", ok: true, skipped: true });
     checks.push({ name: "lan-smoke", ok: true, skipped: true });
   }
@@ -378,6 +405,35 @@ function isSmokeStep(name) {
 
 function roleFilterTargetForStep(name) {
   return ROLE_FILTER_STEP_TARGETS.get(name);
+}
+
+function normalizeMvpReadyRole(role) {
+  if (role === undefined) {
+    return undefined;
+  }
+  if (!MVP_READY_ROLES.includes(role)) {
+    throw new MvpReadyUsageError();
+  }
+  return role;
+}
+
+function createRoleMvpReadyPlan(role, command, commandWithArgs) {
+  const steps = [{ name: "doctor", ...command("mvp:doctor") }];
+
+  if (role === "host" || role === "viewer") {
+    steps.push({ name: "native-preflight", ...command("mvp:native-preflight") });
+  }
+
+  const targets =
+    role === "viewer" ? ["viewer", "browser"] : [role];
+  for (const target of targets) {
+    steps.push({
+      name: `role-filter-${target}-command`,
+      ...commandWithArgs("mvp:commands", ["--only", target])
+    });
+  }
+
+  return steps;
 }
 
 export function parseCommandPlanReadiness(output, options = {}) {
@@ -816,7 +872,7 @@ function runCli(rawArgs = process.argv.slice(2), streams = process) {
       return 0;
     }
 
-    const result = runMvpReadyCheck({ includeSmoke: parsed.includeSmoke });
+    const result = runMvpReadyCheck({ includeSmoke: parsed.includeSmoke, role: parsed.role });
     const output = parsed.json ? formatMvpReadyJsonResult(result) : formatMvpReadyResult(result);
     const stream = result.ok ? streams.stdout : streams.stderr;
     stream.write(`${output}\n`);

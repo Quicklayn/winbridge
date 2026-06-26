@@ -257,6 +257,20 @@ output:
 npm run mvp:ready -- --json
 ```
 
+For a machine-specific local gate, use an explicit role. Relay readiness checks
+the doctor and relay command block. Host readiness checks the doctor, native
+Windows preflight, and host command block. Viewer readiness checks the doctor,
+native Windows preflight, viewer command block, and browser command block. Role
+mode is local and does not run smoke; `--include-smoke` is rejected with
+`--role`.
+
+```powershell
+npm run mvp:ready -- --role relay
+npm run mvp:ready -- --role host
+npm run mvp:ready -- --role viewer
+npm run mvp:ready -- --role viewer --json
+```
+
 To also run the bounded local static smoke workflow after the default readiness
 checks pass, including the explicit LAN-style local relay smoke mode:
 

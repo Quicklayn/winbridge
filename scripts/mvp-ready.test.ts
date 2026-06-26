@@ -30,6 +30,18 @@ describe("MVP ready helper", () => {
       json: true,
       includeSmoke: true
     });
+    expect(parseMvpReadyArgs(["--role", "host"])).toEqual({
+      help: false,
+      json: false,
+      includeSmoke: false,
+      role: "host"
+    });
+    expect(parseMvpReadyArgs(["--json", "--role", "viewer"])).toEqual({
+      help: false,
+      json: true,
+      includeSmoke: false,
+      role: "viewer"
+    });
     expect(parseMvpReadyArgs(["--help"])).toEqual({ help: true });
   });
 
@@ -50,6 +62,20 @@ describe("MVP ready helper", () => {
       MvpReadyUsageError
     );
     expect(() => parseMvpReadyArgs(["--help", "--json"])).toThrow(MvpReadyUsageError);
+    expect(() => parseMvpReadyArgs(["--role"])).toThrow(MvpReadyUsageError);
+    expect(() => parseMvpReadyArgs(["--role", "--json"])).toThrow(MvpReadyUsageError);
+    expect(() => parseMvpReadyArgs(["--role", "raw-secret-token"])).toThrow(
+      MvpReadyUsageError
+    );
+    expect(() => parseMvpReadyArgs(["--role", "host", "--role", "viewer"])).toThrow(
+      MvpReadyUsageError
+    );
+    expect(() => parseMvpReadyArgs(["--role", "host", "--include-smoke"])).toThrow(
+      MvpReadyUsageError
+    );
+    expect(() => parseMvpReadyArgs(["--include-smoke", "--role", "viewer"])).toThrow(
+      MvpReadyUsageError
+    );
   });
 
   it("builds the default readiness plan without smoke", () => {
@@ -108,6 +134,43 @@ describe("MVP ready helper", () => {
         args: ["run", "mvp:smoke", "--", "--json", "--lan-relay"]
       }
     ]);
+  });
+
+  it("builds role-scoped readiness plans without changing the default plan", () => {
+    expect(createMvpReadyPlan({ npmCommand: "npm", role: "relay" })).toEqual([
+      { name: "doctor", command: "npm", args: ["run", "mvp:doctor"] },
+      {
+        name: "role-filter-relay-command",
+        command: "npm",
+        args: ["run", "mvp:commands", "--", "--only", "relay"]
+      }
+    ]);
+    expect(createMvpReadyPlan({ npmCommand: "npm", role: "host" })).toEqual([
+      { name: "doctor", command: "npm", args: ["run", "mvp:doctor"] },
+      { name: "native-preflight", command: "npm", args: ["run", "mvp:native-preflight"] },
+      {
+        name: "role-filter-host-command",
+        command: "npm",
+        args: ["run", "mvp:commands", "--", "--only", "host"]
+      }
+    ]);
+    expect(createMvpReadyPlan({ npmCommand: "npm", role: "viewer" })).toEqual([
+      { name: "doctor", command: "npm", args: ["run", "mvp:doctor"] },
+      { name: "native-preflight", command: "npm", args: ["run", "mvp:native-preflight"] },
+      {
+        name: "role-filter-viewer-command",
+        command: "npm",
+        args: ["run", "mvp:commands", "--", "--only", "viewer"]
+      },
+      {
+        name: "role-filter-browser-command",
+        command: "npm",
+        args: ["run", "mvp:commands", "--", "--only", "browser"]
+      }
+    ]);
+    expect(() => createMvpReadyPlan({ npmCommand: "npm", role: "unsafe" })).toThrow(
+      MvpReadyUsageError
+    );
   });
 
   it("reports default readiness success and marks smoke skipped", () => {
@@ -216,6 +279,74 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyResult(result)).toContain("smoke.audit.host.records=5 accepted=5 denied=0 failed=0");
     expect(formatMvpReadyResult(result)).toContain("smoke.audit.coverage=authorizationApproved");
     expect(formatMvpReadyResult(result)).not.toContain("agent-shell");
+  });
+
+  it("reports role-scoped readiness success without smoke metadata", () => {
+    const calls: string[] = [];
+    const result = runMvpReadyCheck({
+      role: "viewer",
+      runCommand: (step: { name: string }) => {
+        calls.push(step.name);
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      },
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "viewer" })
+    });
+
+    expect(calls).toEqual([
+      "doctor",
+      "native-preflight",
+      "role-filter-viewer-command",
+      "role-filter-browser-command"
+    ]);
+    expect(result).toEqual({
+      ok: true,
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "role-filter-viewer-command", ok: true },
+        { name: "role-filter-browser-command", ok: true }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).toBe(
+      [
+        "WinBridge MVP readiness passed.",
+        "doctor=ok",
+        "native-preflight=ok",
+        "role-filter-viewer-command=ok",
+        "role-filter-browser-command=ok"
+      ].join("\n")
+    );
+    expect(formatMvpReadyResult(result)).not.toContain("smoke=skipped");
+    expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+  });
+
+  it("stops role-scoped readiness after the first failed check", () => {
+    const calls: string[] = [];
+    const result = runMvpReadyCheck({
+      role: "host",
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "host" }),
+      runCommand: (step: { name: string }) => {
+        calls.push(step.name);
+        return step.name === "native-preflight"
+          ? { ok: false, reason: "exit-nonzero", output: "raw-secret-token" }
+          : { ok: true };
+      }
+    });
+
+    expect(calls).toEqual(["doctor", "native-preflight"]);
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
   });
 
   it("stops after the first failed check with bounded reason metadata", () => {
@@ -931,6 +1062,26 @@ describe("MVP ready helper", () => {
     });
     expect(success).not.toContain("raw-secret-token");
     expect(failure).not.toContain("raw-secret-token");
+  });
+
+  it("formats bounded JSON for role-scoped readiness", () => {
+    const output = formatMvpReadyJsonResult({
+      ok: true,
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "role-filter-relay-command", ok: true, output: "raw-secret-token" }
+      ]
+    });
+
+    expect(JSON.parse(output)).toEqual({
+      ok: true,
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "role-filter-relay-command", ok: true }
+      ]
+    });
+    expect(output).not.toContain("smoke");
+    expect(output).not.toContain("raw-secret-token");
   });
 
   it("formats bounded JSON smoke subchecks without raw child output", () => {
