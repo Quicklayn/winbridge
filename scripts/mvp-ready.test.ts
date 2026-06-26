@@ -27,37 +27,52 @@ describe("MVP ready helper", () => {
       help: false,
       json: false,
       includeSmoke: false,
-      includeTokenSmoke: false
+      includeTokenSmoke: false,
+      includeLanTokenSmoke: false
     });
     expect(parseMvpReadyArgs(["--json"])).toEqual({
       help: false,
       json: true,
       includeSmoke: false,
-      includeTokenSmoke: false
+      includeTokenSmoke: false,
+      includeLanTokenSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-smoke", "--json"])).toEqual({
       help: false,
       json: true,
       includeSmoke: true,
-      includeTokenSmoke: false
+      includeTokenSmoke: false,
+      includeLanTokenSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-token-smoke", "--json"])).toEqual({
       help: false,
       json: true,
       includeSmoke: false,
-      includeTokenSmoke: true
+      includeTokenSmoke: true,
+      includeLanTokenSmoke: false
     });
-    expect(parseMvpReadyArgs(["--include-smoke", "--include-token-smoke"])).toEqual({
+    expect(parseMvpReadyArgs(["--include-lan-token-smoke", "--json"])).toEqual({
+      help: false,
+      json: true,
+      includeSmoke: false,
+      includeTokenSmoke: false,
+      includeLanTokenSmoke: true
+    });
+    expect(
+      parseMvpReadyArgs(["--include-smoke", "--include-token-smoke", "--include-lan-token-smoke"])
+    ).toEqual({
       help: false,
       json: false,
       includeSmoke: true,
-      includeTokenSmoke: true
+      includeTokenSmoke: true,
+      includeLanTokenSmoke: true
     });
     expect(parseMvpReadyArgs(["--role", "host"])).toEqual({
       help: false,
       json: false,
       includeSmoke: false,
       includeTokenSmoke: false,
+      includeLanTokenSmoke: false,
       role: "host"
     });
     expect(parseMvpReadyArgs(["--json", "--role", "viewer"])).toEqual({
@@ -65,6 +80,7 @@ describe("MVP ready helper", () => {
       json: true,
       includeSmoke: false,
       includeTokenSmoke: false,
+      includeLanTokenSmoke: false,
       role: "viewer"
     });
     expect(parseMvpReadyArgs(["--help"])).toEqual({ help: true });
@@ -89,6 +105,9 @@ describe("MVP ready helper", () => {
     expect(() => parseMvpReadyArgs(["--include-token-smoke", "--include-token-smoke"])).toThrow(
       MvpReadyUsageError
     );
+    expect(() => parseMvpReadyArgs(["--include-lan-token-smoke", "--include-lan-token-smoke"])).toThrow(
+      MvpReadyUsageError
+    );
     expect(() => parseMvpReadyArgs(["--help", "--json"])).toThrow(MvpReadyUsageError);
     expect(() => parseMvpReadyArgs(["--role"])).toThrow(MvpReadyUsageError);
     expect(() => parseMvpReadyArgs(["--role", "--json"])).toThrow(MvpReadyUsageError);
@@ -108,6 +127,12 @@ describe("MVP ready helper", () => {
       MvpReadyUsageError
     );
     expect(() => parseMvpReadyArgs(["--include-token-smoke", "--role", "viewer"])).toThrow(
+      MvpReadyUsageError
+    );
+    expect(() => parseMvpReadyArgs(["--role", "host", "--include-lan-token-smoke"])).toThrow(
+      MvpReadyUsageError
+    );
+    expect(() => parseMvpReadyArgs(["--include-lan-token-smoke", "--role", "viewer"])).toThrow(
       MvpReadyUsageError
     );
   });
@@ -229,6 +254,65 @@ describe("MVP ready helper", () => {
           "mvp:smoke",
           "--",
           "--json",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
+      }
+    ]);
+  });
+
+  it("includes LAN token smoke only when explicitly requested", () => {
+    expect(createMvpReadyPlan({ npmCommand: "npm", includeLanTokenSmoke: true })).toEqual([
+      ...createMvpReadyPlan({ npmCommand: "npm" }),
+      {
+        name: "lan-token-smoke",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:smoke",
+          "--",
+          "--json",
+          "--lan-relay",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
+      }
+    ]);
+    expect(
+      createMvpReadyPlan({
+        npmCommand: "npm",
+        includeSmoke: true,
+        includeTokenSmoke: true,
+        includeLanTokenSmoke: true
+      }).slice(-4)
+    ).toEqual([
+      { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] },
+      {
+        name: "lan-smoke",
+        command: "npm",
+        args: ["run", "mvp:smoke", "--", "--json", "--lan-relay"]
+      },
+      {
+        name: "token-smoke",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:smoke",
+          "--",
+          "--json",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
+      },
+      {
+        name: "lan-token-smoke",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:smoke",
+          "--",
+          "--json",
+          "--lan-relay",
           "--token-env",
           "WINBRIDGE_RELAY_SHARED_TOKEN"
         ]
@@ -366,7 +450,8 @@ describe("MVP ready helper", () => {
         ...roleFilterCheckResults(),
         { name: "smoke", ok: true, skipped: true },
         { name: "lan-smoke", ok: true, skipped: true },
-        { name: "token-smoke", ok: true, skipped: true }
+        { name: "token-smoke", ok: true, skipped: true },
+        { name: "lan-token-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toBe(
@@ -388,7 +473,8 @@ describe("MVP ready helper", () => {
         "ephemeral-role-filter-browser-command=ok",
         "smoke=skipped",
         "lan-smoke=skipped",
-        "token-smoke=skipped"
+        "token-smoke=skipped",
+        "lan-token-smoke=skipped"
       ].join("\n")
     );
   });
@@ -491,7 +577,8 @@ describe("MVP ready helper", () => {
         ...roleFilterCheckResults(),
         { name: "smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
         { name: "lan-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
-        { name: "token-smoke", ok: true, skipped: true }
+        { name: "token-smoke", ok: true, skipped: true },
+        { name: "lan-token-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toContain("smoke.audit=ok");
@@ -546,7 +633,8 @@ describe("MVP ready helper", () => {
         ...roleFilterCheckResults(),
         { name: "token-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
         { name: "smoke", ok: true, skipped: true },
-        { name: "lan-smoke", ok: true, skipped: true }
+        { name: "lan-smoke", ok: true, skipped: true },
+        { name: "lan-token-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toContain("token-smoke.audit=ok");
@@ -602,6 +690,112 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
     expect(formatMvpReadyJsonResult(result)).not.toContain("raw-secret-token");
     expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
+  });
+
+  it("runs LAN token smoke after default checks when explicitly included", () => {
+    const calls: string[] = [];
+    const smokeOutput = JSON.stringify({
+      ok: true,
+      checks: smokeSubchecks(),
+      auditSummary: smokeAuditSummary()
+    });
+    const result = runMvpReadyCheck({
+      includeLanTokenSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeLanTokenSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        calls.push(step.name);
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return step.name === "lan-token-smoke" ? { ok: true, output: smokeOutput } : { ok: true };
+      }
+    });
+
+    expect(calls).toEqual([...defaultReadyCheckNames(), "lan-token-smoke"]);
+    expect(result).toEqual({
+      ok: true,
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        ...roleFilterCheckResults(),
+        { name: "lan-token-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
+        { name: "smoke", ok: true, skipped: true },
+        { name: "lan-smoke", ok: true, skipped: true },
+        { name: "token-smoke", ok: true, skipped: true }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).toContain("lan-token-smoke.audit=ok");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("dev-shared-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("192.168.1.10");
+  });
+
+  it("fails closed when LAN token smoke output is unsafe or failed", () => {
+    const result = runMvpReadyCheck({
+      includeLanTokenSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeLanTokenSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return step.name === "lan-token-smoke"
+          ? {
+              ok: false,
+              reason: "exit-nonzero",
+              output: `${JSON.stringify({ ok: false, reason: "usage" })}\nraw-secret-token`
+            }
+          : { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        ...roleFilterCheckResults(),
+        { name: "lan-token-smoke", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("raw-secret-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("192.168.1.10");
   });
 
   it("reports role-scoped readiness success without smoke metadata", () => {
@@ -1804,7 +1998,8 @@ describe("MVP ready helper", () => {
         ...roleFilterCheckResults(),
         { name: "smoke", ok: true, skipped: true },
         { name: "lan-smoke", ok: true, skipped: true },
-        { name: "token-smoke", ok: true, skipped: true }
+        { name: "token-smoke", ok: true, skipped: true },
+        { name: "lan-token-smoke", ok: true, skipped: true }
       ]
     });
     const failure = formatMvpReadyJsonResult({
@@ -1827,7 +2022,8 @@ describe("MVP ready helper", () => {
         ...roleFilterCheckResults(),
         { name: "smoke", ok: true, skipped: true },
         { name: "lan-smoke", ok: true, skipped: true },
-        { name: "token-smoke", ok: true, skipped: true }
+        { name: "token-smoke", ok: true, skipped: true },
+        { name: "lan-token-smoke", ok: true, skipped: true }
       ]
     });
     expect(JSON.parse(failure)).toEqual({
@@ -1892,6 +2088,13 @@ describe("MVP ready helper", () => {
           output: "raw-secret-token"
         },
         {
+          name: "lan-token-smoke",
+          ok: true,
+          checks: smokeSubchecks(),
+          auditSummary: smokeAuditSummary(),
+          output: "raw-secret-token"
+        },
+        {
           name: "unsafe-smoke",
           ok: true,
           auditSummary: {
@@ -1915,6 +2118,7 @@ describe("MVP ready helper", () => {
         { name: "smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
         { name: "lan-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
         { name: "token-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
+        { name: "lan-token-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
         { name: "unsafe-smoke", ok: true }
       ]
     });

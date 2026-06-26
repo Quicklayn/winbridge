@@ -314,6 +314,23 @@ This adds a `token-smoke` readiness step that runs
 combined with `--include-smoke`; without `--include-token-smoke`, token smoke
 is reported as skipped metadata only.
 
+To also aggregate the combined LAN-style local relay shape and shared-token
+smoke path, use the explicit LAN token smoke flag:
+
+```powershell
+$env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
+npm run mvp:ready -- --include-lan-token-smoke
+```
+
+This adds a `lan-token-smoke` readiness step that runs
+`mvp:smoke -- --json --lan-relay --token-env WINBRIDGE_RELAY_SHARED_TOKEN`.
+It can be combined with `--include-smoke` and `--include-token-smoke`; without
+`--include-lan-token-smoke`, LAN token smoke is reported as skipped metadata
+only. This remains the same-machine LAN-style smoke path and does not configure
+LAN relay bind settings, discovery, firewall rules, services, startup
+persistence, unattended access, Windows capture, OS input application, browser
+automation, or hidden sessions.
+
 Run a bounded local MVP smoke check before a two-PC trial:
 
 ```powershell

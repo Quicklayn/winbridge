@@ -8,6 +8,7 @@ export const MVP_READY_USAGE = [
   "  --json",
   "  --include-smoke",
   "  --include-token-smoke",
+  "  --include-lan-token-smoke",
   "  --role relay|host|viewer",
   "",
   "Runs local WinBridge MVP readiness checks. Default mode runs only",
@@ -85,7 +86,13 @@ export class MvpReadyUsageError extends Error {
 
 export function parseMvpReadyArgs(rawArgs) {
   if (rawArgs.length === 0) {
-    return { help: false, json: false, includeSmoke: false, includeTokenSmoke: false };
+    return {
+      help: false,
+      json: false,
+      includeSmoke: false,
+      includeTokenSmoke: false,
+      includeLanTokenSmoke: false
+    };
   }
 
   if (rawArgs.length === 1 && rawArgs[0] === "--help") {
@@ -99,6 +106,7 @@ export function parseMvpReadyArgs(rawArgs) {
   let json = false;
   let includeSmoke = false;
   let includeTokenSmoke = false;
+  let includeLanTokenSmoke = false;
   let role;
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -127,6 +135,14 @@ export function parseMvpReadyArgs(rawArgs) {
       continue;
     }
 
+    if (arg === "--include-lan-token-smoke") {
+      if (includeLanTokenSmoke) {
+        throw new MvpReadyUsageError();
+      }
+      includeLanTokenSmoke = true;
+      continue;
+    }
+
     if (arg === "--role") {
       if (role !== undefined) {
         throw new MvpReadyUsageError();
@@ -143,11 +159,18 @@ export function parseMvpReadyArgs(rawArgs) {
     throw new MvpReadyUsageError();
   }
 
-  if (role !== undefined && (includeSmoke || includeTokenSmoke)) {
+  if (role !== undefined && (includeSmoke || includeTokenSmoke || includeLanTokenSmoke)) {
     throw new MvpReadyUsageError();
   }
 
-  return { help: false, json, includeSmoke, includeTokenSmoke, ...(role ? { role } : {}) };
+  return {
+    help: false,
+    json,
+    includeSmoke,
+    includeTokenSmoke,
+    includeLanTokenSmoke,
+    ...(role ? { role } : {})
+  };
 }
 
 export function createMvpReadyPlan(options = {}) {
@@ -212,6 +235,19 @@ export function createMvpReadyPlan(options = {}) {
             name: "token-smoke",
             ...commandWithArgs("mvp:smoke", [
               "--json",
+              "--token-env",
+              MVP_READY_TOKEN_ENV_NAME
+            ])
+          }
+        ]
+      : []),
+    ...(options.includeLanTokenSmoke
+      ? [
+          {
+            name: "lan-token-smoke",
+            ...commandWithArgs("mvp:smoke", [
+              "--json",
+              "--lan-relay",
               "--token-env",
               MVP_READY_TOKEN_ENV_NAME
             ])
@@ -466,6 +502,9 @@ export function runMvpReadyCheck(options = {}) {
   if (!options.includeTokenSmoke && !role) {
     checks.push({ name: "token-smoke", ok: true, skipped: true });
   }
+  if (!options.includeLanTokenSmoke && !role) {
+    checks.push({ name: "lan-token-smoke", ok: true, skipped: true });
+  }
 
   return {
     ok: true,
@@ -558,7 +597,12 @@ function runReadyCommand(step) {
 }
 
 function isSmokeStep(name) {
-  return name === "smoke" || name === "lan-smoke" || name === "token-smoke";
+  return (
+    name === "smoke" ||
+    name === "lan-smoke" ||
+    name === "token-smoke" ||
+    name === "lan-token-smoke"
+  );
 }
 
 function roleFilterTargetForStep(name) {
@@ -1192,6 +1236,7 @@ function runCli(rawArgs = process.argv.slice(2), streams = process) {
     const result = runMvpReadyCheck({
       includeSmoke: parsed.includeSmoke,
       includeTokenSmoke: parsed.includeTokenSmoke,
+      includeLanTokenSmoke: parsed.includeLanTokenSmoke,
       role: parsed.role
     });
     const output = parsed.json ? formatMvpReadyJsonResult(result) : formatMvpReadyResult(result);
