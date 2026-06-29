@@ -65,8 +65,10 @@ Permanently prohibited:
   complete previous frame or a complete new frame by replacing the configured
   file from same-directory temporary output and cleaning temporary output after
   failures. The local viewer control surface can read only that configured
-  latest-frame file on loopback, not temporary output files. Local events, logs,
-  HTTP metadata, and audit records keep metadata only and redact frame bytes.
+  latest-frame file on loopback, not temporary output files, and rejects Host
+  headers that do not match the resolved `127.0.0.1:<port>` surface URL. Local
+  events, logs, HTTP metadata, and audit records keep metadata only and redact
+  frame bytes.
 - Bounded protocol input-event metadata passed to the Windows input adapter is
   sensitive action intent. It must remain one-event-at-a-time, grant-bound, and
   free of captured keystrokes, text buffers, macros, raw commands, or persisted

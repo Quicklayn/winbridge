@@ -66,7 +66,7 @@ export async function startViewerLocalControlSurface(
   let nextInputSequence = 0;
   let localOrigin: string | undefined;
   const token = createViewerLocalControlSurfaceToken();
-  const server = createServer((request, response) => {
+  const server = createServer({ requireHostHeader: false }, (request, response) => {
     void handleViewerLocalControlSurfaceRequest(
       runtime,
       options.framePath,
@@ -138,6 +138,11 @@ async function handleViewerLocalControlSurfaceRequest(
   }
 
   try {
+    if (!isViewerLocalRequestHostAllowed(request, getLocalOrigin())) {
+      writeJson(response, 403, { ok: false, error: "rejected" });
+      return;
+    }
+
     if (request.method === "GET" && requestUrl.pathname === "/") {
       const nonce = createViewerLocalControlSurfaceNonce();
       writeHtml(response, renderViewerLocalControlSurfaceHtml(token, nonce), nonce);
@@ -222,6 +227,18 @@ function isViewerLocalMutationRequestAllowed(
 
   const token = getSingleHeaderValue(request.headers[VIEWER_LOCAL_CONTROL_SURFACE_TOKEN_HEADER]);
   return token !== undefined && safeTokenEquals(token, expectedToken);
+}
+
+function isViewerLocalRequestHostAllowed(
+  request: IncomingMessage,
+  localOrigin: string | undefined
+): boolean {
+  if (!localOrigin) {
+    return false;
+  }
+
+  const host = getSingleHeaderValue(request.headers.host);
+  return typeof host === "string" && host.toLowerCase() === new URL(localOrigin).host;
 }
 
 function isJsonContentType(value: string | string[] | undefined): boolean {

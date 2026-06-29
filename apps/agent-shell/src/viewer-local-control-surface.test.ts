@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -60,6 +61,50 @@ describe("viewer local control surface", () => {
     expect(JSON.stringify(body)).not.toContain("input:pointer");
     expect(JSON.stringify(body)).not.toContain("input:keyboard");
     expect(JSON.stringify(body)).not.toContain("raw-token");
+  });
+
+  it("accepts requests with the exact resolved loopback Host header", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+
+    const response = await rawSurfaceRequest(handle, "status", {
+      headers: { host: new URL(handle.url).host }
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toContain("\"ok\":true");
+    expect(runtime.getViewerStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects mismatched Host headers before serving local read routes", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue({
+      state: "active",
+      visibleToHost: true,
+      permissionCount: 3,
+      authorizationStatus: "active",
+      authorizationId: "authz_surface_private"
+    });
+    const tempDir = createTempDir();
+    const framePath = join(tempDir, "latest.png");
+    const handle = await startSurface(runtime, framePath);
+    writeFileSync(framePath, FRAME_BYTES);
+
+    for (const path of ["", "status", "frame"]) {
+      const response = await rawSurfaceRequest(handle, path, {
+        headers: { host: "rebound.example.invalid:80" }
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.body).toContain("rejected");
+      expect(response.body).not.toContain("WinBridge Viewer");
+      expect(response.body).not.toContain("authz_surface_private");
+      expect(response.body).not.toContain("rebound.example.invalid");
+      expect(response.body).not.toContain(handle.token);
+    }
+
+    expect(runtime.getViewerStatus).not.toHaveBeenCalled();
   });
 
   it("returns bounded input readiness booleans without raw permissions", async () => {
@@ -624,6 +669,55 @@ describe("viewer local control surface", () => {
     expect(runtime.sendInputEvent).not.toHaveBeenCalled();
   });
 
+  it("rejects input with a missing Host header before reading authorization state", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+
+    const response = await rawSurfaceRequest(handle, "input", {
+      method: "POST",
+      setHost: false,
+      headers: {
+        "content-type": "application/json",
+        origin: originForHandle(handle),
+        "x-winbridge-local-surface-token": handle.token
+      },
+      body: JSON.stringify({ command: "pointer-move 0.5 0.5" })
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toContain("rejected");
+    expect(response.body).not.toContain("0.5");
+    expect(response.body).not.toContain(handle.token);
+    expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects input with a mismatched Host header before reading authorization state", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+
+    const response = await rawSurfaceRequest(handle, "input", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        host: "rebound.example.invalid:80",
+        origin: originForHandle(handle),
+        "x-winbridge-local-surface-token": handle.token
+      },
+      body: JSON.stringify({ command: "key-down KeyA" })
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toContain("rejected");
+    expect(response.body).not.toContain("KeyA");
+    expect(response.body).not.toContain("rebound.example.invalid");
+    expect(response.body).not.toContain(handle.token);
+    expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+  });
+
   it("rejects input from a foreign origin before reading authorization state", async () => {
     const runtime = createRuntimeSpy();
     const handle = await startSurface(runtime);
@@ -760,6 +854,29 @@ describe("viewer local control surface", () => {
     expect(runtime.sendInputEvent).not.toHaveBeenCalled();
   });
 
+  it("rejects disconnect with a mismatched Host header before leaving", async () => {
+    const runtime = createRuntimeSpy();
+    const handle = await startSurface(runtime);
+
+    const response = await rawSurfaceRequest(handle, "disconnect", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        host: "rebound.example.invalid:80",
+        origin: originForHandle(handle),
+        "x-winbridge-local-surface-token": handle.token
+      },
+      body: JSON.stringify({})
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toContain("rejected");
+    expect(response.body).not.toContain("rebound.example.invalid");
+    expect(response.body).not.toContain(handle.token);
+    expect(runtime.leave).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+  });
+
   it("rejects disconnect from a foreign origin before leaving", async () => {
     const runtime = createRuntimeSpy();
     const handle = await startSurface(runtime);
@@ -871,6 +988,50 @@ function postJson(
       "x-winbridge-local-surface-token": handle.token
     },
     body: JSON.stringify(body)
+  });
+}
+
+function rawSurfaceRequest(
+  handle: ViewerLocalControlSurfaceHandle,
+  path: string,
+  options: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    setHost?: boolean;
+  } = {}
+): Promise<{ status: number; body: string }> {
+  const surfaceUrl = new URL(handle.url);
+  const requestPath = `/${path.replace(/^\//, "")}`;
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      {
+        hostname: surfaceUrl.hostname,
+        port: Number(surfaceUrl.port),
+        path: requestPath,
+        method: options.method ?? "GET",
+        headers: options.headers,
+        setHost: options.setHost ?? true
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        response.on("end", () => {
+          resolve({
+            status: response.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString("utf8")
+          });
+        });
+      }
+    );
+    request.on("error", reject);
+    if (options.body) {
+      request.end(options.body);
+    } else {
+      request.end();
+    }
   });
 }
 
