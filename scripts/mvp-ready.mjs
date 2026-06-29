@@ -253,6 +253,10 @@ export function createMvpReadyPlan(options = {}) {
         MVP_READY_TOKEN_ENV_NAME
       ])
     },
+    {
+      name: "token-role-filter-preflight-command",
+      ...commandWithArgs("mvp:commands", ["--only", "preflight", "--token-env", MVP_READY_TOKEN_ENV_NAME])
+    },
     ...ROLE_FILTER_TARGETS.map((target) => ({
       name: `role-filter-${target}-command`,
       ...commandWithArgs("mvp:commands", ["--only", target])
@@ -581,6 +585,23 @@ export function runMvpReadyCheck(options = {}) {
     if (
       step.name === "token-role-filter-browser-command" &&
       !parseTokenEnvBrowserRoleFilteredCommandReadiness(result.output)
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (
+      step.name === "token-role-filter-preflight-command" &&
+      !parseTokenEnvPreflightRoleFilteredCommandReadiness(result.output)
     ) {
       const failed = {
         name: step.name,
@@ -1073,9 +1094,23 @@ export function parseTokenEnvBrowserRoleFilteredCommandReadiness(output) {
     parseRoleFilteredCommandReadiness(output, "browser") &&
     output.includes(`$env:${MVP_READY_TOKEN_ENV_NAME}`) &&
     output.includes("The token value is referenced through the environment") &&
-    !output.includes("--token") &&
+    !hasRuntimeTokenArgument(output) &&
     !output.includes("raw-secret-token")
   );
+}
+
+export function parseTokenEnvPreflightRoleFilteredCommandReadiness(output) {
+  return (
+    parseRoleFilteredCommandReadiness(output, "preflight") &&
+    output.includes(`$env:${MVP_READY_TOKEN_ENV_NAME}`) &&
+    output.includes("The token value is referenced through the environment") &&
+    !hasRuntimeTokenArgument(output) &&
+    !output.includes("raw-secret-token")
+  );
+}
+
+function hasRuntimeTokenArgument(output) {
+  return /(^|\s)--token(?:\s|=|$)/.test(output);
 }
 
 function roleFilterMarkersForTarget(target, options = {}) {

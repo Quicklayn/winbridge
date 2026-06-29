@@ -18,6 +18,7 @@ import {
   parseSmokeSubchecks,
   parseTokenEnvAgentRoleFilteredCommandReadiness,
   parseTokenEnvBrowserRoleFilteredCommandReadiness,
+  parseTokenEnvPreflightRoleFilteredCommandReadiness,
   parseTokenEnvRelayRoleFilteredCommandReadiness,
   runMvpReadyCheck
 } from "./mvp-ready.mjs";
@@ -664,6 +665,7 @@ describe("MVP ready helper", () => {
         "token-command-plan=ok",
         "preflight-json-command-plan=ok",
         "preflight-token-json-command-plan=ok",
+        "token-role-filter-preflight-command=ok",
         "role-filter-relay-command=ok",
         "role-filter-host-command=ok",
         "role-filter-viewer-command=ok",
@@ -735,6 +737,58 @@ describe("MVP ready helper", () => {
       ]
     });
     expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
+  });
+
+  it("fails closed when default token-env preflight role-filter output drifts", () => {
+    const result = runMvpReadyCheck({
+      plan: createMvpReadyPlan({ npmCommand: "npm" }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "preflight-json-command-plan") {
+          return { ok: true, output: preflightCommandPlanOutput() };
+        }
+        if (step.name === "token-role-filter-preflight-command") {
+          return {
+            ok: true,
+            output: tokenEnvPreflightRoleFilterOutput({ tokenEnv: "WRONG_TOKEN_ENV" })
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        { name: "preflight-json-command-plan", ok: true },
+        { name: "preflight-token-json-command-plan", ok: true },
+        { name: "token-role-filter-preflight-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("WRONG_TOKEN_ENV");
     expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
   });
 
@@ -1759,6 +1813,7 @@ describe("MVP ready helper", () => {
         { name: "token-command-plan", ok: true },
         { name: "preflight-json-command-plan", ok: true },
         { name: "preflight-token-json-command-plan", ok: true },
+        { name: "token-role-filter-preflight-command", ok: true },
         { name: "role-filter-relay-command", ok: true },
         { name: "role-filter-host-command", ok: false, reason: "exit-nonzero" }
       ]
@@ -1817,6 +1872,7 @@ describe("MVP ready helper", () => {
         { name: "token-command-plan", ok: true },
         { name: "preflight-json-command-plan", ok: true },
         { name: "preflight-token-json-command-plan", ok: true },
+        { name: "token-role-filter-preflight-command", ok: true },
         ...roleFilterTargets().map((target) => ({
           name: `role-filter-${target}-command`,
           ok: true
@@ -2535,6 +2591,15 @@ describe("MVP ready helper", () => {
     expect(parseTokenEnvBrowserRoleFilteredCommandReadiness(tokenEnvBrowserRoleFilterOutput())).toBe(
       true
     );
+    expect(
+      parseTokenEnvBrowserRoleFilteredCommandReadiness(
+        [
+          "> winbridge@0.1.0 mvp:commands",
+          "> node scripts/mvp-session-commands.mjs --only browser --token-env WINBRIDGE_RELAY_SHARED_TOKEN",
+          tokenEnvBrowserRoleFilterOutput()
+        ].join("\n")
+      )
+    ).toBe(true);
     expect(parseTokenEnvBrowserRoleFilteredCommandReadiness(roleFilterOutput("browser"))).toBe(false);
     expect(
       parseTokenEnvBrowserRoleFilteredCommandReadiness(
@@ -2560,6 +2625,43 @@ describe("MVP ready helper", () => {
       )
     ).toBe(false);
     expect(parseTokenEnvBrowserRoleFilteredCommandReadiness("x".repeat(32769))).toBe(false);
+  });
+
+  it("parses only reviewed token-env preflight role-filter output", () => {
+    expect(parseTokenEnvPreflightRoleFilteredCommandReadiness(tokenEnvPreflightRoleFilterOutput())).toBe(
+      true
+    );
+    expect(
+      parseTokenEnvPreflightRoleFilteredCommandReadiness(
+        [
+          "> winbridge@0.1.0 mvp:commands",
+          "> node scripts/mvp-session-commands.mjs --only preflight --token-env WINBRIDGE_RELAY_SHARED_TOKEN",
+          tokenEnvPreflightRoleFilterOutput()
+        ].join("\n")
+      )
+    ).toBe(true);
+    expect(parseTokenEnvPreflightRoleFilteredCommandReadiness(roleFilterOutput("preflight"))).toBe(false);
+    expect(
+      parseTokenEnvPreflightRoleFilteredCommandReadiness(
+        tokenEnvPreflightRoleFilterOutput({ tokenEnv: "WRONG_TOKEN_ENV" })
+      )
+    ).toBe(false);
+    expect(
+      parseTokenEnvPreflightRoleFilteredCommandReadiness(
+        `${tokenEnvPreflightRoleFilterOutput()}\nhost command:\nnpm run dev:agent -- host`
+      )
+    ).toBe(false);
+    expect(
+      parseTokenEnvPreflightRoleFilteredCommandReadiness(
+        `${tokenEnvPreflightRoleFilterOutput()}\n--token raw-secret-token`
+      )
+    ).toBe(false);
+    expect(
+      parseTokenEnvPreflightRoleFilteredCommandReadiness(
+        `${tokenEnvPreflightRoleFilterOutput()}\n--host-apply-input 'true'`
+      )
+    ).toBe(false);
+    expect(parseTokenEnvPreflightRoleFilteredCommandReadiness("x".repeat(32769))).toBe(false);
   });
 
   it("parses only reviewed ephemeral browser role-filter output", () => {
@@ -2736,6 +2838,19 @@ function roleFilterTargets() {
 
 function roleFilterPlanSteps() {
   return [
+    {
+      name: "token-role-filter-preflight-command",
+      command: "npm",
+      args: [
+        "run",
+        "mvp:commands",
+        "--",
+        "--only",
+        "preflight",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ]
+    },
     ...roleFilterTargets().map((target) => ({
       name: `role-filter-${target}-command`,
       command: "npm",
@@ -2819,6 +2934,7 @@ function defaultReadyCheckNames() {
     "token-command-plan",
     "preflight-json-command-plan",
     "preflight-token-json-command-plan",
+    "token-role-filter-preflight-command",
     ...roleFilterTargets().map((target) => `role-filter-${target}-command`),
     "token-role-filter-relay-command",
     "token-role-filter-host-command",
@@ -2831,6 +2947,7 @@ function defaultReadyCheckNames() {
 function roleFilterCheckResults() {
   return [
     { name: "preflight-token-json-command-plan", ok: true },
+    { name: "token-role-filter-preflight-command", ok: true },
     ...roleFilterTargets().map((target) => ({
       name: `role-filter-${target}-command`,
       ok: true
@@ -2846,6 +2963,9 @@ function roleFilterCheckResults() {
 function roleFilterOutputForStep(name: string) {
   if (name === "preflight-token-json-command-plan") {
     return preflightCommandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" });
+  }
+  if (name === "token-role-filter-preflight-command") {
+    return tokenEnvPreflightRoleFilterOutput();
   }
   if (name === "ephemeral-role-filter-browser-command") {
     return ephemeralBrowserRoleFilterOutput();
@@ -2896,6 +3016,13 @@ function roleFilterOutput(
     return [
       "# WinBridge MVP preflight commands",
       "Run each command manually in a visible PowerShell terminal before a two-PC MVP trial.",
+      ...(options.tokenEnv
+        ? [
+            "Token mode:",
+            `- Set $env:${options.tokenEnv} to the bounded local relay token before running these commands.`,
+            "- The token value is referenced through the environment and is not printed here."
+          ]
+        : []),
       "0. Preflight before the two-PC trial:",
       "- On each Windows machine:",
       "npm run mvp:ready",
@@ -2993,6 +3120,12 @@ function tokenEnvBrowserRoleFilterOutput(options: { browserCommand?: string; tok
   return roleFilterOutput("browser", {
     tokenEnv: options.tokenEnv ?? "WINBRIDGE_RELAY_SHARED_TOKEN",
     ...(options.browserCommand ? { browserCommand: options.browserCommand } : {})
+  });
+}
+
+function tokenEnvPreflightRoleFilterOutput(options: { tokenEnv?: string } = {}) {
+  return roleFilterOutput("preflight", {
+    tokenEnv: options.tokenEnv ?? "WINBRIDGE_RELAY_SHARED_TOKEN"
   });
 }
 
