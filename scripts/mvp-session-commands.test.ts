@@ -505,24 +505,39 @@ describe("MVP session command kit", () => {
 
   it("prints the validated custom relay URL for two-PC command output", () => {
     const output = renderMvpSessionCommands(
-      parseMvpSessionCommandArgs(["--relay", "ws://192.168.1.10:8787"])
+      parseMvpSessionCommandArgs([
+        "--relay",
+        "ws://192.168.1.10:8787",
+        "--token-env",
+        "WINBRIDGE_TEST_RELAY_TOKEN"
+      ])
     );
 
     expect(output).toContain("Current relay URL: ws://192.168.1.10:8787/");
-    expect(output).toContain("$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; npm run dev:relay");
+    expect(output).toContain("$env:WINBRIDGE_TEST_RELAY_TOKEN");
+    expect(output).toContain(
+      "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; $env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run dev:relay"
+    );
     expect(output).toContain("--relay 'ws://192.168.1.10:8787/'");
     expect(output).toContain("localhost relay URLs are same-machine only");
-    expect(output).not.toContain("--token");
     expect(output).not.toContain("raw-secret-token");
   });
 
   it("prints a validated relay-host shortcut for two-PC command output", () => {
     const output = renderMvpSessionCommands(
-      parseMvpSessionCommandArgs(["--relay-host", "192.168.1.10"])
+      parseMvpSessionCommandArgs([
+        "--relay-host",
+        "192.168.1.10",
+        "--token-env",
+        "WINBRIDGE_TEST_RELAY_TOKEN"
+      ])
     );
 
     expect(output).toContain("Current relay URL: ws://192.168.1.10:8787/");
-    expect(output).toContain("$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; npm run dev:relay");
+    expect(output).toContain("$env:WINBRIDGE_TEST_RELAY_TOKEN");
+    expect(output).toContain(
+      "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; $env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run dev:relay"
+    );
     expect(output).toContain("--relay 'ws://192.168.1.10:8787/'");
     expect(output).toContain("localhost relay URLs are same-machine only");
     expect(output).not.toContain("WINBRIDGE_RELAY_PORT");
@@ -604,7 +619,13 @@ describe("MVP session command kit", () => {
 
   it("prints bounded JSON for a validated relay-host shortcut", () => {
     const output = renderMvpSessionCommands(
-      parseMvpSessionCommandArgs(["--relay-host", "relay-pc.local", "--json"])
+      parseMvpSessionCommandArgs([
+        "--relay-host",
+        "relay-pc.local",
+        "--json",
+        "--token-env",
+        "WINBRIDGE_TEST_RELAY_TOKEN"
+      ])
     );
     const parsed = JSON.parse(output);
 
@@ -612,7 +633,8 @@ describe("MVP session command kit", () => {
       expect.arrayContaining([
         {
           name: "relay",
-          command: "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; npm run dev:relay"
+          command:
+            "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; $env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run dev:relay"
         },
         expect.objectContaining({
           name: "host",
@@ -624,6 +646,7 @@ describe("MVP session command kit", () => {
         })
       ])
     );
+    expect(output).toContain("--token $env:WINBRIDGE_TEST_RELAY_TOKEN");
     expect(output).not.toContain("raw-secret-token");
   });
 
@@ -640,13 +663,42 @@ describe("MVP session command kit", () => {
 
   it("composes LAN relay bind host and custom relay port", () => {
     const output = renderMvpSessionCommands(
-      parseMvpSessionCommandArgs(["--relay", "ws://192.168.1.10:18787"])
+      parseMvpSessionCommandArgs([
+        "--relay",
+        "ws://192.168.1.10:18787",
+        "--token-env",
+        "WINBRIDGE_TEST_RELAY_TOKEN"
+      ])
     );
 
     expect(output).toContain(
-      "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; $env:WINBRIDGE_RELAY_PORT = '18787'; npm run dev:relay"
+      "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; $env:WINBRIDGE_RELAY_PORT = '18787'; $env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run dev:relay"
     );
     expect(output).toContain("--relay 'ws://192.168.1.10:18787/'");
+  });
+
+  it("rejects tokenless LAN command plans without echoing raw relay values", () => {
+    const invalidInputs = [
+      ["--relay-host", "192.168.1.10"],
+      ["--relay-host", "relay-pc.local"],
+      ["--relay", "ws://192.168.1.10:8787"],
+      ["--relay", "wss://relay-pc.local:443/"]
+    ];
+
+    for (const invalidInput of invalidInputs) {
+      let thrown: unknown;
+
+      try {
+        parseMvpSessionCommandArgs(invalidInput);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(MvpSessionCommandKitUsageError);
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("192.168.1.10");
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("relay-pc.local");
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("wss://");
+    }
   });
 
   it("rejects unsafe full relay URL connect targets without echoing raw values", () => {
@@ -676,7 +728,7 @@ describe("MVP session command kit", () => {
     }
   });
 
-  it("keeps root localhost and LAN relay URLs valid", () => {
+  it("keeps root localhost and tokenized LAN relay URLs valid", () => {
     const localhost = renderMvpSessionCommands(
       parseMvpSessionCommandArgs(["--relay", "ws://localhost:18787/"])
     );
@@ -684,10 +736,15 @@ describe("MVP session command kit", () => {
     expect(localhost).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
 
     const lan = renderMvpSessionCommands(
-      parseMvpSessionCommandArgs(["--relay", "ws://192.168.1.10:18787/"])
+      parseMvpSessionCommandArgs([
+        "--relay",
+        "ws://192.168.1.10:18787/",
+        "--token-env",
+        "WINBRIDGE_TEST_RELAY_TOKEN"
+      ])
     );
     expect(lan).toContain(
-      "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; $env:WINBRIDGE_RELAY_PORT = '18787'; npm run dev:relay"
+      "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; $env:WINBRIDGE_RELAY_PORT = '18787'; $env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run dev:relay"
     );
     expect(lan).toContain("--relay 'ws://192.168.1.10:18787/'");
   });

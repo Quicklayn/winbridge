@@ -169,6 +169,9 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
   const relay = options.has("relay-host")
     ? buildRelayUrlFromHostShortcut(parseRelayHostShortcut(options.get("relay-host")))
     : parseRelayUrl(options.get("relay") ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.relay);
+  if (shouldBindRelayForLan(relay) && tokenEnv === undefined) {
+    throw new MvpSessionCommandKitUsageError();
+  }
   const captureIntervalMs = parseIntegerOption(
     options.get("capture-interval-ms") ??
       String(DEFAULT_MVP_SESSION_COMMAND_OPTIONS.captureIntervalMs),

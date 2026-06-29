@@ -192,7 +192,16 @@ describe("MVP ready helper", () => {
       {
         name: "lan-command-plan",
         command: "npm",
-        args: ["run", "mvp:commands", "--", "--json", "--relay-host", "192.168.1.10"]
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--json",
+          "--relay-host",
+          "192.168.1.10",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
       },
       {
         name: "token-command-plan",
@@ -249,7 +258,16 @@ describe("MVP ready helper", () => {
       {
         name: "lan-command-plan",
         command: "npm",
-        args: ["run", "mvp:commands", "--", "--json", "--relay-host", "192.168.1.10"]
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--json",
+          "--relay-host",
+          "192.168.1.10",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
       },
       {
         name: "token-command-plan",
@@ -440,7 +458,17 @@ describe("MVP ready helper", () => {
       {
         name: "lan-role-filter-relay-command",
         command: "npm",
-        args: ["run", "mvp:commands", "--", "--only", "relay", "--relay-host", "192.168.1.10"]
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--only",
+          "relay",
+          "--relay-host",
+          "192.168.1.10",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
       }
     ]);
     expect(createMvpReadyPlan({ npmCommand: "npm", role: "host" })).toEqual([
@@ -454,7 +482,17 @@ describe("MVP ready helper", () => {
       {
         name: "lan-role-filter-host-command",
         command: "npm",
-        args: ["run", "mvp:commands", "--", "--only", "host", "--relay-host", "192.168.1.10"]
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--only",
+          "host",
+          "--relay-host",
+          "192.168.1.10",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
       },
       {
         name: "token-role-filter-host-command",
@@ -481,7 +519,17 @@ describe("MVP ready helper", () => {
       {
         name: "lan-role-filter-viewer-command",
         command: "npm",
-        args: ["run", "mvp:commands", "--", "--only", "viewer", "--relay-host", "192.168.1.10"]
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--only",
+          "viewer",
+          "--relay-host",
+          "192.168.1.10",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
       },
       {
         name: "token-role-filter-viewer-command",
@@ -2018,9 +2066,23 @@ describe("MVP ready helper", () => {
     expect(
       parseCommandPlanReadiness(commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }), {
         expectedRelayUrl: "ws://192.168.1.10:8787/",
-        expectedRelayBindHost: "0.0.0.0"
+        expectedRelayBindHost: "0.0.0.0",
+        expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN"
       })
     ).toBe(true);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          relayUrl: "ws://192.168.1.10:8787/",
+          tokenEnv: null
+        }),
+        {
+          expectedRelayUrl: "ws://192.168.1.10:8787/",
+          expectedRelayBindHost: "0.0.0.0",
+          expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN"
+        }
+      )
+    ).toBe(false);
     expect(
       parseCommandPlanReadiness(
         commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/", relayBindHost: "127.0.0.1" }),
@@ -2657,7 +2719,8 @@ function lanRelayRoleFilterOutput(options: { relayCommand?: string } = {}) {
 
 function lanAgentRoleFilterOutput(target: "host" | "viewer") {
   return roleFilterOutput(target, {
-    relayUrl: "ws://192.168.1.10:8787/"
+    relayUrl: "ws://192.168.1.10:8787/",
+    tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN"
   });
 }
 
@@ -2733,7 +2796,7 @@ function smokeAuditSummary() {
 
 type CommandPlanFixtureOptions = {
   relayUrl?: string;
-  tokenEnv?: string;
+  tokenEnv?: string | null;
   relayBindHost?: string | null;
   viewerSurfacePort?: number;
   browserCommand?: string;
@@ -2771,7 +2834,8 @@ function ephemeralCommandPlanOutput(options: CommandPlanFixtureOptions = {}) {
 
 function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
   const relayUrl = options.relayUrl ?? "ws://localhost:8787/";
-  const tokenArg = options.tokenEnv ? ` --token $env:${options.tokenEnv}` : "";
+  const tokenEnv = effectiveCommandPlanTokenEnv(relayUrl, options.tokenEnv);
+  const tokenArg = tokenEnv ? ` --token $env:${tokenEnv}` : "";
   const viewerSurfaceArg =
     options.viewerSurfacePort === undefined
       ? ""
@@ -2786,8 +2850,8 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
     { name: "preflight.smoke", command: "npm run mvp:smoke" },
     {
       name: "preflight.ready-all-smoke",
-      command: options.tokenEnv
-        ? `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${options.tokenEnv}; npm run mvp:ready -- --include-all-smoke`
+      command: tokenEnv
+        ? `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${tokenEnv}; npm run mvp:ready -- --include-all-smoke`
         : "npm run mvp:ready -- --include-all-smoke"
     },
     { name: "relay", command: relayCommand },
@@ -2801,6 +2865,17 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
     },
     { name: "browser", command: options.browserCommand ?? "Start-Process 'http://127.0.0.1:35987/'" }
   ];
+}
+
+function effectiveCommandPlanTokenEnv(relayUrl: string, tokenEnv: string | null | undefined) {
+  if (tokenEnv !== undefined) {
+    return tokenEnv ?? undefined;
+  }
+
+  const hostname = new URL(relayUrl).hostname.toLowerCase();
+  return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(hostname)
+    ? undefined
+    : "WINBRIDGE_RELAY_SHARED_TOKEN";
 }
 
 function preflightCommandPlanCommands(options: { tokenEnv?: string } = {}) {

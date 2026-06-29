@@ -7,6 +7,7 @@ Use this checklist before publishing a release candidate, tagging a build, or pr
 - Confirm the release scope is documented in the changelog, PR, or release notes.
 - Confirm every behavior-changing item has an OpenSpec change, archived spec update, and completed tasks.
 - Confirm the release does not claim support for screen capture, input injection, unattended access, native Windows clients, installer behavior, startup persistence, services, production accounts, or production deployment unless those capabilities have been implemented through OpenSpec and reviewed.
+- Confirm two-PC/LAN MVP command plans and role-filter instructions use `--token-env WINBRIDGE_RELAY_SHARED_TOKEN`, and tokenless non-loopback command-plan generation fails closed without echoing relay or token details.
 - Confirm `npm run mvp:smoke -- --json` still verifies local viewer surface guards, including token, origin, content-type, and mismatched Host-header rejection, before any two-PC MVP trial.
 
 ## Consent And Visibility

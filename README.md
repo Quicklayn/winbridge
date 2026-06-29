@@ -200,10 +200,18 @@ on the viewer PC.
 
 For a two-PC trial, do not use the default `ws://localhost:8787/` relay URL for
 both machines. Rerun the command kit with the relay PC LAN IP or DNS name, for
-example `npm run mvp:commands -- --relay-host 192.168.1.10`, which generates
-`ws://192.168.1.10:8787/`. Use `--relay ws://<host>:<port>` when you need a
-custom relay port or full URL. For non-loopback relay URLs, the printed relay
-step explicitly sets
+example:
+
+```powershell
+$env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
+npm run mvp:commands -- --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN
+```
+
+This generates `ws://192.168.1.10:8787/` without printing the token value. Use
+`--relay ws://<host>:<port> --token-env WINBRIDGE_RELAY_SHARED_TOKEN` when you
+need a custom relay port or full URL. Non-loopback relay URLs are rejected
+unless `--token-env <NAME>` is provided. For non-loopback relay URLs, the
+printed relay step explicitly sets
 `WINBRIDGE_RELAY_BIND_HOST=0.0.0.0` so the development relay can accept LAN
 connections. This is still an explicit development action; the command kit does
 not probe IP addresses, open firewall ports, or start background services. Do
@@ -256,20 +264,23 @@ ephemeral viewer surface command-plan validation with
 command-plan validation, and a non-executing shared-token command-plan
 validation sequentially. It also validates the target-specific text outputs
 from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
-`preflight`, the shared-token environment-reference host and viewer text
-outputs, the fixed all-smoke preflight entry in generated command plans, plus
+`preflight`, the tokenized LAN role-filter relay/host/viewer outputs, the
+shared-token environment-reference host and viewer text outputs, the fixed
+all-smoke preflight entry in generated command plans, plus
 the bounded `mvp:commands -- --only preflight --json` plan, the bounded
 token-env preflight JSON plan, and explicit ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
 checked before a live trial. It then prints only bounded step status. The LAN
-validation uses a fixed safe `--relay-host` value only to exercise the two-PC
-command generator path; the token validation uses the fixed
+validation uses a fixed safe `--relay-host` value plus the fixed
+`WINBRIDGE_RELAY_SHARED_TOKEN` token-env name only to exercise the two-PC
+command generator path; token validation also uses the fixed
 `WINBRIDGE_RELAY_SHARED_TOKEN` environment variable name only to exercise the
 token-protected command generator path in full-plan, preflight-only, and
 host/viewer role-filter forms. It does not detect local IP addresses, probe ports, start
 processes, read token values, or open sockets. The LAN
-validation also requires the non-executing relay command to use the reviewed
-`WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'` setting without echoing the command. It
+validation also requires token-env references and the non-executing relay
+command to use the reviewed `WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'` setting
+without echoing the command. It
 does not echo child output, filtered or generated command strings, pairing
 codes, local URLs, paths, tokens, frame bytes, or input contents, and does not
 run the local smoke workflow unless explicitly requested. For machine-readable
@@ -464,9 +475,11 @@ npm run dev:relay
 ```
 
 By default the development relay binds to `127.0.0.1`. For an explicit LAN MVP
-trial, bind it to all IPv4 interfaces before running the relay:
+trial, set a shared token and bind it to all IPv4 interfaces before running the
+relay:
 
 ```powershell
+$env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
 $env:WINBRIDGE_RELAY_BIND_HOST = "0.0.0.0"
 npm run dev:relay
 ```

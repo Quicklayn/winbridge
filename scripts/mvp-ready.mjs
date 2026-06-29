@@ -225,7 +225,13 @@ export function createMvpReadyPlan(options = {}) {
     },
     {
       name: "lan-command-plan",
-      ...commandWithArgs("mvp:commands", ["--json", "--relay-host", MVP_READY_LAN_RELAY_HOST])
+      ...commandWithArgs("mvp:commands", [
+        "--json",
+        "--relay-host",
+        MVP_READY_LAN_RELAY_HOST,
+        "--token-env",
+        MVP_READY_TOKEN_ENV_NAME
+      ])
     },
     {
       name: "token-command-plan",
@@ -355,7 +361,8 @@ export function runMvpReadyCheck(options = {}) {
       step.name === "lan-command-plan" &&
       !parseCommandPlanReadiness(result.output, {
         expectedRelayUrl: MVP_READY_LAN_RELAY_URL,
-        expectedRelayBindHost: "0.0.0.0"
+        expectedRelayBindHost: "0.0.0.0",
+        expectedTokenEnv: MVP_READY_TOKEN_ENV_NAME
       })
     ) {
       const failed = {
@@ -710,7 +717,14 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
     });
     steps.push({
       name: "lan-role-filter-viewer-command",
-      ...commandWithArgs("mvp:commands", ["--only", "viewer", "--relay-host", MVP_READY_LAN_RELAY_HOST])
+      ...commandWithArgs("mvp:commands", [
+        "--only",
+        "viewer",
+        "--relay-host",
+        MVP_READY_LAN_RELAY_HOST,
+        "--token-env",
+        MVP_READY_TOKEN_ENV_NAME
+      ])
     });
     steps.push({
       name: "token-role-filter-viewer-command",
@@ -730,7 +744,14 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
   if (role === "host") {
     steps.push({
       name: "lan-role-filter-host-command",
-      ...commandWithArgs("mvp:commands", ["--only", "host", "--relay-host", MVP_READY_LAN_RELAY_HOST])
+      ...commandWithArgs("mvp:commands", [
+        "--only",
+        "host",
+        "--relay-host",
+        MVP_READY_LAN_RELAY_HOST,
+        "--token-env",
+        MVP_READY_TOKEN_ENV_NAME
+      ])
     });
     steps.push({
       name: "token-role-filter-host-command",
@@ -741,7 +762,14 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
   if (role === "relay") {
     steps.push({
       name: "lan-role-filter-relay-command",
-      ...commandWithArgs("mvp:commands", ["--only", "relay", "--relay-host", MVP_READY_LAN_RELAY_HOST])
+      ...commandWithArgs("mvp:commands", [
+        "--only",
+        "relay",
+        "--relay-host",
+        MVP_READY_LAN_RELAY_HOST,
+        "--token-env",
+        MVP_READY_TOKEN_ENV_NAME
+      ])
     });
   }
 
@@ -964,6 +992,7 @@ export function parseLanAgentRoleFilteredCommandReadiness(output, target) {
     (target === "host" || target === "viewer") &&
     parseRoleFilteredCommandReadiness(output, target) &&
     output.includes(MVP_READY_LAN_RELAY_URL) &&
+    output.includes(`--token $env:${MVP_READY_TOKEN_ENV_NAME}`) &&
     !output.includes("ws://localhost:8787/")
   );
 }
