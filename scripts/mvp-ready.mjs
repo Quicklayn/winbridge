@@ -9,6 +9,7 @@ export const MVP_READY_USAGE = [
   "  --include-smoke",
   "  --include-token-smoke",
   "  --include-lan-token-smoke",
+  "  --include-all-smoke",
   "  --role relay|host|viewer",
   "",
   "Runs local WinBridge MVP readiness checks. Default mode runs only",
@@ -91,7 +92,8 @@ export function parseMvpReadyArgs(rawArgs) {
       json: false,
       includeSmoke: false,
       includeTokenSmoke: false,
-      includeLanTokenSmoke: false
+      includeLanTokenSmoke: false,
+      includeAllSmoke: false
     };
   }
 
@@ -107,6 +109,7 @@ export function parseMvpReadyArgs(rawArgs) {
   let includeSmoke = false;
   let includeTokenSmoke = false;
   let includeLanTokenSmoke = false;
+  let includeAllSmoke = false;
   let role;
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -143,6 +146,14 @@ export function parseMvpReadyArgs(rawArgs) {
       continue;
     }
 
+    if (arg === "--include-all-smoke") {
+      if (includeAllSmoke) {
+        throw new MvpReadyUsageError();
+      }
+      includeAllSmoke = true;
+      continue;
+    }
+
     if (arg === "--role") {
       if (role !== undefined) {
         throw new MvpReadyUsageError();
@@ -159,7 +170,11 @@ export function parseMvpReadyArgs(rawArgs) {
     throw new MvpReadyUsageError();
   }
 
-  if (role !== undefined && (includeSmoke || includeTokenSmoke || includeLanTokenSmoke)) {
+  if (includeAllSmoke && (includeSmoke || includeTokenSmoke || includeLanTokenSmoke)) {
+    throw new MvpReadyUsageError();
+  }
+
+  if (role !== undefined && (includeSmoke || includeTokenSmoke || includeLanTokenSmoke || includeAllSmoke)) {
     throw new MvpReadyUsageError();
   }
 
@@ -169,6 +184,7 @@ export function parseMvpReadyArgs(rawArgs) {
     includeSmoke,
     includeTokenSmoke,
     includeLanTokenSmoke,
+    includeAllSmoke,
     ...(role ? { role } : {})
   };
 }
@@ -223,13 +239,13 @@ export function createMvpReadyPlan(options = {}) {
       name: "ephemeral-role-filter-browser-command",
       ...commandWithArgs("mvp:commands", ["--only", "browser", "--viewer-control-surface-port", "0"])
     },
-    ...(options.includeSmoke
+    ...(options.includeSmoke || options.includeAllSmoke
       ? [
           { name: "smoke", ...commandWithArgs("mvp:smoke", ["--json"]) },
           { name: "lan-smoke", ...commandWithArgs("mvp:smoke", ["--json", "--lan-relay"]) }
         ]
       : []),
-    ...(options.includeTokenSmoke
+    ...(options.includeTokenSmoke || options.includeAllSmoke
       ? [
           {
             name: "token-smoke",
@@ -241,7 +257,7 @@ export function createMvpReadyPlan(options = {}) {
           }
         ]
       : []),
-    ...(options.includeLanTokenSmoke
+    ...(options.includeLanTokenSmoke || options.includeAllSmoke
       ? [
           {
             name: "lan-token-smoke",
@@ -495,14 +511,17 @@ export function runMvpReadyCheck(options = {}) {
     checks.push(check);
   }
 
-  if (!options.includeSmoke && !role) {
+  const includeSmoke = options.includeSmoke || options.includeAllSmoke;
+  const includeTokenSmoke = options.includeTokenSmoke || options.includeAllSmoke;
+  const includeLanTokenSmoke = options.includeLanTokenSmoke || options.includeAllSmoke;
+  if (!includeSmoke && !role) {
     checks.push({ name: "smoke", ok: true, skipped: true });
     checks.push({ name: "lan-smoke", ok: true, skipped: true });
   }
-  if (!options.includeTokenSmoke && !role) {
+  if (!includeTokenSmoke && !role) {
     checks.push({ name: "token-smoke", ok: true, skipped: true });
   }
-  if (!options.includeLanTokenSmoke && !role) {
+  if (!includeLanTokenSmoke && !role) {
     checks.push({ name: "lan-token-smoke", ok: true, skipped: true });
   }
 
@@ -1237,6 +1256,7 @@ function runCli(rawArgs = process.argv.slice(2), streams = process) {
       includeSmoke: parsed.includeSmoke,
       includeTokenSmoke: parsed.includeTokenSmoke,
       includeLanTokenSmoke: parsed.includeLanTokenSmoke,
+      includeAllSmoke: parsed.includeAllSmoke,
       role: parsed.role
     });
     const output = parsed.json ? formatMvpReadyJsonResult(result) : formatMvpReadyResult(result);

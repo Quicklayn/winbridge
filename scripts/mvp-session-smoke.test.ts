@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  createSmokeProcessEnvironment,
   extractViewerSurfaceUrlFromOutput,
   extractViewerSurfaceMutationToken,
   formatMvpSessionSmokeError,
@@ -444,6 +445,26 @@ describe("MVP session smoke check", () => {
     expect(serialized).not.toContain("Start-Process");
     expect(serialized).not.toContain("playwright");
     expect(serialized).not.toContain("browser");
+  });
+
+  it("does not implicitly inherit relay shared tokens into smoke child processes", () => {
+    const originalToken = process.env.WINBRIDGE_RELAY_SHARED_TOKEN;
+    process.env.WINBRIDGE_RELAY_SHARED_TOKEN = "ambient-secret-token";
+    try {
+      expect(createSmokeProcessEnvironment()).not.toHaveProperty("WINBRIDGE_RELAY_SHARED_TOKEN");
+      expect(
+        createSmokeProcessEnvironment({
+          WINBRIDGE_RELAY_PORT: "18787",
+          WINBRIDGE_RELAY_SHARED_TOKEN: "explicit-plan-token"
+        }).WINBRIDGE_RELAY_SHARED_TOKEN
+      ).toBe("explicit-plan-token");
+    } finally {
+      if (originalToken === undefined) {
+        delete process.env.WINBRIDGE_RELAY_SHARED_TOKEN;
+      } else {
+        process.env.WINBRIDGE_RELAY_SHARED_TOKEN = originalToken;
+      }
+    }
   });
 
   it("keeps token-protected LAN-style smoke on loopback without public relay bind", () => {

@@ -407,7 +407,7 @@ export function startSmokeProcess(plan, options = {}) {
   try {
     child = spawnProcess(plan.command, plan.args, {
       cwd: options.cwd ?? process.cwd(),
-      env: { ...process.env, ...plan.env },
+      env: createSmokeProcessEnvironment(plan.env),
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: false
     });
@@ -439,6 +439,12 @@ export function startSmokeProcess(plan, options = {}) {
   });
 
   return handle;
+}
+
+export function createSmokeProcessEnvironment(planEnv = {}) {
+  const env = { ...process.env };
+  delete env.WINBRIDGE_RELAY_SHARED_TOKEN;
+  return { ...env, ...planEnv };
 }
 
 export async function stopSmokeProcesses(handles, killProcessTreeImpl = killProcessTree) {

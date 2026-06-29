@@ -301,6 +301,22 @@ may include fixed smoke subchecks for relay, host indicator, frame, surface,
 signal, surface guard, input, audit, lifecycle, and viewer-disconnect readiness
 for the default smoke and LAN-style smoke steps.
 
+For full local smoke coverage before a two-PC trial, set the bounded relay
+token environment variable and use the explicit all-smoke flag:
+
+```powershell
+$env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
+npm run mvp:ready -- --include-all-smoke
+```
+
+This runs the existing `smoke`, `lan-smoke`, `token-smoke`, and
+`lan-token-smoke` readiness steps after the default readiness checks. The flag
+is mutually exclusive with the individual smoke flags and is rejected with
+`--role`. It remains a local readiness workflow: it does not configure LAN
+relay bind settings, discovery, firewall rules, services, startup persistence,
+unattended access, Windows capture, OS input application, browser automation,
+or hidden sessions.
+
 To also aggregate the token-protected local smoke path, set a bounded relay
 token environment variable and include the explicit token smoke flag:
 
