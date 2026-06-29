@@ -24,6 +24,9 @@ describe("MVP session command kit", () => {
     expect(output).toContain("npm run mvp:doctor");
     expect(output).toContain("npm run mvp:native-preflight");
     expect(output).toContain("npm run mvp:smoke");
+    expect(output).toContain("Full local smoke coverage before the two-PC trial:");
+    expect(output).toContain("Set $env:WINBRIDGE_RELAY_SHARED_TOKEN, then run:");
+    expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
     expect(output).toContain("Relay address:");
     expect(output).toContain("Current relay URL: ws://localhost:8787/");
     expect(output).toContain("localhost relay URLs are same-machine only");
@@ -72,6 +75,9 @@ describe("MVP session command kit", () => {
     expect(output).toContain(
       "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run dev:relay"
     );
+    expect(output).toContain(
+      "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run mvp:ready -- --include-all-smoke"
+    );
     expect(output).toContain("--token $env:WINBRIDGE_TEST_RELAY_TOKEN");
     expect(output).not.toContain("dev-shared-token");
   });
@@ -87,6 +93,8 @@ describe("MVP session command kit", () => {
     expect(output).toContain("npm run mvp:doctor");
     expect(output).toContain("npm run mvp:native-preflight");
     expect(output).toContain("npm run mvp:smoke");
+    expect(output).toContain("Full local smoke coverage before the two-PC trial:");
+    expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
     expect(output).toContain("Host consent and visible sessions are required");
     expect(output).toContain("This helper printed commands only");
     expect(output).not.toContain("Relay address:");
@@ -101,7 +109,7 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("Pointer Off/On");
     expect(output).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
     expect(output).not.toContain("WINBRIDGE_RELAY_PORT");
-    expect(output).not.toContain("$env:WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(output).not.toContain("dev-shared-token");
   });
 
   it("prints only the selected bounded command target", () => {
@@ -150,6 +158,7 @@ describe("MVP session command kit", () => {
     const preflight = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "preflight"]));
     expect(preflight).toContain("# WinBridge MVP preflight commands");
     expect(preflight).toContain("npm run mvp:ready");
+    expect(preflight).toContain("npm run mvp:ready -- --include-all-smoke");
     expect(preflight).not.toContain("npm run dev:relay");
     expect(preflight).not.toContain("npm run dev:agent -- host");
     expect(preflight).not.toContain("Start-Process");
@@ -238,6 +247,7 @@ describe("MVP session command kit", () => {
         { name: "preflight.doctor", command: "npm run mvp:doctor" },
         { name: "preflight.native", command: "npm run mvp:native-preflight" },
         { name: "preflight.smoke", command: "npm run mvp:smoke" },
+        { name: "preflight.ready-all-smoke", command: "npm run mvp:ready -- --include-all-smoke" },
         { name: "relay", command: "npm run dev:relay" },
         expect.objectContaining({ name: "host" }),
         expect.objectContaining({ name: "viewer" }),
@@ -256,6 +266,23 @@ describe("MVP session command kit", () => {
     expect(output).toContain("--viewer-control-surface-port '35987'");
     expect(output).not.toContain("raw-secret-token");
     expect(output).not.toContain("dev-shared-token");
+  });
+
+  it("prints all-smoke JSON token-env references without raw token values", () => {
+    const output = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--json", "--token-env", "WINBRIDGE_TEST_RELAY_TOKEN"])
+    );
+    const parsed = JSON.parse(output);
+    const allSmokeCommand = parsed.commands.find(
+      (command: { name: string }) => command.name === "preflight.ready-all-smoke"
+    )?.command;
+
+    expect(allSmokeCommand).toBe(
+      "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run mvp:ready -- --include-all-smoke"
+    );
+    expect(output).toContain("--token $env:WINBRIDGE_TEST_RELAY_TOKEN");
+    expect(output).not.toContain("dev-shared-token");
+    expect(output).not.toContain("--token '");
   });
 
   it("prints bounded ephemeral viewer surface instructions without fabricating a browser URL", () => {
@@ -329,7 +356,8 @@ describe("MVP session command kit", () => {
         { name: "preflight.ready", command: "npm run mvp:ready" },
         { name: "preflight.doctor", command: "npm run mvp:doctor" },
         { name: "preflight.native", command: "npm run mvp:native-preflight" },
-        { name: "preflight.smoke", command: "npm run mvp:smoke" }
+        { name: "preflight.smoke", command: "npm run mvp:smoke" },
+        { name: "preflight.ready-all-smoke", command: "npm run mvp:ready -- --include-all-smoke" }
       ],
       safety: expect.arrayContaining([
         "Host consent and visible sessions are required before live assistance trials.",

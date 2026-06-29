@@ -1999,6 +1999,18 @@ describe("MVP ready helper", () => {
     expect(
       parseCommandPlanReadiness(
         JSON.stringify({
+          ok: true,
+          mode: "session",
+          nonExecuting: true,
+          commands: commandPlanCommands().filter(
+            (command) => command.name !== "preflight.ready-all-smoke"
+          )
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        JSON.stringify({
           ...JSON.parse(commandPlanOutput()),
           stdout: "raw-secret-token",
           artifactPath: "C:\\Temp\\raw-secret-token"
@@ -2607,6 +2619,12 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
     { name: "preflight.doctor", command: "npm run mvp:doctor" },
     { name: "preflight.native", command: "npm run mvp:native-preflight" },
     { name: "preflight.smoke", command: "npm run mvp:smoke" },
+    {
+      name: "preflight.ready-all-smoke",
+      command: options.tokenEnv
+        ? `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${options.tokenEnv}; npm run mvp:ready -- --include-all-smoke`
+        : "npm run mvp:ready -- --include-all-smoke"
+    },
     { name: "relay", command: relayCommand },
     {
       name: "host",

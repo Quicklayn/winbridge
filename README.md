@@ -128,7 +128,13 @@ run the matching `mvp:ready -- --role ...` gate first; the browser block uses
 the viewer role because the browser surface runs on the viewer PC. Do not
 combine `--only` with `--generate-pairing`; print the full generated plan once
 or pass the same explicit `--pairing` value to every role-filtered command. The
-generated host command uses the interactive host consent prompt,
+generated full and preflight-only plans also print the full local all-smoke
+readiness gate, `npm run mvp:ready -- --include-all-smoke`, for one local
+development machine before a two-PC trial. When printed with `--token-env`, the
+all-smoke preflight uses a bounded
+`$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:<NAME>` reference and never prints
+the token value.
+The generated host command uses the interactive host consent prompt,
 visible session state, metadata-only audit,
 `--host-apply-input true`, finite Windows capture, and
 `--host-control-prompt true`. Host controls start after approved active visible
@@ -245,7 +251,8 @@ command-plan validation, and a non-executing shared-token command-plan
 validation sequentially. It also validates the target-specific text outputs
 from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
 `preflight`, the shared-token environment-reference host and viewer text
-outputs, plus the explicit ephemeral browser-only output for
+outputs, the fixed all-smoke preflight entry in generated command plans, plus
+the explicit ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
 checked before a live trial. It then prints only bounded step status. The LAN
 validation uses a fixed safe `--relay-host` value only to exercise the two-PC

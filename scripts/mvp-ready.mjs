@@ -44,6 +44,7 @@ const REQUIRED_COMMAND_PLAN_NAMES = new Set([
   "preflight.doctor",
   "preflight.native",
   "preflight.smoke",
+  "preflight.ready-all-smoke",
   "relay",
   "host",
   "viewer",
@@ -1015,13 +1016,18 @@ function commandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
 
   const hostCommand = commandsByName.get("host")?.command;
   const viewerCommand = commandsByName.get("viewer")?.command;
+  const allSmokeCommand = commandsByName.get("preflight.ready-all-smoke")?.command;
   const tokenReference = `$env:${expectedTokenEnv}`;
 
   return (
     typeof hostCommand === "string" &&
     typeof viewerCommand === "string" &&
+    typeof allSmokeCommand === "string" &&
     hostCommand.includes(`--token ${tokenReference}`) &&
-    viewerCommand.includes(`--token ${tokenReference}`)
+    viewerCommand.includes(`--token ${tokenReference}`) &&
+    allSmokeCommand.includes(
+      `$env:WINBRIDGE_RELAY_SHARED_TOKEN = ${tokenReference}; npm run mvp:ready -- --include-all-smoke`
+    )
   );
 }
 

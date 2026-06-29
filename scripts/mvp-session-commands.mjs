@@ -63,6 +63,7 @@ const IPV4_LITERAL_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]{0,127}$/;
 const TOKEN_OPTION_NAMES = new Set(["token"]);
 const COMMAND_ONLY_TARGETS = new Set(["relay", "host", "viewer", "browser", "preflight"]);
+const ALL_SMOKE_READY_COMMAND = "npm run mvp:ready -- --include-all-smoke";
 const KNOWN_OPTIONS = new Set([
   "session",
   "pairing",
@@ -215,7 +216,7 @@ export function renderMvpSessionCommands(parsed) {
   }
 
   if (parsed.preflightOnly) {
-    return renderMvpPreflightOnlyCommands();
+    return renderMvpPreflightOnlyCommands(parsed);
   }
 
   if (parsed.onlyTarget) {
@@ -247,6 +248,8 @@ export function renderMvpSessionCommands(parsed) {
     "npm run mvp:native-preflight",
     "- On one local development machine before the two-PC trial:",
     "npm run mvp:smoke",
+    "- Full local smoke coverage before the two-PC trial:",
+    ...renderAllSmokePreflightLines(parsed),
     "",
     "Relay address:",
     `- Current relay URL: ${parsed.relay}`,
@@ -296,7 +299,8 @@ export function formatMvpSessionCommandsJson(parsed) {
     { name: "preflight.ready", command: "npm run mvp:ready" },
     { name: "preflight.doctor", command: "npm run mvp:doctor" },
     { name: "preflight.native", command: "npm run mvp:native-preflight" },
-    { name: "preflight.smoke", command: "npm run mvp:smoke" }
+    { name: "preflight.smoke", command: "npm run mvp:smoke" },
+    { name: "preflight.ready-all-smoke", command: renderAllSmokePreflightCommand(parsed) }
   ];
   const safety = [
     "Host consent and visible sessions are required before live assistance trials.",
@@ -330,7 +334,7 @@ export function formatMvpSessionCommandsJson(parsed) {
   });
 }
 
-function renderMvpPreflightOnlyCommands() {
+function renderMvpPreflightOnlyCommands(parsed = {}) {
   return [
     "# WinBridge MVP preflight commands",
     "",
@@ -344,6 +348,8 @@ function renderMvpPreflightOnlyCommands() {
     "npm run mvp:native-preflight",
     "- On one local development machine before the two-PC trial:",
     "npm run mvp:smoke",
+    "- Full local smoke coverage before the two-PC trial:",
+    ...renderAllSmokePreflightLines(parsed),
     "",
     "Safety checks:",
     "- Host consent and visible sessions are required before any live assistance trial.",
@@ -356,7 +362,7 @@ function renderMvpPreflightOnlyCommands() {
 
 function renderMvpFilteredCommandTarget(parsed) {
   if (parsed.onlyTarget === "preflight") {
-    return renderMvpPreflightOnlyCommands();
+    return renderMvpPreflightOnlyCommands(parsed);
   }
 
   const browserCommand = renderBrowserCommandForViewerSurfacePort(parsed.viewerControlSurfacePort);
@@ -387,6 +393,25 @@ function renderMvpFilteredCommandTarget(parsed) {
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+function renderAllSmokePreflightLines(parsed) {
+  if (parsed?.tokenEnv) {
+    return [renderAllSmokePreflightCommand(parsed)];
+  }
+
+  return [
+    "Set $env:WINBRIDGE_RELAY_SHARED_TOKEN, then run:",
+    ALL_SMOKE_READY_COMMAND
+  ];
+}
+
+function renderAllSmokePreflightCommand(parsed) {
+  if (parsed?.tokenEnv) {
+    return `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${parsed.tokenEnv}; ${ALL_SMOKE_READY_COMMAND}`;
+  }
+
+  return ALL_SMOKE_READY_COMMAND;
 }
 
 function roleScopedReadyReminderForTarget(target) {
