@@ -37,6 +37,7 @@ describe("MVP session command kit", () => {
     expect(output).toContain("npm run dev:agent -- host");
     expect(output).toContain("--name 'WinBridge Assisted Host'");
     expect(output).toContain("--host-consent-prompt 'true'");
+    expect(output).toContain("--host-consent-timeout-ms '60000'");
     expect(output).not.toContain("--host-decision 'approve'");
     expect(output).toContain("--visible-session 'true'");
     expect(output).toContain("--host-control-prompt 'true'");
@@ -170,6 +171,7 @@ describe("MVP session command kit", () => {
     expect(host).toContain("host command:");
     expect(host).toContain("npm run dev:agent -- host");
     expect(host).toContain("--host-consent-prompt 'true'");
+    expect(host).toContain("--host-consent-timeout-ms '60000'");
     expect(host).toContain("--pairing '123-456'");
     expect(host).toContain("pause | resume");
     expect(host).not.toContain("npm run dev:relay");
@@ -668,6 +670,20 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("authorized because");
   });
 
+  it("prints a custom bounded host consent timeout", () => {
+    const output = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs([
+        "--host-consent-timeout-ms",
+        "30000"
+      ])
+    );
+
+    expect(output).toContain("--host-consent-prompt 'true'");
+    expect(output).toContain("--host-consent-timeout-ms '30000'");
+    expect(output).toContain("This helper printed commands only");
+    expect(output).not.toContain("authorized because");
+  });
+
   it("prints a custom bounded capture duration as a derived finite frame count", () => {
     const output = renderMvpSessionCommands(
       parseMvpSessionCommandArgs([
@@ -718,6 +734,10 @@ describe("MVP session command kit", () => {
         expect.objectContaining({
           name: "host",
           command: expect.stringContaining("--relay 'ws://relay-pc.local:8787/'")
+        }),
+        expect.objectContaining({
+          name: "host",
+          command: expect.stringContaining("--host-consent-timeout-ms '60000'")
         }),
         expect.objectContaining({
           name: "viewer",
@@ -918,6 +938,13 @@ describe("MVP session command kit", () => {
       ["--viewer-signal-probe-after-ms", "1.5"],
       ["--viewer-signal-probe-after-ms", "2147483648"],
       ["--viewer-signal-probe-after-ms", "token=raw-signal-delay"],
+      ["--host-consent-timeout-ms", ""],
+      ["--host-consent-timeout-ms", "0"],
+      ["--host-consent-timeout-ms", "-1"],
+      ["--host-consent-timeout-ms", "1.5"],
+      ["--host-consent-timeout-ms", "2147483648"],
+      ["--host-consent-timeout-ms", "token=raw-host-timeout"],
+      ["--host-consent-timeout-ms", "60000", "--host-consent-timeout-ms", "30000"],
       ["--viewer-frame-output", "frames\\latest.png:hidden"],
       ["--viewer-control-surface-port", "80"],
       ["--capture-duration-minutes", "0"],
@@ -995,6 +1022,21 @@ describe("MVP session command kit", () => {
     expect(thrown).toBeInstanceOf(MvpSessionCommandKitUsageError);
     expect(formatMvpSessionCommandKitError(thrown)).not.toContain(unsafeDelay);
     expect(formatMvpSessionCommandKitError(thrown)).not.toContain("raw-signal-delay");
+  });
+
+  it("rejects unsafe host consent timeouts without echoing the provided value", () => {
+    const unsafeTimeout = "token=raw-host-timeout";
+    let thrown: unknown;
+
+    try {
+      parseMvpSessionCommandArgs(["--host-consent-timeout-ms", unsafeTimeout]);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(MvpSessionCommandKitUsageError);
+    expect(formatMvpSessionCommandKitError(thrown)).not.toContain(unsafeTimeout);
+    expect(formatMvpSessionCommandKitError(thrown)).not.toContain("raw-host-timeout");
   });
 
   it("does not import process, socket, HTTP, or filesystem APIs in the command generator", () => {

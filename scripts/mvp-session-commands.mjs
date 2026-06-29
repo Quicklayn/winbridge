@@ -13,6 +13,7 @@ export const DEFAULT_MVP_SESSION_COMMAND_OPTIONS = Object.freeze({
   viewerFrameOutput: "frames\\latest.jpg",
   viewerControlSurfacePort: 35987,
   viewerSignalProbeAfterMs: 1000,
+  hostConsentTimeoutMs: 60000,
   captureAfterMs: 1000,
   captureDurationMinutes: 10,
   captureCount: 100,
@@ -35,6 +36,7 @@ export const MVP_SESSION_COMMAND_KIT_USAGE = [
   "  --viewer-frame-output frames\\latest.jpg",
   "  --viewer-control-surface-port 35987",
   "  --viewer-signal-probe-after-ms 1000",
+  "  --host-consent-timeout-ms 60000",
   "  --capture-after-ms 1000",
   "  --capture-duration-minutes 10",
   "  --capture-count 100",
@@ -77,6 +79,7 @@ const KNOWN_OPTIONS = new Set([
   "viewer-frame-output",
   "viewer-control-surface-port",
   "viewer-signal-probe-after-ms",
+  "host-consent-timeout-ms",
   "capture-after-ms",
   "capture-duration-minutes",
   "capture-count",
@@ -215,6 +218,12 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
       options.get("viewer-signal-probe-after-ms") ??
         String(DEFAULT_MVP_SESSION_COMMAND_OPTIONS.viewerSignalProbeAfterMs),
       0,
+      SAFE_TIMER_DELAY_MS
+    ),
+    hostConsentTimeoutMs: parseIntegerOption(
+      options.get("host-consent-timeout-ms") ??
+        String(DEFAULT_MVP_SESSION_COMMAND_OPTIONS.hostConsentTimeoutMs),
+      1,
       SAFE_TIMER_DELAY_MS
     ),
     captureAfterMs: parseIntegerOption(
@@ -597,6 +606,7 @@ function renderHostCommand(options) {
     ["pairing", options.pairing],
     ["name", options.hostName],
     ["host-consent-prompt", "true"],
+    ["host-consent-timeout-ms", String(options.hostConsentTimeoutMs)],
     ["visible-session", "true"],
     ["host-control-prompt", "true"],
     ["host-signal-probe-ack", "true"],

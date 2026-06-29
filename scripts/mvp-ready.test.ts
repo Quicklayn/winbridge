@@ -2526,6 +2526,22 @@ describe("MVP ready helper", () => {
       })
     ).toBe(false);
     expect(
+      parseCommandPlanReadiness(commandPlanOutput({ hostConsentTimeoutArg: null }))
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({ hostConsentTimeoutArg: "--host-consent-timeout-ms '30000'" })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          hostConsentTimeoutArg:
+            "--host-consent-timeout-ms '60000' --host-consent-timeout-ms '60000'"
+        })
+      )
+    ).toBe(false);
+    expect(
       parseCommandPlanReadiness(
         [
           "> winbridge@0.1.0 mvp:commands",
@@ -2611,6 +2627,11 @@ describe("MVP ready helper", () => {
     expect(
       parseEphemeralCommandPlanReadiness(
         ephemeralCommandPlanOutput({ browserCommand: "Open http://127.0.0.1:49152/" })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ hostConsentTimeoutArg: null })
       )
     ).toBe(false);
     expect(
@@ -2705,6 +2726,15 @@ describe("MVP ready helper", () => {
       expect(parseRoleFilteredCommandReadiness(roleFilterOutput(target), target)).toBe(true);
     }
 
+    expect(
+      parseRoleFilteredCommandReadiness(roleFilterOutput("host", { hostConsentTimeoutArg: null }), "host")
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(
+        roleFilterOutput("host", { hostConsentTimeoutArg: "--host-consent-timeout-ms '30000'" }),
+        "host"
+      )
+    ).toBe(false);
     expect(
       parseRoleFilteredCommandReadiness(
         `${roleFilterOutput("host")}\nviewer command:\nnpm run dev:agent -- viewer`,
@@ -3237,6 +3267,7 @@ function roleFilterOutput(
   target: string,
   options: {
     browserCommand?: string;
+    hostConsentTimeoutArg?: string | null;
     relayCommand?: string;
     relayUrl?: string;
     tokenArgument?: string;
@@ -3273,7 +3304,7 @@ function roleFilterOutput(
     relay: ["relay command:", options.relayCommand ?? "npm run dev:relay"],
     host: [
       "host command:",
-      `npm run dev:agent -- host --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true' --visible-session 'true' --host-control-prompt 'true' --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl' --host-apply-input 'true' --dev-screen-frame-after-ms '1000' --dev-screen-frame-source 'windows-capture' --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'${options.tokenArgument ? ` ${options.tokenArgument}` : ""}`,
+      `npm run dev:agent -- host --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true'${options.hostConsentTimeoutArg === null ? "" : ` ${options.hostConsentTimeoutArg ?? "--host-consent-timeout-ms '60000'"}`} --visible-session 'true' --host-control-prompt 'true' --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl' --host-apply-input 'true' --dev-screen-frame-after-ms '1000' --dev-screen-frame-source 'windows-capture' --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'${options.tokenArgument ? ` ${options.tokenArgument}` : ""}`,
       "Host controls:",
       "help | status | pause | resume | revoke screen:view | revoke input:pointer | revoke input:keyboard | terminate | disconnect"
     ],
@@ -3430,6 +3461,7 @@ type CommandPlanFixtureOptions = {
   relayBindHost?: string | null;
   viewerSurfacePort?: number;
   browserCommand?: string;
+  hostConsentTimeoutArg?: string | null;
 };
 
 function commandPlanOutput(options: CommandPlanFixtureOptions = {}) {
@@ -3473,6 +3505,9 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
   const relayUrl = options.relayUrl ?? "ws://localhost:8787/";
   const tokenEnv = effectiveCommandPlanTokenEnv(relayUrl, options.tokenEnv);
   const tokenArg = tokenEnv ? ` --token $env:${tokenEnv}` : "";
+  const hostConsentTimeoutArg = Object.hasOwn(options, "hostConsentTimeoutArg")
+    ? options.hostConsentTimeoutArg
+    : "--host-consent-timeout-ms '60000'";
   const viewerSurfaceArg =
     options.viewerSurfacePort === undefined
       ? ""
@@ -3492,7 +3527,7 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
     { name: "relay", command: relayCommand },
     {
       name: "host",
-      command: `npm run dev:agent -- host --relay '${relayUrl}' --pairing '123-456'${tokenArg}`
+      command: `npm run dev:agent -- host --relay '${relayUrl}' --pairing '123-456' --host-consent-prompt 'true'${hostConsentTimeoutArg ? ` ${hostConsentTimeoutArg}` : ""}${tokenArg}`
     },
     {
       name: "viewer",

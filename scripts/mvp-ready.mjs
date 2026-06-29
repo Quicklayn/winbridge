@@ -63,6 +63,7 @@ const REQUIRED_PREFLIGHT_COMMAND_PLAN_NAMES = new Set([
 const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
 const MVP_READY_LAN_RELAY_URL = `ws://${MVP_READY_LAN_RELAY_HOST}:8787/`;
 const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
+const REVIEWED_HOST_CONSENT_TIMEOUT_ARG = "--host-consent-timeout-ms '60000'";
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
@@ -904,7 +905,12 @@ export function parseCommandPlanReadiness(output, options = {}) {
   const seen = new Set();
   const commandsByName = new Map();
   for (const command of parsed.commands) {
-    if (!command || typeof command.name !== "string" || seen.has(command.name)) {
+    if (
+      !command ||
+      typeof command.name !== "string" ||
+      typeof command.command !== "string" ||
+      seen.has(command.name)
+    ) {
       return false;
     }
     seen.add(command.name);
@@ -937,7 +943,7 @@ export function parseCommandPlanReadiness(output, options = {}) {
     return false;
   }
 
-  return true;
+  return commandPlanUsesReviewedHostConsentTimeout(commandsByName);
 }
 
 export function parseEphemeralCommandPlanReadiness(output) {
@@ -947,12 +953,15 @@ export function parseEphemeralCommandPlanReadiness(output) {
   }
 
   const viewerCommand = commandsByName.get("viewer")?.command;
+  const hostCommand = commandsByName.get("host")?.command;
   const browserCommand = commandsByName.get("browser")?.command;
   const allCommands = [...commandsByName.values()].map((command) => command.command).join("\n");
 
   return (
+    typeof hostCommand === "string" &&
     typeof viewerCommand === "string" &&
     typeof browserCommand === "string" &&
+    hostCommandHasReviewedConsentTimeout(hostCommand) &&
     viewerCommand.includes("--viewer-control-surface-port '0'") &&
     browserCommand === EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION &&
     !allCommands.includes("http://127.0.0.1:0/")
@@ -1170,6 +1179,7 @@ function roleFilterMarkersForTarget(target, options = {}) {
       "host command:",
       "npm run dev:agent -- host",
       "--host-consent-prompt 'true'",
+      REVIEWED_HOST_CONSENT_TIMEOUT_ARG,
       "--visible-session 'true'",
       "--host-control-prompt 'true'",
       "--host-signal-probe-ack 'true'",
@@ -1299,6 +1309,32 @@ function commandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
     viewerCommand.includes(`--token ${tokenReference}`) &&
     allSmokeCommandUsesExpectedTokenEnv(allSmokeCommand, expectedTokenEnv)
   );
+}
+
+function commandPlanUsesReviewedHostConsentTimeout(commandsByName) {
+  const hostCommand = commandsByName.get("host")?.command;
+  return typeof hostCommand === "string" && hostCommandHasReviewedConsentTimeout(hostCommand);
+}
+
+function hostCommandHasReviewedConsentTimeout(hostCommand) {
+  return countOccurrences(hostCommand, REVIEWED_HOST_CONSENT_TIMEOUT_ARG) === 1;
+}
+
+function countOccurrences(value, needle) {
+  if (typeof value !== "string" || needle.length === 0) {
+    return 0;
+  }
+
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const index = value.indexOf(needle, offset);
+    if (index === -1) {
+      return count;
+    }
+    count += 1;
+    offset = index + needle.length;
+  }
 }
 
 function preflightCommandPlanUsesTokenEnv(commandsByName, expectedTokenEnv, safety) {

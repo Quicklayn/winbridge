@@ -148,6 +148,12 @@ authorization, so the host terminal can run `pause`, `resume`,
 `revoke screen:view`, `revoke input:pointer`, `revoke input:keyboard`,
 `terminate`, or `disconnect` immediately after approval.
 
+The generated host command also prints the explicit host consent timeout,
+`--host-consent-timeout-ms 60000`, so the approval window is visible in the
+two-PC plan. Use `--host-consent-timeout-ms <1-2147483647>` to customize that
+bounded wait. The timeout does not approve, deny, grant permissions, bypass
+host consent, hide the session, or run any command by itself.
+
 By default the generated MVP host command uses a finite 10 minute frame stream.
 Use `--capture-duration-minutes <1-16>` to choose another bounded duration, or
 `--capture-count <frames>` when you need an exact finite frame count. Duration
