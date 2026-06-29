@@ -103,6 +103,7 @@ Print only the bounded preflight command plan as JSON:
 
 ```powershell
 npm run mvp:commands -- --preflight-only --json
+npm run mvp:commands -- --only preflight --json
 ```
 
 Print only one bounded text command block for the machine you are working on:
@@ -121,13 +122,15 @@ then prints the `mvp:ready` preflight gate plus separate relay, host, viewer,
 and browser steps. It does not start processes, open sockets, capture the
 screen, apply input, write files, install services, configure startup
 persistence, run unattended, elevate privileges, or bypass Windows prompts. The
-`--only` filter is text-only, rejects unknown or incompatible values, and still
-derives the selected block from the same fully validated non-executing plan. The
-filtered relay, host, viewer, and browser blocks remind the local operator to
-run the matching `mvp:ready -- --role ...` gate first; the browser block uses
-the viewer role because the browser surface runs on the viewer PC. Do not
-combine `--only` with `--generate-pairing`; print the full generated plan once
-or pass the same explicit `--pairing` value to every role-filtered command. The
+`--only` filter rejects unknown or incompatible values and still derives the
+selected block from the same fully validated non-executing plan. Runtime
+targets remain text-only; `--only preflight --json` is the bounded JSON alias
+for `--preflight-only --json`. The filtered relay, host, viewer, and browser
+blocks remind the local operator to run the matching `mvp:ready -- --role ...`
+gate first; the browser block uses the viewer role because the browser surface
+runs on the viewer PC. Do not combine `--only` with `--generate-pairing`; print
+the full generated plan once or pass the same explicit `--pairing` value to
+every role-filtered command. The
 generated full and preflight-only plans also print the full local all-smoke
 readiness gate, `npm run mvp:ready -- --include-all-smoke`, for one local
 development machine before a two-PC trial. When printed with `--token-env`, the
@@ -252,7 +255,8 @@ validation sequentially. It also validates the target-specific text outputs
 from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
 `preflight`, the shared-token environment-reference host and viewer text
 outputs, the fixed all-smoke preflight entry in generated command plans, plus
-the explicit ephemeral browser-only output for
+the bounded `mvp:commands -- --only preflight --json` plan and explicit
+ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
 checked before a live trial. It then prints only bounded step status. The LAN
 validation uses a fixed safe `--relay-host` value only to exercise the two-PC

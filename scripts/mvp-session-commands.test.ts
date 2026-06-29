@@ -173,6 +173,8 @@ describe("MVP session command kit", () => {
       ["--json", "--only", "host"],
       ["--only", "host", "--preflight-only"],
       ["--preflight-only", "--only", "host"],
+      ["--only", "preflight", "--preflight-only"],
+      ["--preflight-only", "--only", "preflight"],
       ["--only", "preflight", "--relay-host", "192.168.1.10"],
       ["--only", "preflight", "--generate-pairing"],
       ["--generate-pairing", "--only", "preflight"]
@@ -371,6 +373,27 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("--host-apply-input");
     expect(output).not.toContain("--viewer-control-surface-port");
     expect(output).not.toContain("$env:WINBRIDGE_RELAY_SHARED_TOKEN");
+  });
+
+  it("prints the same bounded JSON for the preflight-only target", () => {
+    const output = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--only", "preflight", "--json"])
+    );
+    const reversedOutput = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--json", "--only", "preflight"])
+    );
+    const preflightOnlyOutput = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--preflight-only", "--json"])
+    );
+
+    expect(JSON.parse(output)).toEqual(JSON.parse(reversedOutput));
+    expect(JSON.parse(output)).toEqual(JSON.parse(preflightOnlyOutput));
+    expect(output).toContain("\"mode\":\"preflight\"");
+    expect(output).toContain("preflight.ready-all-smoke");
+    expect(output).not.toContain("npm run dev:relay");
+    expect(output).not.toContain("npm run dev:agent -- host");
+    expect(output).not.toContain("Start-Process");
+    expect(output).not.toContain("dev-shared-token");
   });
 
   it("rejects malformed preflight-only combinations without echoing raw values", () => {

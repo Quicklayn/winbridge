@@ -106,7 +106,10 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
   }
 
   const parsedFlags = parseCommandKitFlags(rawArgs);
-  if (parsedFlags.onlyTarget && (parsedFlags.json || parsedFlags.preflightOnly)) {
+  if (
+    parsedFlags.onlyTarget &&
+    (parsedFlags.preflightOnly || (parsedFlags.json && parsedFlags.onlyTarget !== "preflight"))
+  ) {
     throw new MvpSessionCommandKitUsageError();
   }
   if (parsedFlags.onlyTarget && parsedFlags.generatePairing) {
@@ -128,7 +131,9 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
     if (parsedFlags.generatePairing || parsedFlags.remaining.length > 0) {
       throw new MvpSessionCommandKitUsageError();
     }
-    return { help: false, json: false, preflightOnly: false, onlyTarget: "preflight" };
+    return parsedFlags.json
+      ? { help: false, json: true, preflightOnly: true, onlyTarget: "preflight" }
+      : { help: false, json: false, preflightOnly: false, onlyTarget: "preflight" };
   }
 
   const options = parseOptionMap(parsedFlags.remaining);

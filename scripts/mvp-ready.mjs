@@ -50,6 +50,13 @@ const REQUIRED_COMMAND_PLAN_NAMES = new Set([
   "viewer",
   "browser"
 ]);
+const REQUIRED_PREFLIGHT_COMMAND_PLAN_NAMES = new Set([
+  "preflight.ready",
+  "preflight.doctor",
+  "preflight.native",
+  "preflight.smoke",
+  "preflight.ready-all-smoke"
+]);
 const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
 const MVP_READY_LAN_RELAY_URL = `ws://${MVP_READY_LAN_RELAY_HOST}:8787/`;
 const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
@@ -224,6 +231,10 @@ export function createMvpReadyPlan(options = {}) {
       name: "token-command-plan",
       ...commandWithArgs("mvp:commands", ["--json", "--token-env", MVP_READY_TOKEN_ENV_NAME])
     },
+    {
+      name: "preflight-json-command-plan",
+      ...commandWithArgs("mvp:commands", ["--only", "preflight", "--json"])
+    },
     ...ROLE_FILTER_TARGETS.map((target) => ({
       name: `role-filter-${target}-command`,
       ...commandWithArgs("mvp:commands", ["--only", target])
@@ -353,6 +364,23 @@ export function runMvpReadyCheck(options = {}) {
     if (
       step.name === "token-command-plan" &&
       !parseCommandPlanReadiness(result.output, { expectedTokenEnv: MVP_READY_TOKEN_ENV_NAME })
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (
+      step.name === "preflight-json-command-plan" &&
+      !parsePreflightCommandPlanReadiness(result.output)
     ) {
       const failed = {
         name: step.name,
@@ -771,6 +799,49 @@ export function parseEphemeralCommandPlanReadiness(output) {
     browserCommand === EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION &&
     !allCommands.includes("http://127.0.0.1:0/")
   );
+}
+
+export function parsePreflightCommandPlanReadiness(output) {
+  if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
+    return false;
+  }
+
+  const parsed = parseLastJsonOutputLine(output);
+  if (
+    !parsed ||
+    !hasExactCommandPlanShape(parsed) ||
+    parsed.ok !== true ||
+    parsed.mode !== "preflight" ||
+    parsed.nonExecuting !== true ||
+    !Array.isArray(parsed.commands)
+  ) {
+    return false;
+  }
+
+  const seen = new Set();
+  for (const command of parsed.commands) {
+    if (
+      !command ||
+      typeof command.name !== "string" ||
+      typeof command.command !== "string" ||
+      seen.has(command.name)
+    ) {
+      return false;
+    }
+    seen.add(command.name);
+  }
+
+  if (seen.size !== REQUIRED_PREFLIGHT_COMMAND_PLAN_NAMES.size) {
+    return false;
+  }
+
+  for (const name of REQUIRED_PREFLIGHT_COMMAND_PLAN_NAMES) {
+    if (!seen.has(name)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function parseCommandPlanCommandsByName(output) {
