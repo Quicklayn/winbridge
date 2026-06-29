@@ -270,6 +270,10 @@ export function createMvpReadyPlan(options = {}) {
       ...commandWithArgs("mvp:commands", ["--only", "viewer", "--token-env", MVP_READY_TOKEN_ENV_NAME])
     },
     {
+      name: "token-role-filter-browser-command",
+      ...commandWithArgs("mvp:commands", ["--only", "browser", "--token-env", MVP_READY_TOKEN_ENV_NAME])
+    },
+    {
       name: "ephemeral-role-filter-browser-command",
       ...commandWithArgs("mvp:commands", ["--only", "browser", "--viewer-control-surface-port", "0"])
     },
@@ -574,6 +578,23 @@ export function runMvpReadyCheck(options = {}) {
       };
     }
 
+    if (
+      step.name === "token-role-filter-browser-command" &&
+      !parseTokenEnvBrowserRoleFilteredCommandReadiness(result.output)
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
     if (isSmokeStep(step.name)) {
       const smokeResult = parseSmokeReadiness(result.output);
       if (smokeResult?.ok !== true) {
@@ -756,6 +777,10 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
     steps.push({
       name: "role-filter-browser-command",
       ...commandWithArgs("mvp:commands", ["--only", "browser"])
+    });
+    steps.push({
+      name: "token-role-filter-browser-command",
+      ...commandWithArgs("mvp:commands", ["--only", "browser", "--token-env", MVP_READY_TOKEN_ENV_NAME])
     });
   } else {
     steps.push({
@@ -1040,6 +1065,16 @@ export function parseTokenEnvAgentRoleFilteredCommandReadiness(output, target) {
     output.includes(`--token $env:${MVP_READY_TOKEN_ENV_NAME}`) &&
     !output.includes("--token '") &&
     !output.includes("--token raw-secret-token")
+  );
+}
+
+export function parseTokenEnvBrowserRoleFilteredCommandReadiness(output) {
+  return (
+    parseRoleFilteredCommandReadiness(output, "browser") &&
+    output.includes(`$env:${MVP_READY_TOKEN_ENV_NAME}`) &&
+    output.includes("The token value is referenced through the environment") &&
+    !output.includes("--token") &&
+    !output.includes("raw-secret-token")
   );
 }
 

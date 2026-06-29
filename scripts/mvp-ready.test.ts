@@ -17,6 +17,7 @@ import {
   parseSmokeReadiness,
   parseSmokeSubchecks,
   parseTokenEnvAgentRoleFilteredCommandReadiness,
+  parseTokenEnvBrowserRoleFilteredCommandReadiness,
   parseTokenEnvRelayRoleFilteredCommandReadiness,
   runMvpReadyCheck
 } from "./mvp-ready.mjs";
@@ -574,6 +575,19 @@ describe("MVP ready helper", () => {
         args: ["run", "mvp:commands", "--", "--only", "browser"]
       },
       {
+        name: "token-role-filter-browser-command",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--only",
+          "browser",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
+      },
+      {
         name: "ephemeral-role-filter-browser-command",
         command: "npm",
         args: [
@@ -658,6 +672,7 @@ describe("MVP ready helper", () => {
         "token-role-filter-relay-command=ok",
         "token-role-filter-host-command=ok",
         "token-role-filter-viewer-command=ok",
+        "token-role-filter-browser-command=ok",
         "ephemeral-role-filter-browser-command=ok",
         "smoke=skipped",
         "lan-smoke=skipped",
@@ -713,6 +728,7 @@ describe("MVP ready helper", () => {
         { name: "preflight-json-command-plan", ok: true },
         ...roleFilterCheckResults().filter(
           (check) => check.name !== "token-role-filter-viewer-command" &&
+            check.name !== "token-role-filter-browser-command" &&
             check.name !== "ephemeral-role-filter-browser-command"
         ),
         { name: "token-role-filter-viewer-command", ok: false, reason: "exit-nonzero" }
@@ -1149,6 +1165,7 @@ describe("MVP ready helper", () => {
       "lan-role-filter-viewer-command",
       "token-role-filter-viewer-command",
       "role-filter-browser-command",
+      "token-role-filter-browser-command",
       "ephemeral-role-filter-browser-command"
     ]);
     expect(result).toEqual({
@@ -1160,6 +1177,7 @@ describe("MVP ready helper", () => {
         { name: "lan-role-filter-viewer-command", ok: true },
         { name: "token-role-filter-viewer-command", ok: true },
         { name: "role-filter-browser-command", ok: true },
+        { name: "token-role-filter-browser-command", ok: true },
         { name: "ephemeral-role-filter-browser-command", ok: true }
       ]
     });
@@ -1172,6 +1190,7 @@ describe("MVP ready helper", () => {
         "lan-role-filter-viewer-command=ok",
         "token-role-filter-viewer-command=ok",
         "role-filter-browser-command=ok",
+        "token-role-filter-browser-command=ok",
         "ephemeral-role-filter-browser-command=ok"
       ].join("\n")
     );
@@ -1440,11 +1459,48 @@ describe("MVP ready helper", () => {
         { name: "lan-role-filter-viewer-command", ok: true },
         { name: "token-role-filter-viewer-command", ok: true },
         { name: "role-filter-browser-command", ok: true },
+        { name: "token-role-filter-browser-command", ok: true },
         { name: "ephemeral-role-filter-browser-command", ok: false, reason: "exit-nonzero" }
       ]
     });
     expect(formatMvpReadyResult(result)).not.toContain("127.0.0.1");
     expect(formatMvpReadyJsonResult(result)).not.toContain("127.0.0.1");
+  });
+
+  it("fails closed when viewer role-scoped token-env browser output drifts", () => {
+    const result = runMvpReadyCheck({
+      role: "viewer",
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "viewer" }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "token-role-filter-browser-command") {
+          return {
+            ok: true,
+            output: tokenEnvBrowserRoleFilterOutput({ tokenEnv: "WRONG_TOKEN_ENV" })
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "role-filter-viewer-command", ok: true },
+        { name: "lan-role-filter-viewer-command", ok: true },
+        { name: "token-role-filter-viewer-command", ok: true },
+        { name: "role-filter-browser-command", ok: true },
+        { name: "token-role-filter-browser-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("WRONG_TOKEN_ENV");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
   });
 
   it("stops after the first failed check with bounded reason metadata", () => {
@@ -1768,6 +1824,7 @@ describe("MVP ready helper", () => {
         { name: "token-role-filter-relay-command", ok: true },
         { name: "token-role-filter-host-command", ok: true },
         { name: "token-role-filter-viewer-command", ok: true },
+        { name: "token-role-filter-browser-command", ok: true },
         { name: "ephemeral-role-filter-browser-command", ok: false, reason: "exit-nonzero" }
       ]
     });
@@ -2474,6 +2531,37 @@ describe("MVP ready helper", () => {
     expect(parseTokenEnvAgentRoleFilteredCommandReadiness("x".repeat(32769), "host")).toBe(false);
   });
 
+  it("parses only reviewed token-env browser role-filter output", () => {
+    expect(parseTokenEnvBrowserRoleFilteredCommandReadiness(tokenEnvBrowserRoleFilterOutput())).toBe(
+      true
+    );
+    expect(parseTokenEnvBrowserRoleFilteredCommandReadiness(roleFilterOutput("browser"))).toBe(false);
+    expect(
+      parseTokenEnvBrowserRoleFilteredCommandReadiness(
+        tokenEnvBrowserRoleFilterOutput({ tokenEnv: "WRONG_TOKEN_ENV" })
+      )
+    ).toBe(false);
+    expect(
+      parseTokenEnvBrowserRoleFilteredCommandReadiness(
+        `${tokenEnvBrowserRoleFilterOutput()}\nviewer command:\nnpm run dev:agent -- viewer`
+      )
+    ).toBe(false);
+    expect(
+      parseTokenEnvBrowserRoleFilteredCommandReadiness(
+        `${tokenEnvBrowserRoleFilterOutput()}\n--token raw-secret-token`
+      )
+    ).toBe(false);
+    expect(
+      parseTokenEnvBrowserRoleFilteredCommandReadiness(
+        tokenEnvBrowserRoleFilterOutput({
+          browserCommand:
+            "Start-Process 'http://127.0.0.1:35987/' --token raw-secret-token"
+        })
+      )
+    ).toBe(false);
+    expect(parseTokenEnvBrowserRoleFilteredCommandReadiness("x".repeat(32769))).toBe(false);
+  });
+
   it("parses only reviewed ephemeral browser role-filter output", () => {
     expect(parseEphemeralBrowserRoleFilteredCommandReadiness(ephemeralBrowserRoleFilterOutput())).toBe(
       true
@@ -2693,6 +2781,19 @@ function roleFilterPlanSteps() {
       ]
     },
     {
+      name: "token-role-filter-browser-command",
+      command: "npm",
+      args: [
+        "run",
+        "mvp:commands",
+        "--",
+        "--only",
+        "browser",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ]
+    },
+    {
       name: "ephemeral-role-filter-browser-command",
       command: "npm",
       args: [
@@ -2722,6 +2823,7 @@ function defaultReadyCheckNames() {
     "token-role-filter-relay-command",
     "token-role-filter-host-command",
     "token-role-filter-viewer-command",
+    "token-role-filter-browser-command",
     "ephemeral-role-filter-browser-command"
   ];
 }
@@ -2736,6 +2838,7 @@ function roleFilterCheckResults() {
     { name: "token-role-filter-relay-command", ok: true },
     { name: "token-role-filter-host-command", ok: true },
     { name: "token-role-filter-viewer-command", ok: true },
+    { name: "token-role-filter-browser-command", ok: true },
     { name: "ephemeral-role-filter-browser-command", ok: true }
   ];
 }
@@ -2764,6 +2867,9 @@ function roleFilterOutputForStep(name: string) {
   }
   if (name === "token-role-filter-viewer-command") {
     return tokenEnvAgentRoleFilterOutput("viewer");
+  }
+  if (name === "token-role-filter-browser-command") {
+    return tokenEnvBrowserRoleFilterOutput();
   }
 
   const prefix = "role-filter-";
@@ -2880,6 +2986,13 @@ function tokenEnvRelayRoleFilterOutput(options: { tokenEnv?: string; relayComman
   return roleFilterOutput("relay", {
     tokenEnv: options.tokenEnv ?? "WINBRIDGE_RELAY_SHARED_TOKEN",
     ...(options.relayCommand ? { relayCommand: options.relayCommand } : {})
+  });
+}
+
+function tokenEnvBrowserRoleFilterOutput(options: { browserCommand?: string; tokenEnv?: string } = {}) {
+  return roleFilterOutput("browser", {
+    tokenEnv: options.tokenEnv ?? "WINBRIDGE_RELAY_SHARED_TOKEN",
+    ...(options.browserCommand ? { browserCommand: options.browserCommand } : {})
   });
 }
 
