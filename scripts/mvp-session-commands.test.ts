@@ -181,6 +181,26 @@ describe("MVP session command kit", () => {
     expect(preflight).not.toContain("Start-Process");
   });
 
+  it("prints bounded token-env guidance for filtered relay output", () => {
+    const output = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--only", "relay", "--token-env", "WINBRIDGE_TEST_RELAY_TOKEN"])
+    );
+
+    expect(output).toContain("# WinBridge MVP relay command");
+    expect(output).toContain("Token mode:");
+    expect(output).toContain(
+      "Set $env:WINBRIDGE_TEST_RELAY_TOKEN to the bounded local relay token"
+    );
+    expect(output).toContain("The token value is referenced through the environment");
+    expect(output).toContain("relay command:");
+    expect(output).toContain("npm run dev:relay");
+    expect(output).not.toContain("dev-shared-token");
+    expect(output).not.toContain("raw-secret-token");
+    expect(output).not.toContain("--token '");
+    expect(output).not.toContain("npm run dev:agent -- host");
+    expect(output).not.toContain("npm run dev:agent -- viewer");
+  });
+
   it("rejects malformed command target filters without echoing raw values", () => {
     const invalidInputs = [
       ["--only"],

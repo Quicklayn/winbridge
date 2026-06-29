@@ -247,14 +247,7 @@ export function renderMvpSessionCommands(parsed) {
   }
 
   const browserCommand = renderBrowserCommandForViewerSurfacePort(parsed.viewerControlSurfacePort);
-  const tokenNote = parsed.tokenEnv
-    ? [
-        "",
-        "Token mode:",
-        `- Set $env:${parsed.tokenEnv} to the bounded local relay token before running these commands.`,
-        "- The token value is referenced through the environment and is not printed here."
-      ].join("\n")
-    : "";
+  const tokenNote = renderTokenModeNote(parsed);
 
   return [
     "# WinBridge MVP session commands",
@@ -402,6 +395,7 @@ function renderMvpFilteredCommandTarget(parsed) {
     "",
     "Run this command manually in a visible PowerShell terminal.",
     roleScopedReadyReminderForTarget(parsed.onlyTarget),
+    renderTokenModeNote(parsed),
     `Relay URL: ${parsed.relay}`,
     "",
     `${targetLabel} command:`,
@@ -416,6 +410,17 @@ function renderMvpFilteredCommandTarget(parsed) {
   ]
     .filter((line) => line !== "")
     .join("\n");
+}
+
+function renderTokenModeNote(parsed) {
+  return parsed.tokenEnv
+    ? [
+        "",
+        "Token mode:",
+        `- Set $env:${parsed.tokenEnv} to the bounded local relay token before running these commands.`,
+        "- The token value is referenced through the environment and is not printed here."
+      ].join("\n")
+    : "";
 }
 
 function renderAllSmokePreflightLines(parsed) {

@@ -17,6 +17,7 @@ import {
   parseSmokeReadiness,
   parseSmokeSubchecks,
   parseTokenEnvAgentRoleFilteredCommandReadiness,
+  parseTokenEnvRelayRoleFilteredCommandReadiness,
   runMvpReadyCheck
 } from "./mvp-ready.mjs";
 
@@ -479,6 +480,19 @@ describe("MVP ready helper", () => {
           "--token-env",
           "WINBRIDGE_RELAY_SHARED_TOKEN"
         ]
+      },
+      {
+        name: "token-role-filter-relay-command",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--only",
+          "relay",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
       }
     ]);
     expect(createMvpReadyPlan({ npmCommand: "npm", role: "host" })).toEqual([
@@ -641,6 +655,7 @@ describe("MVP ready helper", () => {
         "role-filter-viewer-command=ok",
         "role-filter-browser-command=ok",
         "role-filter-preflight-command=ok",
+        "token-role-filter-relay-command=ok",
         "token-role-filter-host-command=ok",
         "token-role-filter-viewer-command=ok",
         "ephemeral-role-filter-browser-command=ok",
@@ -1182,14 +1197,16 @@ describe("MVP ready helper", () => {
     expect(calls).toEqual([
       "doctor",
       "role-filter-relay-command",
-      "lan-role-filter-relay-command"
+      "lan-role-filter-relay-command",
+      "token-role-filter-relay-command"
     ]);
     expect(result).toEqual({
       ok: true,
       checks: [
         { name: "doctor", ok: true },
         { name: "role-filter-relay-command", ok: true },
-        { name: "lan-role-filter-relay-command", ok: true }
+        { name: "lan-role-filter-relay-command", ok: true },
+        { name: "token-role-filter-relay-command", ok: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toBe(
@@ -1197,7 +1214,8 @@ describe("MVP ready helper", () => {
         "WinBridge MVP readiness passed.",
         "doctor=ok",
         "role-filter-relay-command=ok",
-        "lan-role-filter-relay-command=ok"
+        "lan-role-filter-relay-command=ok",
+        "token-role-filter-relay-command=ok"
       ].join("\n")
     );
     expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
@@ -1293,6 +1311,39 @@ describe("MVP ready helper", () => {
     });
     expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
     expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
+  });
+
+  it("fails closed when relay role-scoped token-env output drifts", () => {
+    const result = runMvpReadyCheck({
+      role: "relay",
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "relay" }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "token-role-filter-relay-command") {
+          return {
+            ok: true,
+            output: tokenEnvRelayRoleFilterOutput({ tokenEnv: "WRONG_TOKEN_ENV" })
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "role-filter-relay-command", ok: true },
+        { name: "lan-role-filter-relay-command", ok: true },
+        { name: "token-role-filter-relay-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("WRONG_TOKEN_ENV");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("raw-secret-token");
   });
 
   it("fails closed when host role-scoped LAN agent output drifts", () => {
@@ -1714,6 +1765,7 @@ describe("MVP ready helper", () => {
           name: `role-filter-${target}-command`,
           ok: true
         })),
+        { name: "token-role-filter-relay-command", ok: true },
         { name: "token-role-filter-host-command", ok: true },
         { name: "token-role-filter-viewer-command", ok: true },
         { name: "ephemeral-role-filter-browser-command", ok: false, reason: "exit-nonzero" }
@@ -2344,6 +2396,29 @@ describe("MVP ready helper", () => {
     expect(parseLanAgentRoleFilteredCommandReadiness("x".repeat(32769), "host")).toBe(false);
   });
 
+  it("parses only reviewed token-env relay role-filter output", () => {
+    expect(parseTokenEnvRelayRoleFilteredCommandReadiness(tokenEnvRelayRoleFilterOutput())).toBe(
+      true
+    );
+    expect(parseTokenEnvRelayRoleFilteredCommandReadiness(roleFilterOutput("relay"))).toBe(false);
+    expect(
+      parseTokenEnvRelayRoleFilteredCommandReadiness(
+        tokenEnvRelayRoleFilterOutput({ tokenEnv: "WRONG_TOKEN_ENV" })
+      )
+    ).toBe(false);
+    expect(
+      parseTokenEnvRelayRoleFilteredCommandReadiness(
+        `${tokenEnvRelayRoleFilterOutput()}\nhost command:\nnpm run dev:agent -- host`
+      )
+    ).toBe(false);
+    expect(
+      parseTokenEnvRelayRoleFilteredCommandReadiness(
+        `${tokenEnvRelayRoleFilterOutput()}\n--token 'raw-secret-token'`
+      )
+    ).toBe(false);
+    expect(parseTokenEnvRelayRoleFilteredCommandReadiness("x".repeat(32769))).toBe(false);
+  });
+
   it("parses only reviewed token-env agent role-filter output", () => {
     expect(parseTokenEnvAgentRoleFilteredCommandReadiness(tokenEnvAgentRoleFilterOutput("host"), "host")).toBe(
       true
@@ -2550,6 +2625,19 @@ function roleFilterPlanSteps() {
       args: ["run", "mvp:commands", "--", "--only", target]
     })),
     {
+      name: "token-role-filter-relay-command",
+      command: "npm",
+      args: [
+        "run",
+        "mvp:commands",
+        "--",
+        "--only",
+        "relay",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ]
+    },
+    {
       name: "token-role-filter-host-command",
       command: "npm",
       args: [
@@ -2602,6 +2690,7 @@ function defaultReadyCheckNames() {
     "preflight-json-command-plan",
     "preflight-token-json-command-plan",
     ...roleFilterTargets().map((target) => `role-filter-${target}-command`),
+    "token-role-filter-relay-command",
     "token-role-filter-host-command",
     "token-role-filter-viewer-command",
     "ephemeral-role-filter-browser-command"
@@ -2615,6 +2704,7 @@ function roleFilterCheckResults() {
       name: `role-filter-${target}-command`,
       ok: true
     })),
+    { name: "token-role-filter-relay-command", ok: true },
     { name: "token-role-filter-host-command", ok: true },
     { name: "token-role-filter-viewer-command", ok: true },
     { name: "ephemeral-role-filter-browser-command", ok: true }
@@ -2637,6 +2727,9 @@ function roleFilterOutputForStep(name: string) {
   if (name === "lan-role-filter-viewer-command") {
     return lanAgentRoleFilterOutput("viewer");
   }
+  if (name === "token-role-filter-relay-command") {
+    return tokenEnvRelayRoleFilterOutput();
+  }
   if (name === "token-role-filter-host-command") {
     return tokenEnvAgentRoleFilterOutput("host");
   }
@@ -2656,7 +2749,13 @@ function roleFilterOutputForStep(name: string) {
 
 function roleFilterOutput(
   target: string,
-  options: { browserCommand?: string; relayCommand?: string; relayUrl?: string; tokenArgument?: string } = {}
+  options: {
+    browserCommand?: string;
+    relayCommand?: string;
+    relayUrl?: string;
+    tokenArgument?: string;
+    tokenEnv?: string;
+  } = {}
 ) {
   if (target === "preflight") {
     return [
@@ -2703,6 +2802,13 @@ function roleFilterOutput(
     `# WinBridge MVP ${target} command`,
     "Run this command manually in a visible PowerShell terminal.",
     roleFilterReadyReminder(target),
+    ...(options.tokenEnv
+      ? [
+          "Token mode:",
+          `- Set $env:${options.tokenEnv} to the bounded local relay token before running these commands.`,
+          "- The token value is referenced through the environment and is not printed here."
+        ]
+      : []),
     `Relay URL: ${options.relayUrl ?? "ws://localhost:8787/"}`,
     ...targetBodies[target],
     "Safety checks:",
@@ -2736,7 +2842,15 @@ function lanAgentRoleFilterOutput(target: "host" | "viewer") {
 
 function tokenEnvAgentRoleFilterOutput(target: "host" | "viewer") {
   return roleFilterOutput(target, {
+    tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN",
     tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN"
+  });
+}
+
+function tokenEnvRelayRoleFilterOutput(options: { tokenEnv?: string; relayCommand?: string } = {}) {
+  return roleFilterOutput("relay", {
+    tokenEnv: options.tokenEnv ?? "WINBRIDGE_RELAY_SHARED_TOKEN",
+    ...(options.relayCommand ? { relayCommand: options.relayCommand } : {})
   });
 }
 

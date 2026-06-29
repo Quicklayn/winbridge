@@ -258,6 +258,10 @@ export function createMvpReadyPlan(options = {}) {
       ...commandWithArgs("mvp:commands", ["--only", target])
     })),
     {
+      name: "token-role-filter-relay-command",
+      ...commandWithArgs("mvp:commands", ["--only", "relay", "--token-env", MVP_READY_TOKEN_ENV_NAME])
+    },
+    {
       name: "token-role-filter-host-command",
       ...commandWithArgs("mvp:commands", ["--only", "host", "--token-env", MVP_READY_TOKEN_ENV_NAME])
     },
@@ -505,6 +509,23 @@ export function runMvpReadyCheck(options = {}) {
     if (
       step.name === "lan-role-filter-viewer-command" &&
       !parseLanAgentRoleFilteredCommandReadiness(result.output, "viewer")
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (
+      step.name === "token-role-filter-relay-command" &&
+      !parseTokenEnvRelayRoleFilteredCommandReadiness(result.output)
     ) {
       const failed = {
         name: step.name,
@@ -773,6 +794,10 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
         MVP_READY_TOKEN_ENV_NAME
       ])
     });
+    steps.push({
+      name: "token-role-filter-relay-command",
+      ...commandWithArgs("mvp:commands", ["--only", "relay", "--token-env", MVP_READY_TOKEN_ENV_NAME])
+    });
   }
 
   if (role === "viewer") {
@@ -987,6 +1012,15 @@ export function parseEphemeralBrowserRoleFilteredCommandReadiness(output) {
 export function parseLanRelayRoleFilteredCommandReadiness(output) {
   return parseRoleFilteredCommandReadiness(output, "relay") &&
     output.includes("WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'");
+}
+
+export function parseTokenEnvRelayRoleFilteredCommandReadiness(output) {
+  return (
+    parseRoleFilteredCommandReadiness(output, "relay") &&
+    output.includes(`$env:${MVP_READY_TOKEN_ENV_NAME}`) &&
+    !output.includes("--token '") &&
+    !output.includes("raw-secret-token")
+  );
 }
 
 export function parseLanAgentRoleFilteredCommandReadiness(output, target) {
