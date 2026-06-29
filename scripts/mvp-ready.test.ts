@@ -5,6 +5,7 @@ import {
   formatMvpReadyJsonResult,
   formatMvpReadyResult,
   MvpReadyUsageError,
+  MVP_READY_USAGE,
   parseEphemeralBrowserRoleFilteredCommandReadiness,
   parseCommandPlanReadiness,
   parseEphemeralCommandPlanReadiness,
@@ -101,6 +102,15 @@ describe("MVP ready helper", () => {
       role: "viewer"
     });
     expect(parseMvpReadyArgs(["--help"])).toEqual({ help: true });
+  });
+
+  it("describes the current default readiness surface in help text", () => {
+    expect(MVP_READY_USAGE).toContain("Default mode runs doctor, native");
+    expect(MVP_READY_USAGE).toContain("non-executing command-plan validation");
+    expect(MVP_READY_USAGE).toContain("role-filter, LAN, token-env, and ephemeral browser outputs");
+    expect(MVP_READY_USAGE).toContain("Smoke checks are explicit through include flags.");
+    expect(MVP_READY_USAGE).not.toContain("Default mode runs only");
+    expect(MVP_READY_USAGE).not.toContain("only\nread-only doctor and native preflight");
   });
 
   it("rejects malformed options without echoing raw values", () => {

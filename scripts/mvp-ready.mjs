@@ -12,8 +12,10 @@ export const MVP_READY_USAGE = [
   "  --include-all-smoke",
   "  --role relay|host|viewer",
   "",
-  "Runs local WinBridge MVP readiness checks. Default mode runs only",
-  "read-only doctor and native preflight checks; smoke is explicit."
+  "Runs local WinBridge MVP readiness checks. Default mode runs doctor, native",
+  "preflight, and non-executing command-plan validation for reviewed",
+  "role-filter, LAN, token-env, and ephemeral browser outputs.",
+  "Smoke checks are explicit through include flags."
 ].join("\n");
 
 const FAILURE_REASONS = new Set(["usage", "spawn-failed", "exit-nonzero"]);
