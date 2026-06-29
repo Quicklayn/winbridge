@@ -79,6 +79,7 @@ const SAFE_SURFACE_STATUS_STATE_KEYS = Object.freeze([
   "inputKeyboardReady",
   "signalProbeAckReceived"
 ]);
+const SMOKE_VIEWER_SURFACE_MISMATCHED_HOST = "example.invalid:80";
 const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "relay-not-ready": 0,
   "port-unavailable": 0,
@@ -825,6 +826,7 @@ async function waitForViewerSurfaceGuards(surfaceUrl, mutationToken, deadline, o
 export async function tryPostSurfaceGuardDenials(fetchImpl, surfaceUrl, mutationToken) {
   const localOrigin = surfaceUrl.replace(/\/$/, "");
   const guarded = await Promise.all([
+    tryFetchSurfaceHostGuardRejection(fetchImpl, surfaceUrl),
     tryPostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
       "content-type": "application/json",
       origin: localOrigin
@@ -843,6 +845,25 @@ export async function tryPostSurfaceGuardDenials(fetchImpl, surfaceUrl, mutation
   return guarded.every(Boolean);
 }
 
+export async function tryFetchSurfaceHostGuardRejection(fetchImpl, surfaceUrl) {
+  try {
+    const response = await fetchImpl(`${surfaceUrl}status`, {
+      cache: "no-store",
+      headers: {
+        host: SMOKE_VIEWER_SURFACE_MISMATCHED_HOST
+      }
+    });
+    if (response.status < 400 || response.status >= 500) {
+      return false;
+    }
+
+    const body = await response.json();
+    return hasExactRejectedSurfaceGuardShape(body);
+  } catch {
+    return false;
+  }
+}
+
 async function tryPostSurfaceGuardProbe(fetchImpl, surfaceUrl, headers) {
   try {
     const response = await fetchImpl(`${surfaceUrl}input`, {
@@ -858,6 +879,15 @@ async function tryPostSurfaceGuardProbe(fetchImpl, surfaceUrl, headers) {
   } catch {
     return false;
   }
+}
+
+function hasExactRejectedSurfaceGuardShape(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return false;
+  }
+
+  const keys = Object.keys(body);
+  return keys.length === 2 && body.ok === false && body.error === "rejected";
 }
 
 async function waitForViewerSurfaceInput(surfaceUrl, mutationToken, deadline, options) {

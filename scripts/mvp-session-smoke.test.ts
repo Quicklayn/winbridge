@@ -18,6 +18,7 @@ import {
   runMvpSessionSmokeCheck,
   stopSmokeProcesses,
   summarizeSmokeAuditLogContent,
+  tryFetchSurfaceHostGuardRejection,
   tryFetchSurfaceSignalReadiness,
   tryPostSurfaceGuardDenials,
   tryPostSurfaceInput,
@@ -658,6 +659,13 @@ describe("MVP session smoke check", () => {
     const guarded = await tryPostSurfaceGuardDenials(
       async (url: string, init: RequestInit) => {
         calls.push({ url, init });
+        if (url === "http://127.0.0.1:35987/status") {
+          return {
+            status: 403,
+            json: async () => ({ ok: false, error: "rejected" })
+          } as Response;
+        }
+
         return {
           status: 403,
           json: async () => ({ ok: false, error: "rejected", token: "raw-secret-token" })
@@ -669,6 +677,15 @@ describe("MVP session smoke check", () => {
 
     expect(guarded).toBe(true);
     expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:35987/status",
+        init: {
+          cache: "no-store",
+          headers: {
+            host: "example.invalid:80"
+          }
+        }
+      },
       {
         url: "http://127.0.0.1:35987/input",
         init: {
@@ -717,6 +734,80 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready"))).not.toContain(
       "raw-secret-token"
     );
+  });
+
+  it("verifies local surface mismatched Host rejection with bounded JSON", async () => {
+    const calls: unknown[] = [];
+    const rejected = await tryFetchSurfaceHostGuardRejection(
+      async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return {
+          status: 403,
+          json: async () => ({ ok: false, error: "rejected" })
+        } as Response;
+      },
+      "http://127.0.0.1:35987/"
+    );
+
+    expect(rejected).toBe(true);
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:35987/status",
+        init: {
+          cache: "no-store",
+          headers: {
+            host: "example.invalid:80"
+          }
+        }
+      }
+    ]);
+    expect(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready"))).not.toContain(
+      "example.invalid"
+    );
+  });
+
+  it("does not treat accepted malformed or failed Host guard probes as guarded", async () => {
+    await expect(
+      tryFetchSurfaceHostGuardRejection(
+        async () =>
+          ({
+            status: 200,
+            json: async () => ({ ok: true, state: {} })
+          }) as Response,
+        "http://127.0.0.1:35987/"
+      )
+    ).resolves.toBe(false);
+
+    await expect(
+      tryFetchSurfaceHostGuardRejection(
+        async () =>
+          ({
+            status: 500,
+            json: async () => ({ ok: false, error: "rejected" })
+          }) as Response,
+        "http://127.0.0.1:35987/"
+      )
+    ).resolves.toBe(false);
+
+    await expect(
+      tryFetchSurfaceHostGuardRejection(
+        async () =>
+          ({
+            status: 403,
+            json: async () => ({ ok: false, error: "rejected", host: "example.invalid" })
+          }) as Response,
+        "http://127.0.0.1:35987/"
+      )
+    ).resolves.toBe(false);
+
+    await expect(
+      tryFetchSurfaceHostGuardRejection(
+        async () => {
+          throw new Error("raw-secret-token network failure");
+        },
+        "http://127.0.0.1:35987/"
+      )
+    ).resolves.toBe(false);
   });
 
   it("does not treat accepted guard probes or network failures as guarded", async () => {
