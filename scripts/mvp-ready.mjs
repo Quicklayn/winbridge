@@ -929,7 +929,7 @@ export function parsePreflightCommandPlanReadiness(output, options = {}) {
 
   if (
     options.expectedTokenEnv !== undefined &&
-    !preflightCommandPlanUsesTokenEnv(commandsByName, options.expectedTokenEnv)
+    !preflightCommandPlanUsesTokenEnv(commandsByName, options.expectedTokenEnv, parsed.safety)
   ) {
     return false;
   }
@@ -1199,22 +1199,44 @@ function commandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
     typeof allSmokeCommand === "string" &&
     hostCommand.includes(`--token ${tokenReference}`) &&
     viewerCommand.includes(`--token ${tokenReference}`) &&
-    allSmokeCommand.includes(
-      `$env:WINBRIDGE_RELAY_SHARED_TOKEN = ${tokenReference}; npm run mvp:ready -- --include-all-smoke`
-    )
+    allSmokeCommandUsesExpectedTokenEnv(allSmokeCommand, expectedTokenEnv)
   );
 }
 
-function preflightCommandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
+function preflightCommandPlanUsesTokenEnv(commandsByName, expectedTokenEnv, safety) {
   if (typeof expectedTokenEnv !== "string" || !/^[A-Z][A-Z0-9_]{0,127}$/.test(expectedTokenEnv)) {
     return false;
   }
 
   const allSmokeCommand = commandsByName.get("preflight.ready-all-smoke")?.command;
+  if (typeof allSmokeCommand !== "string") {
+    return false;
+  }
+
   return (
-    typeof allSmokeCommand === "string" &&
-    allSmokeCommand.includes(
-      `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${expectedTokenEnv}; npm run mvp:ready -- --include-all-smoke`
+    commandPlanSafetyUsesTokenEnv(safety, expectedTokenEnv) &&
+    allSmokeCommandUsesExpectedTokenEnv(allSmokeCommand, expectedTokenEnv)
+  );
+}
+
+function allSmokeCommandUsesExpectedTokenEnv(allSmokeCommand, expectedTokenEnv) {
+  if (expectedTokenEnv === MVP_READY_TOKEN_ENV_NAME) {
+    return allSmokeCommand === "npm run mvp:ready -- --include-all-smoke";
+  }
+
+  return allSmokeCommand.includes(
+    `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${expectedTokenEnv}; npm run mvp:ready -- --include-all-smoke`
+  );
+}
+
+function commandPlanSafetyUsesTokenEnv(safety, expectedTokenEnv) {
+  return (
+    Array.isArray(safety) &&
+    safety.some(
+      (item) =>
+        typeof item === "string" &&
+        item.includes(`$env:${expectedTokenEnv}`) &&
+        item.includes("raw token value is not printed")
     )
   );
 }

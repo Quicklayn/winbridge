@@ -318,11 +318,7 @@ export function formatMvpSessionCommandsJson(parsed) {
     { name: "preflight.smoke", command: "npm run mvp:smoke" },
     { name: "preflight.ready-all-smoke", command: renderAllSmokePreflightCommand(parsed) }
   ];
-  const safety = [
-    "Host consent and visible sessions are required before live assistance trials.",
-    "This helper prints commands only.",
-    "Do not share generated output outside the trusted test session."
-  ];
+  const safety = renderCommandPlanSafety(parsed);
 
   if (parsed.preflightOnly) {
     return JSON.stringify({
@@ -355,6 +351,7 @@ function renderMvpPreflightOnlyCommands(parsed = {}) {
     "# WinBridge MVP preflight commands",
     "",
     "Run each command manually in a visible PowerShell terminal before a two-PC MVP trial.",
+    renderTokenModeNote(parsed),
     "",
     "0. Preflight before the two-PC trial:",
     "- On each Windows machine:",
@@ -423,6 +420,17 @@ function renderTokenModeNote(parsed) {
     : "";
 }
 
+function renderCommandPlanSafety(parsed) {
+  return [
+    "Host consent and visible sessions are required before live assistance trials.",
+    "This helper prints commands only.",
+    "Do not share generated output outside the trusted test session.",
+    ...(parsed.tokenEnv
+      ? [`Token mode references $env:${parsed.tokenEnv}; the raw token value is not printed.`]
+      : [])
+  ];
+}
+
 function renderAllSmokePreflightLines(parsed) {
   if (parsed?.tokenEnv) {
     return [renderAllSmokePreflightCommand(parsed)];
@@ -436,6 +444,10 @@ function renderAllSmokePreflightLines(parsed) {
 
 function renderAllSmokePreflightCommand(parsed) {
   if (parsed?.tokenEnv) {
+    if (parsed.tokenEnv === "WINBRIDGE_RELAY_SHARED_TOKEN") {
+      return ALL_SMOKE_READY_COMMAND;
+    }
+
     return `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${parsed.tokenEnv}; ${ALL_SMOKE_READY_COMMAND}`;
   }
 

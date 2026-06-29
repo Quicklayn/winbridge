@@ -2303,6 +2303,9 @@ describe("MVP ready helper", () => {
         { expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }
       )
     ).toBe(true);
+    expect(preflightCommandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" })).not.toContain(
+      "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_RELAY_SHARED_TOKEN"
+    );
     expect(
       parsePreflightCommandPlanReadiness(preflightCommandPlanOutput(), {
         expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN"
@@ -2310,7 +2313,33 @@ describe("MVP ready helper", () => {
     ).toBe(false);
     expect(
       parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({
+          safety: ["Host consent and visible sessions are required before live assistance trials."]
+        }),
+        { expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
         preflightCommandPlanOutput({ tokenEnv: "WRONG_TOKEN_ENV" }),
+        { expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({
+          allSmokeCommand:
+            "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run mvp:ready -- --include-all-smoke"
+        }),
+        { expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({
+          allSmokeCommand:
+            "$env:WINBRIDGE_RELAY_SHARED_TOKEN = raw-secret-token; npm run mvp:ready -- --include-all-smoke"
+        }),
         { expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }
       )
     ).toBe(false);
@@ -2937,14 +2966,21 @@ function commandPlanOutput(options: CommandPlanFixtureOptions = {}) {
 }
 
 function preflightCommandPlanOutput(
-  options: { missing?: string; mode?: string; nonExecuting?: boolean; tokenEnv?: string } = {}
+  options: {
+    allSmokeCommand?: string;
+    missing?: string;
+    mode?: string;
+    nonExecuting?: boolean;
+    safety?: string[];
+    tokenEnv?: string;
+  } = {}
 ) {
   return JSON.stringify({
     ok: true,
     mode: options.mode ?? "preflight",
     nonExecuting: options.nonExecuting ?? true,
     commands: preflightCommandPlanCommands(options).filter((command) => command.name !== options.missing),
-    safety: ["This helper prints commands only."]
+    safety: options.safety ?? commandPlanSafety(options.tokenEnv)
   });
 }
 
@@ -2974,9 +3010,7 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
     { name: "preflight.smoke", command: "npm run mvp:smoke" },
     {
       name: "preflight.ready-all-smoke",
-      command: tokenEnv
-        ? `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${tokenEnv}; npm run mvp:ready -- --include-all-smoke`
-        : "npm run mvp:ready -- --include-all-smoke"
+      command: allSmokePreflightCommand(tokenEnv)
     },
     { name: "relay", command: relayCommand },
     {
@@ -3002,7 +3036,7 @@ function effectiveCommandPlanTokenEnv(relayUrl: string, tokenEnv: string | null 
     : "WINBRIDGE_RELAY_SHARED_TOKEN";
 }
 
-function preflightCommandPlanCommands(options: { tokenEnv?: string } = {}) {
+function preflightCommandPlanCommands(options: { allSmokeCommand?: string; tokenEnv?: string } = {}) {
   return [
     { name: "preflight.ready", command: "npm run mvp:ready" },
     { name: "preflight.doctor", command: "npm run mvp:doctor" },
@@ -3010,10 +3044,27 @@ function preflightCommandPlanCommands(options: { tokenEnv?: string } = {}) {
     { name: "preflight.smoke", command: "npm run mvp:smoke" },
     {
       name: "preflight.ready-all-smoke",
-      command: options.tokenEnv
-        ? `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${options.tokenEnv}; npm run mvp:ready -- --include-all-smoke`
-        : "npm run mvp:ready -- --include-all-smoke"
+      command: options.allSmokeCommand ?? allSmokePreflightCommand(options.tokenEnv)
     }
+  ];
+}
+
+function allSmokePreflightCommand(tokenEnv: string | undefined) {
+  if (!tokenEnv || tokenEnv === "WINBRIDGE_RELAY_SHARED_TOKEN") {
+    return "npm run mvp:ready -- --include-all-smoke";
+  }
+
+  return `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${tokenEnv}; npm run mvp:ready -- --include-all-smoke`;
+}
+
+function commandPlanSafety(tokenEnv?: string) {
+  return [
+    "Host consent and visible sessions are required before live assistance trials.",
+    "This helper prints commands only.",
+    "Do not share generated output outside the trusted test session.",
+    ...(tokenEnv
+      ? [`Token mode references $env:${tokenEnv}; the raw token value is not printed.`]
+      : [])
   ];
 }
 

@@ -129,6 +129,31 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("dev-shared-token");
   });
 
+  it("omits token-env self-assignment for reviewed preflight-only text output", () => {
+    const output = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs([
+        "--preflight-only",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ])
+    );
+
+    expect(output).toContain("# WinBridge MVP preflight commands");
+    expect(output).toContain("Token mode:");
+    expect(output).toContain(
+      "Set $env:WINBRIDGE_RELAY_SHARED_TOKEN to the bounded local relay token"
+    );
+    expect(output).toContain("The token value is referenced through the environment");
+    expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
+    expect(output).not.toContain(
+      "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_RELAY_SHARED_TOKEN"
+    );
+    expect(output).not.toContain("npm run dev:relay");
+    expect(output).not.toContain("npm run dev:agent -- host");
+    expect(output).not.toContain("npm run dev:agent -- viewer");
+    expect(output).not.toContain("dev-shared-token");
+  });
+
   it("prints only the selected bounded command target", () => {
     const relay = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "relay"]));
     expect(relay).toContain("# WinBridge MVP relay command");
@@ -446,6 +471,40 @@ describe("MVP session command kit", () => {
     expect(onlyPreflightOutput).not.toContain("npm run dev:agent -- host");
     expect(onlyPreflightOutput).not.toContain("npm run dev:agent -- viewer");
     expect(onlyPreflightOutput).not.toContain("Start-Process");
+    expect(onlyPreflightOutput).not.toContain("dev-shared-token");
+  });
+
+  it("omits token-env self-assignment in reviewed preflight-only JSON output", () => {
+    const preflightOnlyOutput = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs([
+        "--preflight-only",
+        "--json",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ])
+    );
+    const onlyPreflightOutput = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs([
+        "--only",
+        "preflight",
+        "--json",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ])
+    );
+    const parsed = JSON.parse(onlyPreflightOutput);
+
+    expect(JSON.parse(preflightOnlyOutput)).toEqual(parsed);
+    expect(parsed.commands).toContainEqual({
+      name: "preflight.ready-all-smoke",
+      command: "npm run mvp:ready -- --include-all-smoke"
+    });
+    expect(parsed.safety).toContain(
+      "Token mode references $env:WINBRIDGE_RELAY_SHARED_TOKEN; the raw token value is not printed."
+    );
+    expect(onlyPreflightOutput).not.toContain(
+      "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_RELAY_SHARED_TOKEN"
+    );
     expect(onlyPreflightOutput).not.toContain("dev-shared-token");
   });
 
