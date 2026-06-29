@@ -119,21 +119,36 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
     throw new MvpSessionCommandKitUsageError();
   }
 
-  if (parsedFlags.preflightOnly && parsedFlags.remaining.length > 0) {
-    throw new MvpSessionCommandKitUsageError();
-  }
-
   if (parsedFlags.preflightOnly) {
-    return { help: false, json: parsedFlags.json, preflightOnly: true };
+    const tokenEnv = parsePreflightSelectorTokenEnv(parsedFlags.remaining);
+    return {
+      help: false,
+      json: parsedFlags.json,
+      preflightOnly: true,
+      ...(tokenEnv ? { tokenEnv } : {})
+    };
   }
 
   if (parsedFlags.onlyTarget === "preflight") {
-    if (parsedFlags.generatePairing || parsedFlags.remaining.length > 0) {
+    if (parsedFlags.generatePairing) {
       throw new MvpSessionCommandKitUsageError();
     }
+    const tokenEnv = parsePreflightSelectorTokenEnv(parsedFlags.remaining);
     return parsedFlags.json
-      ? { help: false, json: true, preflightOnly: true, onlyTarget: "preflight" }
-      : { help: false, json: false, preflightOnly: false, onlyTarget: "preflight" };
+      ? {
+          help: false,
+          json: true,
+          preflightOnly: true,
+          onlyTarget: "preflight",
+          ...(tokenEnv ? { tokenEnv } : {})
+        }
+      : {
+          help: false,
+          json: false,
+          preflightOnly: false,
+          onlyTarget: "preflight",
+          ...(tokenEnv ? { tokenEnv } : {})
+        };
   }
 
   const options = parseOptionMap(parsedFlags.remaining);
@@ -638,6 +653,15 @@ function parseOptionMap(rawArgs) {
   }
 
   return options;
+}
+
+function parsePreflightSelectorTokenEnv(rawArgs) {
+  const options = parseOptionMap(rawArgs);
+  if (options.size > 1 || (options.size === 1 && !options.has("token-env"))) {
+    throw new MvpSessionCommandKitUsageError();
+  }
+
+  return parseOptionalTokenEnv(options.get("token-env"));
 }
 
 function parseProtocolIdentifier(raw) {

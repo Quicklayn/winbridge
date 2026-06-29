@@ -211,6 +211,20 @@ describe("MVP ready helper", () => {
         command: "npm",
         args: ["run", "mvp:commands", "--", "--only", "preflight", "--json"]
       },
+      {
+        name: "preflight-token-json-command-plan",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--only",
+          "preflight",
+          "--json",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
+      },
       ...roleFilterPlanSteps()
     ]);
   });
@@ -253,6 +267,20 @@ describe("MVP ready helper", () => {
         name: "preflight-json-command-plan",
         command: "npm",
         args: ["run", "mvp:commands", "--", "--only", "preflight", "--json"]
+      },
+      {
+        name: "preflight-token-json-command-plan",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:commands",
+          "--",
+          "--only",
+          "preflight",
+          "--json",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
       },
       ...roleFilterPlanSteps(),
       { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] },
@@ -549,6 +577,7 @@ describe("MVP ready helper", () => {
         "lan-command-plan=ok",
         "token-command-plan=ok",
         "preflight-json-command-plan=ok",
+        "preflight-token-json-command-plan=ok",
         "role-filter-relay-command=ok",
         "role-filter-host-command=ok",
         "role-filter-viewer-command=ok",
@@ -1564,6 +1593,7 @@ describe("MVP ready helper", () => {
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         { name: "preflight-json-command-plan", ok: true },
+        { name: "preflight-token-json-command-plan", ok: true },
         { name: "role-filter-relay-command", ok: true },
         { name: "role-filter-host-command", ok: false, reason: "exit-nonzero" }
       ]
@@ -1621,6 +1651,7 @@ describe("MVP ready helper", () => {
         { name: "lan-command-plan", ok: true },
         { name: "token-command-plan", ok: true },
         { name: "preflight-json-command-plan", ok: true },
+        { name: "preflight-token-json-command-plan", ok: true },
         ...roleFilterTargets().map((target) => ({
           name: `role-filter-${target}-command`,
           ok: true
@@ -2142,6 +2173,23 @@ describe("MVP ready helper", () => {
         preflightCommandPlanOutput({ missing: "preflight.ready-all-smoke" })
       )
     ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }),
+        { expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }
+      )
+    ).toBe(true);
+    expect(
+      parsePreflightCommandPlanReadiness(preflightCommandPlanOutput(), {
+        expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN"
+      })
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({ tokenEnv: "WRONG_TOKEN_ENV" }),
+        { expectedTokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }
+      )
+    ).toBe(false);
     expect(parsePreflightCommandPlanReadiness(preflightCommandPlanOutput({ mode: "session" }))).toBe(false);
     expect(
       parsePreflightCommandPlanReadiness(preflightCommandPlanOutput({ nonExecuting: false }))
@@ -2480,6 +2528,7 @@ function defaultReadyCheckNames() {
     "lan-command-plan",
     "token-command-plan",
     "preflight-json-command-plan",
+    "preflight-token-json-command-plan",
     ...roleFilterTargets().map((target) => `role-filter-${target}-command`),
     "token-role-filter-host-command",
     "token-role-filter-viewer-command",
@@ -2489,6 +2538,7 @@ function defaultReadyCheckNames() {
 
 function roleFilterCheckResults() {
   return [
+    { name: "preflight-token-json-command-plan", ok: true },
     ...roleFilterTargets().map((target) => ({
       name: `role-filter-${target}-command`,
       ok: true
@@ -2500,6 +2550,9 @@ function roleFilterCheckResults() {
 }
 
 function roleFilterOutputForStep(name: string) {
+  if (name === "preflight-token-json-command-plan") {
+    return preflightCommandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" });
+  }
   if (name === "ephemeral-role-filter-browser-command") {
     return ephemeralBrowserRoleFilterOutput();
   }
@@ -2696,12 +2749,14 @@ function commandPlanOutput(options: CommandPlanFixtureOptions = {}) {
   });
 }
 
-function preflightCommandPlanOutput(options: { missing?: string; mode?: string; nonExecuting?: boolean } = {}) {
+function preflightCommandPlanOutput(
+  options: { missing?: string; mode?: string; nonExecuting?: boolean; tokenEnv?: string } = {}
+) {
   return JSON.stringify({
     ok: true,
     mode: options.mode ?? "preflight",
     nonExecuting: options.nonExecuting ?? true,
-    commands: preflightCommandPlanCommands().filter((command) => command.name !== options.missing),
+    commands: preflightCommandPlanCommands(options).filter((command) => command.name !== options.missing),
     safety: ["This helper prints commands only."]
   });
 }
@@ -2748,13 +2803,18 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
   ];
 }
 
-function preflightCommandPlanCommands() {
+function preflightCommandPlanCommands(options: { tokenEnv?: string } = {}) {
   return [
     { name: "preflight.ready", command: "npm run mvp:ready" },
     { name: "preflight.doctor", command: "npm run mvp:doctor" },
     { name: "preflight.native", command: "npm run mvp:native-preflight" },
     { name: "preflight.smoke", command: "npm run mvp:smoke" },
-    { name: "preflight.ready-all-smoke", command: "npm run mvp:ready -- --include-all-smoke" }
+    {
+      name: "preflight.ready-all-smoke",
+      command: options.tokenEnv
+        ? `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${options.tokenEnv}; npm run mvp:ready -- --include-all-smoke`
+        : "npm run mvp:ready -- --include-all-smoke"
+    }
   ];
 }
 

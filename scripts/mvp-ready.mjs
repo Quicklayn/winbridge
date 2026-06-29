@@ -235,6 +235,16 @@ export function createMvpReadyPlan(options = {}) {
       name: "preflight-json-command-plan",
       ...commandWithArgs("mvp:commands", ["--only", "preflight", "--json"])
     },
+    {
+      name: "preflight-token-json-command-plan",
+      ...commandWithArgs("mvp:commands", [
+        "--only",
+        "preflight",
+        "--json",
+        "--token-env",
+        MVP_READY_TOKEN_ENV_NAME
+      ])
+    },
     ...ROLE_FILTER_TARGETS.map((target) => ({
       name: `role-filter-${target}-command`,
       ...commandWithArgs("mvp:commands", ["--only", target])
@@ -381,6 +391,25 @@ export function runMvpReadyCheck(options = {}) {
     if (
       step.name === "preflight-json-command-plan" &&
       !parsePreflightCommandPlanReadiness(result.output)
+    ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (
+      step.name === "preflight-token-json-command-plan" &&
+      !parsePreflightCommandPlanReadiness(result.output, {
+        expectedTokenEnv: MVP_READY_TOKEN_ENV_NAME
+      })
     ) {
       const failed = {
         name: step.name,
@@ -801,7 +830,7 @@ export function parseEphemeralCommandPlanReadiness(output) {
   );
 }
 
-export function parsePreflightCommandPlanReadiness(output) {
+export function parsePreflightCommandPlanReadiness(output, options = {}) {
   if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
     return false;
   }
@@ -819,6 +848,7 @@ export function parsePreflightCommandPlanReadiness(output) {
   }
 
   const seen = new Set();
+  const commandsByName = new Map();
   for (const command of parsed.commands) {
     if (
       !command ||
@@ -829,6 +859,7 @@ export function parsePreflightCommandPlanReadiness(output) {
       return false;
     }
     seen.add(command.name);
+    commandsByName.set(command.name, command);
   }
 
   if (seen.size !== REQUIRED_PREFLIGHT_COMMAND_PLAN_NAMES.size) {
@@ -839,6 +870,13 @@ export function parsePreflightCommandPlanReadiness(output) {
     if (!seen.has(name)) {
       return false;
     }
+  }
+
+  if (
+    options.expectedTokenEnv !== undefined &&
+    !preflightCommandPlanUsesTokenEnv(commandsByName, options.expectedTokenEnv)
+  ) {
+    return false;
   }
 
   return true;
@@ -1098,6 +1136,20 @@ function commandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
     viewerCommand.includes(`--token ${tokenReference}`) &&
     allSmokeCommand.includes(
       `$env:WINBRIDGE_RELAY_SHARED_TOKEN = ${tokenReference}; npm run mvp:ready -- --include-all-smoke`
+    )
+  );
+}
+
+function preflightCommandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
+  if (typeof expectedTokenEnv !== "string" || !/^[A-Z][A-Z0-9_]{0,127}$/.test(expectedTokenEnv)) {
+    return false;
+  }
+
+  const allSmokeCommand = commandsByName.get("preflight.ready-all-smoke")?.command;
+  return (
+    typeof allSmokeCommand === "string" &&
+    allSmokeCommand.includes(
+      `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${expectedTokenEnv}; npm run mvp:ready -- --include-all-smoke`
     )
   );
 }

@@ -104,6 +104,7 @@ Print only the bounded preflight command plan as JSON:
 ```powershell
 npm run mvp:commands -- --preflight-only --json
 npm run mvp:commands -- --only preflight --json
+npm run mvp:commands -- --only preflight --json --token-env WINBRIDGE_RELAY_SHARED_TOKEN
 ```
 
 Print only one bounded text command block for the machine you are working on:
@@ -136,7 +137,9 @@ readiness gate, `npm run mvp:ready -- --include-all-smoke`, for one local
 development machine before a two-PC trial. When printed with `--token-env`, the
 all-smoke preflight uses a bounded
 `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:<NAME>` reference and never prints
-the token value.
+the token value. The same token-env reference is available in preflight-only
+text and JSON output so token-protected dry runs do not need a full session
+command plan.
 The generated host command uses the interactive host consent prompt,
 visible session state, metadata-only audit,
 `--host-apply-input true`, finite Windows capture, and
@@ -255,15 +258,15 @@ validation sequentially. It also validates the target-specific text outputs
 from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
 `preflight`, the shared-token environment-reference host and viewer text
 outputs, the fixed all-smoke preflight entry in generated command plans, plus
-the bounded `mvp:commands -- --only preflight --json` plan and explicit
-ephemeral browser-only output for
+the bounded `mvp:commands -- --only preflight --json` plan, the bounded
+token-env preflight JSON plan, and explicit ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
 checked before a live trial. It then prints only bounded step status. The LAN
 validation uses a fixed safe `--relay-host` value only to exercise the two-PC
 command generator path; the token validation uses the fixed
 `WINBRIDGE_RELAY_SHARED_TOKEN` environment variable name only to exercise the
-token-protected command generator path in both full-plan and host/viewer
-role-filter forms. It does not detect local IP addresses, probe ports, start
+token-protected command generator path in full-plan, preflight-only, and
+host/viewer role-filter forms. It does not detect local IP addresses, probe ports, start
 processes, read token values, or open sockets. The LAN
 validation also requires the non-executing relay command to use the reviewed
 `WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'` setting without echoing the command. It

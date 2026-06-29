@@ -112,6 +112,23 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("dev-shared-token");
   });
 
+  it("prints token-env all-smoke references for preflight-only text output", () => {
+    const output = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--preflight-only", "--token-env", "WINBRIDGE_TEST_RELAY_TOKEN"])
+    );
+
+    expect(output).toContain("# WinBridge MVP preflight commands");
+    expect(output).toContain(
+      "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run mvp:ready -- --include-all-smoke"
+    );
+    expect(output).not.toContain("Set $env:WINBRIDGE_RELAY_SHARED_TOKEN, then run:");
+    expect(output).not.toContain("npm run dev:relay");
+    expect(output).not.toContain("npm run dev:agent -- host");
+    expect(output).not.toContain("npm run dev:agent -- viewer");
+    expect(output).not.toContain("Start-Process");
+    expect(output).not.toContain("dev-shared-token");
+  });
+
   it("prints only the selected bounded command target", () => {
     const relay = renderMvpSessionCommands(parseMvpSessionCommandArgs(["--only", "relay"]));
     expect(relay).toContain("# WinBridge MVP relay command");
@@ -176,6 +193,7 @@ describe("MVP session command kit", () => {
       ["--only", "preflight", "--preflight-only"],
       ["--preflight-only", "--only", "preflight"],
       ["--only", "preflight", "--relay-host", "192.168.1.10"],
+      ["--only", "preflight", "--token", "raw-secret-token"],
       ["--only", "preflight", "--generate-pairing"],
       ["--generate-pairing", "--only", "preflight"]
     ];
@@ -375,6 +393,42 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("$env:WINBRIDGE_RELAY_SHARED_TOKEN");
   });
 
+  it("prints bounded token-env JSON for preflight-only mode without live session commands", () => {
+    const preflightOnlyOutput = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs([
+        "--preflight-only",
+        "--json",
+        "--token-env",
+        "WINBRIDGE_TEST_RELAY_TOKEN"
+      ])
+    );
+    const onlyPreflightOutput = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs([
+        "--only",
+        "preflight",
+        "--json",
+        "--token-env",
+        "WINBRIDGE_TEST_RELAY_TOKEN"
+      ])
+    );
+    const parsed = JSON.parse(onlyPreflightOutput);
+
+    expect(JSON.parse(preflightOnlyOutput)).toEqual(parsed);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.mode).toBe("preflight");
+    expect(parsed.nonExecuting).toBe(true);
+    expect(parsed.commands).toContainEqual({
+      name: "preflight.ready-all-smoke",
+      command:
+        "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run mvp:ready -- --include-all-smoke"
+    });
+    expect(onlyPreflightOutput).not.toContain("npm run dev:relay");
+    expect(onlyPreflightOutput).not.toContain("npm run dev:agent -- host");
+    expect(onlyPreflightOutput).not.toContain("npm run dev:agent -- viewer");
+    expect(onlyPreflightOutput).not.toContain("Start-Process");
+    expect(onlyPreflightOutput).not.toContain("dev-shared-token");
+  });
+
   it("prints the same bounded JSON for the preflight-only target", () => {
     const output = renderMvpSessionCommands(
       parseMvpSessionCommandArgs(["--only", "preflight", "--json"])
@@ -399,6 +453,8 @@ describe("MVP session command kit", () => {
   it("rejects malformed preflight-only combinations without echoing raw values", () => {
     const invalidInputs = [
       ["--preflight-only", "raw-secret-token"],
+      ["--preflight-only", "--token", "raw-secret-token"],
+      ["--preflight-only", "--token-env", "relay-token"],
       ["--preflight-only", "--relay", "ws://192.168.1.10:8787"],
       ["--relay", "ws://192.168.1.10:8787", "--preflight-only"],
       ["--json", "raw-secret-token"],
