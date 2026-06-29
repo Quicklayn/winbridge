@@ -336,11 +336,12 @@ npm run mvp:ready -- --include-all-smoke
 
 This runs the existing `smoke`, `lan-smoke`, `token-smoke`, and
 `lan-token-smoke` readiness steps after the default readiness checks. The flag
-is mutually exclusive with the individual smoke flags and is rejected with
+is mutually exclusive with the portable local smoke flags and is rejected with
 `--role`. It remains a local readiness workflow: it does not configure LAN
 relay bind settings, discovery, firewall rules, services, startup persistence,
 unattended access, Windows capture, OS input application, browser automation,
-or hidden sessions.
+or hidden sessions. Native Windows capture smoke remains a separate explicit
+opt-in through `--include-windows-capture-smoke`.
 
 To also aggregate the token-protected local smoke path, set a bounded relay
 token environment variable and include the explicit token smoke flag:
@@ -409,6 +410,34 @@ actions, details, reasons, raw input commands, mutation tokens, or pairing
 codes. It is a local preflight only: it does not use Windows capture, apply OS
 input, launch a browser, install services, configure startup persistence, run
 unattended, elevate privileges, or bypass Windows prompts.
+
+To explicitly exercise the same smoke workflow with the consent-bound Windows
+capture adapter on a Windows host:
+
+```powershell
+npm run mvp:smoke -- --windows-capture
+```
+
+This is Windows-only and fails before starting child processes on other
+platforms. It keeps explicit host approval, `--visible-session true`, finite
+capture count, loopback viewer surface checks, audit checks, revocation, and
+viewer disconnect behavior. It does not apply OS input, launch a browser,
+install services, configure startup persistence, run unattended, elevate
+privileges, bypass Windows prompts, or hide capture/session activity. Human and
+JSON output remain bounded and do not print frame bytes, screen content,
+tokens, pairing codes, local paths, command strings, child output, or
+PowerShell diagnostics.
+
+To include this explicit native capture smoke check in aggregate readiness,
+use:
+
+```powershell
+npm run mvp:ready -- --include-windows-capture-smoke
+```
+
+`--include-all-smoke` intentionally does not include native capture because it
+reads the local screen; without `--include-windows-capture-smoke`, readiness
+reports `windows-capture-smoke` as skipped metadata only.
 
 To exercise the same smoke workflow through the development relay shared-token
 gate, set a bounded token in an environment variable and pass only the variable

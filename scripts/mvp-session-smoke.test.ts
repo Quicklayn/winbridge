@@ -34,18 +34,21 @@ describe("MVP session smoke check", () => {
       timeoutMs: 45_000,
       keepArtifacts: false,
       lanRelay: false,
+      windowsCapture: false,
       json: false
     });
     expect(parseMvpSessionSmokeArgs(["--timeout-ms", "5000"])).toMatchObject({
       timeoutMs: 5000,
       keepArtifacts: false,
       lanRelay: false,
+      windowsCapture: false,
       json: false
     });
     expect(parseMvpSessionSmokeArgs(["--keep-artifacts"])).toMatchObject({
       timeoutMs: 45_000,
       keepArtifacts: true,
       lanRelay: false,
+      windowsCapture: false,
       json: false
     });
     expect(
@@ -53,6 +56,7 @@ describe("MVP session smoke check", () => {
         "--json",
         "--keep-artifacts",
         "--lan-relay",
+        "--windows-capture",
         "--token-env",
         "WINBRIDGE_TEST_RELAY_TOKEN",
         "--timeout-ms",
@@ -62,6 +66,7 @@ describe("MVP session smoke check", () => {
       timeoutMs: 5000,
       keepArtifacts: true,
       lanRelay: true,
+      windowsCapture: true,
       tokenEnv: "WINBRIDGE_TEST_RELAY_TOKEN",
       json: true
     });
@@ -92,6 +97,9 @@ describe("MVP session smoke check", () => {
       MvpSessionSmokeUsageError
     );
     expect(() => parseMvpSessionSmokeArgs(["--lan-relay", "--lan-relay"])).toThrow(
+      MvpSessionSmokeUsageError
+    );
+    expect(() => parseMvpSessionSmokeArgs(["--windows-capture", "--windows-capture"])).toThrow(
       MvpSessionSmokeUsageError
     );
     expect(() => parseMvpSessionSmokeArgs(["--json", "raw-secret-token"])).toThrow(
@@ -325,6 +333,22 @@ describe("MVP session smoke check", () => {
         { name: "viewer-disconnect", ok: false, skipped: true }
       ]
     });
+    expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("native-capture-unsupported")))).toEqual({
+      ok: false,
+      reason: "native-capture-unsupported",
+      checks: [
+        { name: "relay", ok: false },
+        { name: "indicator", ok: false, skipped: true },
+        { name: "frame", ok: false, skipped: true },
+        { name: "surface", ok: false, skipped: true },
+        { name: "signal", ok: false, skipped: true },
+        { name: "surface-guards", ok: false, skipped: true },
+        { name: "input", ok: false, skipped: true },
+        { name: "audit", ok: false, skipped: true },
+        { name: "lifecycle", ok: false, skipped: true },
+        { name: "viewer-disconnect", ok: false, skipped: true }
+      ]
+    });
     expect(formatMvpSessionSmokeJsonError(new Error("raw-secret-token"))).not.toContain(
       "raw-secret-token"
     );
@@ -385,6 +409,32 @@ describe("MVP session smoke check", () => {
     expect(serialized).not.toContain("browser");
     expect(serialized).not.toContain("host-signal-probe-ack-secret");
     expect(serialized).not.toContain("viewer-signal-probe-raw");
+  });
+
+  it("builds explicit Windows capture smoke plans without static frame payloads or OS input", () => {
+    const plan = createMvpSmokePlan({
+      npmCommand: "npm",
+      workDir: "C:\\Temp\\winbridge-smoke",
+      relayPort: 18787,
+      surfacePort: 35987,
+      session: "smoke-test",
+      windowsCapture: true
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.host.args).toContain("--dev-screen-frame-source");
+    expect(plan.host.args).toContain("windows-capture");
+    expect(plan.host.args).not.toContain("static");
+    expect(plan.host.args).not.toContain("--dev-screen-frame-data-base64");
+    expect(plan.host.args).toContain("--dev-screen-frame-count");
+    expect(plan.host.args).toContain("3");
+    expect(serialized).not.toContain("host-apply-input");
+    expect(serialized).not.toContain("Start-Process");
+    expect(serialized).not.toContain("playwright");
+    expect(serialized).not.toContain("browser");
+    expect(serialized).not.toContain("unattended");
+    expect(serialized).not.toContain("service");
+    expect(serialized).not.toContain("startup");
   });
 
   it("builds the default smoke viewer plan with an ephemeral local surface port", () => {
@@ -1164,6 +1214,35 @@ describe("MVP session smoke check", () => {
     });
 
     expect(killed).toEqual([102, 101, 100]);
+  });
+
+  it("fails Windows capture smoke before startup on non-Windows platforms", async () => {
+    const spawned: string[] = [];
+
+    await expect(
+      runMvpSessionSmokeCheck({
+        cwd: "C:\\repo",
+        workDir: "C:\\Temp\\native-capture-smoke",
+        relayPort: 18787,
+        surfacePort: 35987,
+        timeoutMs: 1000,
+        keepArtifacts: true,
+        windowsCapture: true,
+        platform: "linux",
+        spawnProcess: (command: string, args: string[]) => {
+          spawned.push([command, ...args].join(" "));
+          return fakeChild(400 + spawned.length);
+        }
+      })
+    ).rejects.toThrow("WinBridge MVP smoke check failed. reason=native-capture-unsupported");
+
+    expect(spawned).toEqual([]);
+    expect(formatMvpSessionSmokeError(new Error("native-capture-unsupported"))).toBe(
+      "WinBridge MVP smoke check failed. reason=native-capture-unsupported"
+    );
+    expect(formatMvpSessionSmokeJsonError(new Error("native-capture-unsupported"))).not.toContain(
+      "C:\\Temp\\native-capture-smoke"
+    );
   });
 
   it("cleans up started children when the smoke check fails", async () => {

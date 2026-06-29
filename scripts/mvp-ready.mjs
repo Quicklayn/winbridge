@@ -9,6 +9,7 @@ export const MVP_READY_USAGE = [
   "  --include-smoke",
   "  --include-token-smoke",
   "  --include-lan-token-smoke",
+  "  --include-windows-capture-smoke",
   "  --include-all-smoke",
   "  --role relay|host|viewer",
   "",
@@ -103,6 +104,7 @@ export function parseMvpReadyArgs(rawArgs) {
       includeSmoke: false,
       includeTokenSmoke: false,
       includeLanTokenSmoke: false,
+      includeWindowsCaptureSmoke: false,
       includeAllSmoke: false
     };
   }
@@ -119,6 +121,7 @@ export function parseMvpReadyArgs(rawArgs) {
   let includeSmoke = false;
   let includeTokenSmoke = false;
   let includeLanTokenSmoke = false;
+  let includeWindowsCaptureSmoke = false;
   let includeAllSmoke = false;
   let role;
 
@@ -156,6 +159,14 @@ export function parseMvpReadyArgs(rawArgs) {
       continue;
     }
 
+    if (arg === "--include-windows-capture-smoke") {
+      if (includeWindowsCaptureSmoke) {
+        throw new MvpReadyUsageError();
+      }
+      includeWindowsCaptureSmoke = true;
+      continue;
+    }
+
     if (arg === "--include-all-smoke") {
       if (includeAllSmoke) {
         throw new MvpReadyUsageError();
@@ -184,7 +195,10 @@ export function parseMvpReadyArgs(rawArgs) {
     throw new MvpReadyUsageError();
   }
 
-  if (role !== undefined && (includeSmoke || includeTokenSmoke || includeLanTokenSmoke || includeAllSmoke)) {
+  if (
+    role !== undefined &&
+    (includeSmoke || includeTokenSmoke || includeLanTokenSmoke || includeWindowsCaptureSmoke || includeAllSmoke)
+  ) {
     throw new MvpReadyUsageError();
   }
 
@@ -194,6 +208,7 @@ export function parseMvpReadyArgs(rawArgs) {
     includeSmoke,
     includeTokenSmoke,
     includeLanTokenSmoke,
+    includeWindowsCaptureSmoke,
     includeAllSmoke,
     ...(role ? { role } : {})
   };
@@ -309,6 +324,14 @@ export function createMvpReadyPlan(options = {}) {
               "--token-env",
               MVP_READY_TOKEN_ENV_NAME
             ])
+          }
+        ]
+      : []),
+    ...(options.includeWindowsCaptureSmoke
+      ? [
+          {
+            name: "windows-capture-smoke",
+            ...commandWithArgs("mvp:smoke", ["--json", "--windows-capture"])
           }
         ]
       : [])
@@ -644,6 +667,7 @@ export function runMvpReadyCheck(options = {}) {
   const includeSmoke = options.includeSmoke || options.includeAllSmoke;
   const includeTokenSmoke = options.includeTokenSmoke || options.includeAllSmoke;
   const includeLanTokenSmoke = options.includeLanTokenSmoke || options.includeAllSmoke;
+  const includeWindowsCaptureSmoke = options.includeWindowsCaptureSmoke === true;
   if (!includeSmoke && !role) {
     checks.push({ name: "smoke", ok: true, skipped: true });
     checks.push({ name: "lan-smoke", ok: true, skipped: true });
@@ -653,6 +677,9 @@ export function runMvpReadyCheck(options = {}) {
   }
   if (!includeLanTokenSmoke && !role) {
     checks.push({ name: "lan-token-smoke", ok: true, skipped: true });
+  }
+  if (!includeWindowsCaptureSmoke && !role) {
+    checks.push({ name: "windows-capture-smoke", ok: true, skipped: true });
   }
 
   return {
@@ -750,7 +777,8 @@ function isSmokeStep(name) {
     name === "smoke" ||
     name === "lan-smoke" ||
     name === "token-smoke" ||
-    name === "lan-token-smoke"
+    name === "lan-token-smoke" ||
+    name === "windows-capture-smoke"
   );
 }
 
@@ -1542,6 +1570,7 @@ function runCli(rawArgs = process.argv.slice(2), streams = process) {
       includeSmoke: parsed.includeSmoke,
       includeTokenSmoke: parsed.includeTokenSmoke,
       includeLanTokenSmoke: parsed.includeLanTokenSmoke,
+      includeWindowsCaptureSmoke: parsed.includeWindowsCaptureSmoke,
       includeAllSmoke: parsed.includeAllSmoke,
       role: parsed.role
     });

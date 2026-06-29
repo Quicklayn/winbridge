@@ -22,14 +22,16 @@ export const MVP_SESSION_SMOKE_USAGE = [
   "  --timeout-ms 45000",
   "  --keep-artifacts",
   "  --lan-relay",
+  "  --windows-capture",
   "  --token-env WINBRIDGE_RELAY_SHARED_TOKEN",
   "  --json",
   "",
   "The smoke check starts local relay, host, and viewer development processes",
-  "with static frames only. By default it does not use relay shared tokens;",
-  "with --token-env it references one bounded environment variable without",
-  "printing the token value. It does not use Windows capture, OS input,",
-  "browser automation, services, startup persistence, or unattended access."
+  "with static frames by default. Use --windows-capture only on Windows to",
+  "exercise the consent-bound host capture adapter. By default it does not use",
+  "relay shared tokens; with --token-env it references one bounded environment",
+  "variable without printing the token value. It does not use OS input, browser",
+  "automation, services, startup persistence, or unattended access."
 ].join("\n");
 
 const SAFE_TIMER_DELAY_MS = 2_147_483_647;
@@ -83,6 +85,7 @@ const SMOKE_VIEWER_SURFACE_MISMATCHED_HOST = "example.invalid:80";
 const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "relay-not-ready": 0,
   "port-unavailable": 0,
+  "native-capture-unsupported": 0,
   "indicator-not-ready": 1,
   "frame-not-ready": 2,
   "surface-not-ready": 3,
@@ -121,6 +124,7 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
   let keepArtifacts = false;
   let json = false;
   let lanRelay = false;
+  let windowsCapture = false;
   let tokenEnv;
   let sawTimeout = false;
   let sawTokenEnv = false;
@@ -142,6 +146,15 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
         throw new MvpSessionSmokeUsageError();
       }
       lanRelay = true;
+      index += 1;
+      continue;
+    }
+
+    if (key === "--windows-capture") {
+      if (windowsCapture) {
+        throw new MvpSessionSmokeUsageError();
+      }
+      windowsCapture = true;
       index += 1;
       continue;
     }
@@ -194,6 +207,7 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
     timeoutMs,
     keepArtifacts,
     lanRelay,
+    windowsCapture,
     ...(tokenEnv ? { tokenEnv } : {}),
     json
   };
@@ -211,6 +225,7 @@ export function createMvpSmokePlan(options) {
   const viewerAuditPath = join(options.workDir, "logs", "viewer-audit.jsonl");
   const sharedToken = parseOptionalSmokeSharedToken(options.sharedToken);
   const tokenArgs = sharedToken ? ["--token", sharedToken] : [];
+  const frameSource = options.windowsCapture ? "windows-capture" : "static";
 
   return {
     session,
@@ -260,7 +275,7 @@ export function createMvpSmokePlan(options) {
         "--dev-screen-frame-after-ms",
         String(DEFAULT_MVP_SMOKE_OPTIONS.captureAfterMs),
         "--dev-screen-frame-source",
-        "static",
+        frameSource,
         "--dev-screen-frame-count",
         String(DEFAULT_MVP_SMOKE_OPTIONS.captureCount),
         "--dev-screen-frame-interval-ms",
@@ -318,6 +333,11 @@ export async function runMvpSessionSmokeCheck(rawOptions = {}) {
     sleep: rawOptions.sleep ?? sleep,
     signalTarget: rawOptions.signalTarget ?? process
   };
+  if (rawOptions.windowsCapture && (rawOptions.platform ?? process.platform) !== "win32") {
+    throw new MvpSessionSmokeError(
+      formatMvpSessionSmokeError(new Error("native-capture-unsupported"))
+    );
+  }
   const deadline = options.now() + options.timeoutMs;
   const workDir = rawOptions.workDir ?? mkdtempSync(join(tmpdir(), "winbridge-mvp-smoke-"));
   const relayPort = rawOptions.relayPort ?? 0;
@@ -365,7 +385,8 @@ async function runMvpSessionSmokeSteps(context) {
           workDir,
           relayPort: resolvedRelayPort,
           surfacePort,
-          sharedToken: rawOptions.sharedToken
+          sharedToken: rawOptions.sharedToken,
+          windowsCapture: rawOptions.windowsCapture
         });
 
   const host = startSmokeProcess(readyPlan.host, options);
@@ -583,6 +604,7 @@ function safeSmokeFailureReason(error) {
     [
       "relay-not-ready",
       "host-not-ready",
+      "native-capture-unsupported",
       "indicator-not-ready",
       "frame-not-ready",
       "surface-not-ready",
@@ -1318,6 +1340,7 @@ async function runCli(rawArgs = process.argv.slice(2), streams = process) {
       timeoutMs: parsed.timeoutMs,
       keepArtifacts: parsed.keepArtifacts,
       lanRelay: parsed.lanRelay,
+      windowsCapture: parsed.windowsCapture,
       sharedToken
     });
     streams.stdout.write(
