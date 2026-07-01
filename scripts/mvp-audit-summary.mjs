@@ -64,7 +64,38 @@ const EVIDENCE_FLAGS = Object.freeze([
   "permissionRevoked",
   "disconnectObserved"
 ]);
-const REQUIRED_MVP_EVIDENCE_FLAGS = EVIDENCE_FLAGS;
+const REQUIRED_MVP_EVIDENCE_BY_ROLE = Object.freeze({
+  host: Object.freeze([
+    "authorizationApproved",
+    "authorizationActive",
+    "screenFrameSent",
+    "permissionRevoked",
+    "disconnectObserved"
+  ]),
+  viewer: Object.freeze([
+    "screenFrameOutput",
+    "inputSent",
+    "disconnectObserved"
+  ])
+});
+const REQUIRED_ROLE_EVIDENCE = Symbol("requiredRoleMvpEvidence");
+const REQUIRED_ACTION_EVIDENCE_BY_ROLE = Object.freeze({
+  host: Object.freeze({
+    "agent-shell.authorization.approved": "authorizationApproved",
+    "agent-shell.authorization.active": "authorizationActive",
+    "agent-shell.remote-interaction.screen-frame.sent": "screenFrameSent",
+    "agent-shell.permission.revoked": "permissionRevoked",
+    "agent-shell.host.disconnect.sent": "disconnectObserved",
+    "agent-shell.lifecycle.terminated": "disconnectObserved",
+    "agent-shell.lifecycle.disconnected": "disconnectObserved"
+  }),
+  viewer: Object.freeze({
+    "agent-shell.remote-interaction.screen-frame.output-written": "screenFrameOutput",
+    "agent-shell.remote-interaction.input-event.sent": "inputSent",
+    "agent-shell.viewer.disconnect.requested": "disconnectObserved",
+    "agent-shell.viewer.disconnect.sent": "disconnectObserved"
+  })
+});
 const ACTION_EVIDENCE = Object.freeze({
   "agent-shell.authorization.approved": "authorizationApproved",
   "agent-shell.authorization.active": "authorizationActive",
@@ -157,16 +188,18 @@ export function runMvpAuditSummaryCheck(options) {
   const stat = options.stat ?? statSync;
   const host = readAuditSummaryRole("host", options.hostPath, { readText, stat });
   const viewer = readAuditSummaryRole("viewer", options.viewerPath, { readText, stat });
+  const roles = { host, viewer };
+  if (options.requireMvpEvidence === true && !hasRequiredMvpEvidence(roles)) {
+    throw new MvpAuditSummaryError("missing-required-evidence");
+  }
+
   const result = sanitizeAuditSummaryResult({
     ok: true,
-    roles: { host, viewer },
-    coverage: summarizeCoverage({ host, viewer })
+    roles,
+    coverage: summarizeCoverage(roles)
   });
   if (!result) {
     throw new MvpAuditSummaryError("malformed-record");
-  }
-  if (options.requireMvpEvidence === true && !hasRequiredMvpEvidence(result.coverage)) {
-    throw new MvpAuditSummaryError("missing-required-evidence");
   }
   return result;
 }
@@ -277,6 +310,10 @@ export function summarizeAuditSummaryContent(role, content) {
     const evidence = actionEvidenceFlag(record.action, record.outcome);
     if (evidence) {
       summary[evidence] = true;
+    }
+    const requiredEvidence = roleRequiredEvidenceFlag(role, record.action, record.outcome);
+    if (requiredEvidence) {
+      summary[REQUIRED_ROLE_EVIDENCE][requiredEvidence] = true;
     }
   }
 
@@ -394,7 +431,7 @@ function actionEvidenceFlag(action, outcome) {
 }
 
 function createEmptyRoleSummary() {
-  return {
+  const summary = {
     records: 0,
     accepted: 0,
     denied: 0,
@@ -407,6 +444,22 @@ function createEmptyRoleSummary() {
     permissionRevoked: false,
     disconnectObserved: false
   };
+  Object.defineProperty(summary, REQUIRED_ROLE_EVIDENCE, {
+    value: createEmptyEvidencePresence(),
+    enumerable: false
+  });
+  return summary;
+}
+
+function createEmptyEvidencePresence() {
+  return Object.fromEntries(EVIDENCE_FLAGS.map((flag) => [flag, false]));
+}
+
+function roleRequiredEvidenceFlag(role, action, outcome) {
+  if (outcome !== "accepted") {
+    return undefined;
+  }
+  return REQUIRED_ACTION_EVIDENCE_BY_ROLE[role]?.[action];
 }
 
 function summarizeCoverage(roles) {
@@ -415,8 +468,15 @@ function summarizeCoverage(roles) {
   );
 }
 
-function hasRequiredMvpEvidence(coverage) {
-  return REQUIRED_MVP_EVIDENCE_FLAGS.every((flag) => coverage.includes(flag));
+function hasRequiredMvpEvidence(roles) {
+  return (
+    requiredRoleEvidencePresent(roles.host?.[REQUIRED_ROLE_EVIDENCE], REQUIRED_MVP_EVIDENCE_BY_ROLE.host) &&
+    requiredRoleEvidencePresent(roles.viewer?.[REQUIRED_ROLE_EVIDENCE], REQUIRED_MVP_EVIDENCE_BY_ROLE.viewer)
+  );
+}
+
+function requiredRoleEvidencePresent(summary, requiredFlags) {
+  return requiredFlags.every((flag) => summary?.[flag] === true);
 }
 
 function sanitizeAuditSummaryResult(result) {

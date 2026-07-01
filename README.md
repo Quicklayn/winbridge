@@ -458,10 +458,11 @@ diagnostics, tokens, pairing codes, credentials, and secrets. It does not start
 relay, host, viewer, browser, capture, input, services, startup persistence,
 network listeners, unattended access, privilege elevation, remote log retrieval,
 or log upload. The explicit `--require-mvp-evidence` flag fails closed with
-bounded reason metadata unless the fixed approval, active visible authorization,
-frame send/output, input, revocation, and disconnect evidence flags are all
-present across the two logs. Omit that flag only when inspecting partial
-troubleshooting logs.
+bounded reason metadata unless accepted host evidence covers approval, active
+visible authorization, frame send, revocation, and host disconnect or terminal
+lifecycle, and accepted viewer evidence covers frame output, input send, and
+viewer disconnect. Wrong-role, denied, or failed evidence does not satisfy the
+strict gate. Omit that flag only when inspecting partial troubleshooting logs.
 
 To explicitly exercise the same smoke workflow with the consent-bound Windows
 capture adapter on a Windows host:

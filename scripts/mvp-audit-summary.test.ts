@@ -253,6 +253,103 @@ describe("MVP audit summary", () => {
     }
   });
 
+  it("does not count accepted wrong-role evidence as required MVP evidence", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-audit-summary-"));
+    try {
+      const hostPath = join(tempDir, "host-audit.jsonl");
+      const viewerPath = join(tempDir, "viewer-audit.jsonl");
+      writeFileSync(
+        hostPath,
+        jsonl([
+          auditRecord("agent-shell.remote-interaction.screen-frame.output-written", "accepted", "host"),
+          auditRecord("agent-shell.remote-interaction.input-event.sent", "accepted", "host"),
+          auditRecord("agent-shell.host.disconnect.sent", "accepted", "host")
+        ])
+      );
+      writeFileSync(
+        viewerPath,
+        jsonl([
+          auditRecord("agent-shell.authorization.approved", "accepted", "viewer"),
+          auditRecord("agent-shell.authorization.active", "accepted", "viewer"),
+          auditRecord("agent-shell.remote-interaction.screen-frame.sent", "accepted", "viewer"),
+          auditRecord("agent-shell.permission.revoked", "accepted", "viewer"),
+          auditRecord("agent-shell.viewer.disconnect.sent", "accepted", "viewer")
+        ])
+      );
+
+      const partial = runMvpAuditSummaryCheck({ hostPath, viewerPath });
+      expect(partial.coverage).toEqual([
+        "authorizationApproved",
+        "authorizationActive",
+        "screenFrameSent",
+        "screenFrameOutput",
+        "inputSent",
+        "permissionRevoked",
+        "disconnectObserved"
+      ]);
+
+      let thrown: unknown;
+      try {
+        runMvpAuditSummaryCheck({ hostPath, viewerPath, requireMvpEvidence: true });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(MvpAuditSummaryError);
+      expect(formatMvpAuditSummaryError(thrown)).toBe(
+        "WinBridge MVP audit summary failed. reason=missing-required-evidence"
+      );
+      expect(formatMvpAuditSummaryJsonError(thrown)).toBe(
+        '{"ok":false,"reason":"missing-required-evidence"}'
+      );
+      assertNoUnsafeOutput(formatMvpAuditSummaryError(thrown));
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not count swapped disconnect actions as role-bound MVP evidence", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-audit-summary-"));
+    try {
+      const hostPath = join(tempDir, "host-audit.jsonl");
+      const viewerPath = join(tempDir, "viewer-audit.jsonl");
+      writeFileSync(
+        hostPath,
+        jsonl([
+          auditRecord("agent-shell.authorization.approved", "accepted", "host"),
+          auditRecord("agent-shell.authorization.active", "accepted", "host"),
+          auditRecord("agent-shell.remote-interaction.screen-frame.sent", "accepted", "host"),
+          auditRecord("agent-shell.permission.revoked", "accepted", "host"),
+          auditRecord("agent-shell.viewer.disconnect.sent", "accepted", "host")
+        ])
+      );
+      writeFileSync(
+        viewerPath,
+        jsonl([
+          auditRecord("agent-shell.remote-interaction.screen-frame.output-written", "accepted", "viewer"),
+          auditRecord("agent-shell.remote-interaction.input-event.sent", "accepted", "viewer"),
+          auditRecord("agent-shell.host.disconnect.sent", "accepted", "viewer")
+        ])
+      );
+
+      const partial = runMvpAuditSummaryCheck({ hostPath, viewerPath });
+      expect(partial.coverage).toEqual([
+        "authorizationApproved",
+        "authorizationActive",
+        "screenFrameSent",
+        "screenFrameOutput",
+        "inputSent",
+        "permissionRevoked",
+        "disconnectObserved"
+      ]);
+      expect(() =>
+        runMvpAuditSummaryCheck({ hostPath, viewerPath, requireMvpEvidence: true })
+      ).toThrow(MvpAuditSummaryError);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed on malformed files, unsafe records, and oversized input", () => {
     expect(() => summarizeAuditSummaryContent("host", "")).toThrow(MvpAuditSummaryError);
     expect(() => summarizeAuditSummaryContent("host", "{not-json}\n")).toThrow(
