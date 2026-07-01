@@ -62,6 +62,11 @@ describe("MVP session command kit", () => {
     expect(output).toContain("Start-Process 'http://127.0.0.1:35987/'");
     expect(output).toContain("Wait for frame=ready before browser pointer control.");
     expect(output).toContain("Click the visible Pointer Off/On control");
+    expect(output).toContain("5. Post-run audit evidence:");
+    expect(output).toContain(
+      "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+    );
+    expect(output).toContain("The audit summary command is read-only");
     expect(output).toContain("pause | resume");
     expect(output).toContain("Run the preflight commands manually");
     expect(output).toContain("This helper printed commands only");
@@ -96,6 +101,10 @@ describe("MVP session command kit", () => {
     expect(output).toContain("npm run mvp:smoke");
     expect(output).toContain("Full local smoke coverage before the two-PC trial:");
     expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
+    expect(output).toContain("Post-run audit evidence after the two-PC trial:");
+    expect(output).toContain(
+      "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+    );
     expect(output).toContain("Host consent and visible sessions are required");
     expect(output).toContain("This helper printed commands only");
     expect(output).not.toContain("Relay address:");
@@ -203,6 +212,7 @@ describe("MVP session command kit", () => {
     expect(preflight).toContain("# WinBridge MVP preflight commands");
     expect(preflight).toContain("npm run mvp:ready");
     expect(preflight).toContain("npm run mvp:ready -- --include-all-smoke");
+    expect(preflight).toContain("npm run mvp:audit-summary");
     expect(preflight).not.toContain("npm run dev:relay");
     expect(preflight).not.toContain("npm run dev:agent -- host");
     expect(preflight).not.toContain("Start-Process");
@@ -315,6 +325,11 @@ describe("MVP session command kit", () => {
         { name: "preflight.native", command: "npm run mvp:native-preflight" },
         { name: "preflight.smoke", command: "npm run mvp:smoke" },
         { name: "preflight.ready-all-smoke", command: "npm run mvp:ready -- --include-all-smoke" },
+        {
+          name: "preflight.audit-summary",
+          command:
+            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+        },
         { name: "relay", command: "npm run dev:relay" },
         expect.objectContaining({ name: "host" }),
         expect.objectContaining({ name: "viewer" }),
@@ -424,7 +439,12 @@ describe("MVP session command kit", () => {
         { name: "preflight.doctor", command: "npm run mvp:doctor" },
         { name: "preflight.native", command: "npm run mvp:native-preflight" },
         { name: "preflight.smoke", command: "npm run mvp:smoke" },
-        { name: "preflight.ready-all-smoke", command: "npm run mvp:ready -- --include-all-smoke" }
+        { name: "preflight.ready-all-smoke", command: "npm run mvp:ready -- --include-all-smoke" },
+        {
+          name: "preflight.audit-summary",
+          command:
+            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+        }
       ],
       safety: expect.arrayContaining([
         "Host consent and visible sessions are required before live assistance trials.",
@@ -468,6 +488,11 @@ describe("MVP session command kit", () => {
       name: "preflight.ready-all-smoke",
       command:
         "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run mvp:ready -- --include-all-smoke"
+    });
+    expect(parsed.commands).toContainEqual({
+      name: "preflight.audit-summary",
+      command:
+        "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
     });
     expect(onlyPreflightOutput).not.toContain("npm run dev:relay");
     expect(onlyPreflightOutput).not.toContain("npm run dev:agent -- host");

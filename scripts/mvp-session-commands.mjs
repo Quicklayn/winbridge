@@ -305,6 +305,11 @@ export function renderMvpSessionCommands(parsed) {
     "- Wait for frame=ready before browser pointer control.",
     "- Click the visible Pointer Off/On control before browser pointer movement, wheel, or button input.",
     "",
+    "5. Post-run audit evidence:",
+    renderPostRunAuditSummaryCommand(parsed),
+    "- Run after the visible, consented trial has produced local host and viewer audit logs.",
+    "- The audit summary command is read-only and prints bounded evidence metadata only.",
+    "",
     "Host controls:",
     "help | status | pause | resume | revoke screen:view | revoke input:pointer | revoke input:keyboard | terminate | disconnect",
     "",
@@ -325,7 +330,8 @@ export function formatMvpSessionCommandsJson(parsed) {
     { name: "preflight.doctor", command: "npm run mvp:doctor" },
     { name: "preflight.native", command: "npm run mvp:native-preflight" },
     { name: "preflight.smoke", command: "npm run mvp:smoke" },
-    { name: "preflight.ready-all-smoke", command: renderAllSmokePreflightCommand(parsed) }
+    { name: "preflight.ready-all-smoke", command: renderAllSmokePreflightCommand(parsed) },
+    { name: "preflight.audit-summary", command: renderPostRunAuditSummaryCommand(parsed) }
   ];
   const safety = renderCommandPlanSafety(parsed);
 
@@ -372,6 +378,11 @@ function renderMvpPreflightOnlyCommands(parsed = {}) {
     "npm run mvp:smoke",
     "- Full local smoke coverage before the two-PC trial:",
     ...renderAllSmokePreflightLines(parsed),
+    "",
+    "Post-run audit evidence after the two-PC trial:",
+    renderPostRunAuditSummaryCommand(parsed),
+    "- Run only after the host and viewer audit logs exist.",
+    "- The audit summary command is read-only and prints bounded evidence metadata only.",
     "",
     "Safety checks:",
     "- Host consent and visible sessions are required before any live assistance trial.",
@@ -461,6 +472,18 @@ function renderAllSmokePreflightCommand(parsed) {
   }
 
   return ALL_SMOKE_READY_COMMAND;
+}
+
+function renderPostRunAuditSummaryCommand(parsed = {}) {
+  const hostAuditLog = parsed.hostAuditLog ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.hostAuditLog;
+  const viewerAuditLog = parsed.viewerAuditLog ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.viewerAuditLog;
+  return [
+    "npm run mvp:audit-summary --",
+    "--host",
+    quotePowerShellArgument(hostAuditLog),
+    "--viewer",
+    quotePowerShellArgument(viewerAuditLog)
+  ].join(" ");
 }
 
 function roleScopedReadyReminderForTarget(target) {

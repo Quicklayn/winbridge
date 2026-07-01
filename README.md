@@ -139,7 +139,12 @@ all-smoke preflight uses a bounded
 `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:<NAME>` reference and never prints
 the token value. The same token-env reference is available in preflight-only
 text and JSON output so token-protected dry runs do not need a full session
-command plan.
+command plan. The generated full and preflight-only plans also print a post-run
+read-only audit evidence command:
+`npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl`.
+Run it only after the visible, consented two-PC trial has produced both local
+audit logs. Command generation does not read audit files, retrieve logs,
+upload logs, start runtimes, or print raw audit records.
 The generated host command uses the interactive host consent prompt,
 visible session state, metadata-only audit,
 `--host-apply-input true`, finite Windows capture, and

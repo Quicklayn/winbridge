@@ -48,6 +48,7 @@ const REQUIRED_COMMAND_PLAN_NAMES = new Set([
   "preflight.native",
   "preflight.smoke",
   "preflight.ready-all-smoke",
+  "preflight.audit-summary",
   "relay",
   "host",
   "viewer",
@@ -58,12 +59,15 @@ const REQUIRED_PREFLIGHT_COMMAND_PLAN_NAMES = new Set([
   "preflight.doctor",
   "preflight.native",
   "preflight.smoke",
-  "preflight.ready-all-smoke"
+  "preflight.ready-all-smoke",
+  "preflight.audit-summary"
 ]);
 const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
 const MVP_READY_LAN_RELAY_URL = `ws://${MVP_READY_LAN_RELAY_HOST}:8787/`;
 const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
 const REVIEWED_HOST_CONSENT_TIMEOUT_ARG = "--host-consent-timeout-ms '60000'";
+const REVIEWED_AUDIT_SUMMARY_COMMAND =
+  "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'";
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
@@ -943,7 +947,10 @@ export function parseCommandPlanReadiness(output, options = {}) {
     return false;
   }
 
-  return commandPlanUsesReviewedHostConsentTimeout(commandsByName);
+  return (
+    commandPlanUsesReviewedHostConsentTimeout(commandsByName) &&
+    commandPlanUsesReviewedAuditSummary(commandsByName)
+  );
 }
 
 export function parseEphemeralCommandPlanReadiness(output) {
@@ -1017,7 +1024,7 @@ export function parsePreflightCommandPlanReadiness(output, options = {}) {
     return false;
   }
 
-  return true;
+  return preflightCommandPlanUsesReviewedAuditSummary(commandsByName);
 }
 
 function parseCommandPlanCommandsByName(output) {
@@ -1314,6 +1321,15 @@ function commandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
 function commandPlanUsesReviewedHostConsentTimeout(commandsByName) {
   const hostCommand = commandsByName.get("host")?.command;
   return typeof hostCommand === "string" && hostCommandHasReviewedConsentTimeout(hostCommand);
+}
+
+function commandPlanUsesReviewedAuditSummary(commandsByName) {
+  const auditSummaryCommand = commandsByName.get("preflight.audit-summary")?.command;
+  return auditSummaryCommand === REVIEWED_AUDIT_SUMMARY_COMMAND;
+}
+
+function preflightCommandPlanUsesReviewedAuditSummary(commandsByName) {
+  return commandPlanUsesReviewedAuditSummary(commandsByName);
 }
 
 function hostCommandHasReviewedConsentTimeout(hostCommand) {

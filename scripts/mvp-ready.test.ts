@@ -2588,6 +2588,26 @@ describe("MVP ready helper", () => {
     expect(
       parseCommandPlanReadiness(
         JSON.stringify({
+          ok: true,
+          mode: "session",
+          nonExecuting: true,
+          commands: commandPlanCommands().filter(
+            (command) => command.name !== "preflight.audit-summary"
+          )
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          auditSummaryCommand:
+            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --token raw-secret-token"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        JSON.stringify({
           ...JSON.parse(commandPlanOutput()),
           stdout: "raw-secret-token",
           artifactPath: "C:\\Temp\\raw-secret-token"
@@ -2658,6 +2678,34 @@ describe("MVP ready helper", () => {
     expect(
       parsePreflightCommandPlanReadiness(
         preflightCommandPlanOutput({ missing: "preflight.ready-all-smoke" })
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({ missing: "preflight.audit-summary" })
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({
+          auditSummaryCommand:
+            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --token raw-secret-token"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        JSON.stringify({
+          ...JSON.parse(preflightCommandPlanOutput()),
+          commands: [
+            ...preflightCommandPlanCommands(),
+            {
+              name: "preflight.audit-summary",
+              command:
+                "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+            }
+          ]
+        })
       )
     ).toBe(false);
     expect(
@@ -3462,6 +3510,7 @@ type CommandPlanFixtureOptions = {
   viewerSurfacePort?: number;
   browserCommand?: string;
   hostConsentTimeoutArg?: string | null;
+  auditSummaryCommand?: string;
 };
 
 function commandPlanOutput(options: CommandPlanFixtureOptions = {}) {
@@ -3524,6 +3573,10 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
       name: "preflight.ready-all-smoke",
       command: allSmokePreflightCommand(tokenEnv)
     },
+    {
+      name: "preflight.audit-summary",
+      command: auditSummaryCommand(options.auditSummaryCommand)
+    },
     { name: "relay", command: relayCommand },
     {
       name: "host",
@@ -3548,7 +3601,9 @@ function effectiveCommandPlanTokenEnv(relayUrl: string, tokenEnv: string | null 
     : "WINBRIDGE_RELAY_SHARED_TOKEN";
 }
 
-function preflightCommandPlanCommands(options: { allSmokeCommand?: string; tokenEnv?: string } = {}) {
+function preflightCommandPlanCommands(
+  options: { allSmokeCommand?: string; auditSummaryCommand?: string; tokenEnv?: string } = {}
+) {
   return [
     { name: "preflight.ready", command: "npm run mvp:ready" },
     { name: "preflight.doctor", command: "npm run mvp:doctor" },
@@ -3557,8 +3612,19 @@ function preflightCommandPlanCommands(options: { allSmokeCommand?: string; token
     {
       name: "preflight.ready-all-smoke",
       command: options.allSmokeCommand ?? allSmokePreflightCommand(options.tokenEnv)
+    },
+    {
+      name: "preflight.audit-summary",
+      command: auditSummaryCommand(options.auditSummaryCommand)
     }
   ];
+}
+
+function auditSummaryCommand(command: string | undefined) {
+  return (
+    command ??
+    "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+  );
 }
 
 function allSmokePreflightCommand(tokenEnv: string | undefined) {
