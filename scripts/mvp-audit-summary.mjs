@@ -86,6 +86,7 @@ const REQUIRED_ACTION_EVIDENCE_BY_ROLE = Object.freeze({
     "agent-shell.remote-interaction.screen-frame.sent": "screenFrameSent",
     "agent-shell.permission.revoked": "permissionRevoked",
     "agent-shell.host.disconnect.sent": "disconnectObserved",
+    "agent-shell.session.disconnected": "disconnectObserved",
     "agent-shell.lifecycle.terminated": "disconnectObserved",
     "agent-shell.lifecycle.disconnected": "disconnectObserved"
   }),
@@ -106,6 +107,7 @@ const ACTION_EVIDENCE = Object.freeze({
   "agent-shell.viewer.disconnect.requested": "disconnectObserved",
   "agent-shell.viewer.disconnect.sent": "disconnectObserved",
   "agent-shell.host.disconnect.sent": "disconnectObserved",
+  "agent-shell.session.disconnected": "disconnectObserved",
   "agent-shell.lifecycle.terminated": "disconnectObserved",
   "agent-shell.lifecycle.disconnected": "disconnectObserved"
 });

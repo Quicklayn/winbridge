@@ -75,15 +75,55 @@ const SMOKE_AUDIT_SUMMARY_FLAGS = Object.freeze([
   "screenFrameSent",
   "screenFrameOutput",
   "inputSent",
-  "permissionRevoked"
+  "permissionRevoked",
+  "disconnectObserved"
 ]);
+const REQUIRED_SMOKE_AUDIT_EVIDENCE_BY_ROLE = Object.freeze({
+  host: Object.freeze([
+    "authorizationApproved",
+    "authorizationActive",
+    "screenFrameSent",
+    "permissionRevoked",
+    "disconnectObserved"
+  ]),
+  viewer: Object.freeze([
+    "screenFrameOutput",
+    "inputSent",
+    "disconnectObserved"
+  ])
+});
+const REQUIRED_SMOKE_AUDIT_EVIDENCE = Symbol("requiredSmokeAuditEvidence");
+const REQUIRED_SMOKE_AUDIT_ACTIONS_BY_ROLE = Object.freeze({
+  host: Object.freeze({
+    "agent-shell.authorization.approved": "authorizationApproved",
+    "agent-shell.authorization.active": "authorizationActive",
+    "agent-shell.remote-interaction.screen-frame.sent": "screenFrameSent",
+    "agent-shell.permission.revoked": "permissionRevoked",
+    "agent-shell.host.disconnect.sent": "disconnectObserved",
+    "agent-shell.session.disconnected": "disconnectObserved",
+    "agent-shell.lifecycle.terminated": "disconnectObserved",
+    "agent-shell.lifecycle.disconnected": "disconnectObserved"
+  }),
+  viewer: Object.freeze({
+    "agent-shell.remote-interaction.screen-frame.output-written": "screenFrameOutput",
+    "agent-shell.remote-interaction.input-event.sent": "inputSent",
+    "agent-shell.viewer.disconnect.requested": "disconnectObserved",
+    "agent-shell.viewer.disconnect.sent": "disconnectObserved"
+  })
+});
 const SMOKE_AUDIT_SUMMARY_ACTIONS = Object.freeze({
   "agent-shell.authorization.approved": "authorizationApproved",
   "agent-shell.authorization.active": "authorizationActive",
   "agent-shell.remote-interaction.screen-frame.sent": "screenFrameSent",
   "agent-shell.remote-interaction.screen-frame.output-written": "screenFrameOutput",
   "agent-shell.remote-interaction.input-event.sent": "inputSent",
-  "agent-shell.permission.revoked": "permissionRevoked"
+  "agent-shell.permission.revoked": "permissionRevoked",
+  "agent-shell.viewer.disconnect.requested": "disconnectObserved",
+  "agent-shell.viewer.disconnect.sent": "disconnectObserved",
+  "agent-shell.host.disconnect.sent": "disconnectObserved",
+  "agent-shell.session.disconnected": "disconnectObserved",
+  "agent-shell.lifecycle.terminated": "disconnectObserved",
+  "agent-shell.lifecycle.disconnected": "disconnectObserved"
 });
 const SAFE_SURFACE_STATUS_TOP_LEVEL_KEYS = Object.freeze(["ok", "state"]);
 const SAFE_SURFACE_STATUS_STATE_KEYS = Object.freeze([
@@ -474,11 +514,13 @@ async function runMvpSessionSmokeSteps(context) {
     options
   );
   await waitForViewerSurfaceInputDenied(surfaceUrl, surface.mutationToken, deadline, options);
-  const auditSummary = tryReadSmokeAuditSummary(readyPlan.hostAuditPath, readyPlan.viewerAuditPath);
-  if (!auditSummary) {
-    throw new Error("audit-not-ready");
-  }
   await waitForViewerSurfaceDisconnect(surfaceUrl, surface.mutationToken, deadline, options);
+  const auditSummary = await waitForSmokeAuditSummary(
+    readyPlan.hostAuditPath,
+    readyPlan.viewerAuditPath,
+    deadline,
+    options
+  );
 
   return {
     ok: true,
@@ -1272,6 +1314,17 @@ async function waitForSmokeAuditLogs(auditPaths, deadline, options) {
   throw new Error("audit-not-ready");
 }
 
+async function waitForSmokeAuditSummary(hostAuditPath, viewerAuditPath, deadline, options) {
+  while (options.now() <= deadline) {
+    const summary = tryReadSmokeAuditSummary(hostAuditPath, viewerAuditPath);
+    if (summary) {
+      return summary;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("audit-not-ready");
+}
+
 async function waitForWindowsInputAudit(hostAuditPath, deadline, options) {
   while (options.now() <= deadline) {
     try {
@@ -1308,15 +1361,18 @@ export function hasSmokeAuditLogAction(content, action) {
 
 export function tryReadSmokeAuditSummary(hostAuditPath, viewerAuditPath) {
   try {
-    const host = summarizeSmokeAuditLogContent(readFileSync(hostAuditPath, "utf8"));
-    const viewer = summarizeSmokeAuditLogContent(readFileSync(viewerAuditPath, "utf8"));
-    return host && viewer ? { host, viewer } : undefined;
+    const host = summarizeSmokeAuditLogContent(readFileSync(hostAuditPath, "utf8"), "host");
+    const viewer = summarizeSmokeAuditLogContent(readFileSync(viewerAuditPath, "utf8"), "viewer");
+    if (!host || !viewer || !hasRequiredSmokeAuditEvidence({ host, viewer })) {
+      return undefined;
+    }
+    return { host, viewer };
   } catch {
     return undefined;
   }
 }
 
-export function summarizeSmokeAuditLogContent(content) {
+export function summarizeSmokeAuditLogContent(content, role) {
   const records = parseSmokeAuditLogRecords(content);
   if (records === undefined) {
     return undefined;
@@ -1327,8 +1383,12 @@ export function summarizeSmokeAuditLogContent(content) {
     summary.records += 1;
     summary[record.outcome] += 1;
     const coverageFlag = SMOKE_AUDIT_SUMMARY_ACTIONS[record.action];
-    if (coverageFlag) {
+    if (coverageFlag && record.outcome === "accepted") {
       summary[coverageFlag] = true;
+    }
+    const requiredEvidence = roleRequiredSmokeAuditEvidenceFlag(role, record.action, record.outcome);
+    if (requiredEvidence) {
+      summary[REQUIRED_SMOKE_AUDIT_EVIDENCE][requiredEvidence] = true;
     }
   }
 
@@ -1395,7 +1455,7 @@ function isIsoTimestamp(value) {
 }
 
 function createEmptySmokeAuditRoleSummary() {
-  return {
+  const summary = {
     records: 0,
     accepted: 0,
     denied: 0,
@@ -1405,8 +1465,42 @@ function createEmptySmokeAuditRoleSummary() {
     screenFrameSent: false,
     screenFrameOutput: false,
     inputSent: false,
-    permissionRevoked: false
+    permissionRevoked: false,
+    disconnectObserved: false
   };
+  Object.defineProperty(summary, REQUIRED_SMOKE_AUDIT_EVIDENCE, {
+    value: createEmptySmokeAuditEvidencePresence(),
+    enumerable: false
+  });
+  return summary;
+}
+
+function createEmptySmokeAuditEvidencePresence() {
+  return Object.fromEntries(SMOKE_AUDIT_SUMMARY_FLAGS.map((flag) => [flag, false]));
+}
+
+function roleRequiredSmokeAuditEvidenceFlag(role, action, outcome) {
+  if (outcome !== "accepted") {
+    return undefined;
+  }
+  return REQUIRED_SMOKE_AUDIT_ACTIONS_BY_ROLE[role]?.[action];
+}
+
+function hasRequiredSmokeAuditEvidence(summary) {
+  return (
+    hasRequiredSmokeAuditRoleEvidence(
+      summary.host?.[REQUIRED_SMOKE_AUDIT_EVIDENCE],
+      REQUIRED_SMOKE_AUDIT_EVIDENCE_BY_ROLE.host
+    ) &&
+    hasRequiredSmokeAuditRoleEvidence(
+      summary.viewer?.[REQUIRED_SMOKE_AUDIT_EVIDENCE],
+      REQUIRED_SMOKE_AUDIT_EVIDENCE_BY_ROLE.viewer
+    )
+  );
+}
+
+function hasRequiredSmokeAuditRoleEvidence(summary, requiredFlags) {
+  return requiredFlags.every((flag) => summary?.[flag] === true);
 }
 
 function formatSmokeAuditSummaryLines(summary) {

@@ -57,7 +57,8 @@ const SAFE_SMOKE_AUDIT_SUMMARY_FLAGS = Object.freeze([
   "screenFrameSent",
   "screenFrameOutput",
   "inputSent",
-  "permissionRevoked"
+  "permissionRevoked",
+  "disconnectObserved"
 ]);
 const REQUIRED_COMMAND_PLAN_NAMES = new Set([
   "preflight.ready",

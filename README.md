@@ -429,11 +429,17 @@ processes. The host indicator, host surface, signal readiness, audit, surface
 guard, lifecycle, and viewer-disconnect checks are metadata-only. Successful
 JSON output may include a
 fixed audit summary with host/viewer record counts, outcome counts, and coverage booleans
-for expected smoke evidence such as consent, frame, input, and revocation. The
-summary is read-only and does not print raw signal payloads, authorization ids,
-event ids, actor ids, target ids, audit paths, raw audit contents, raw audit
-actions, details, reasons, raw input commands, host or viewer local surface
-URLs, mutation tokens, or pairing codes. It is a local preflight only: it does
+for expected smoke evidence such as consent, frame, input, revocation, and
+disconnect. Before reporting `audit=verified`, smoke requires accepted
+role-bound evidence for host approval, active visible authorization, frame
+send, revocation, host disconnect, host local session disconnected or terminal
+lifecycle, viewer frame output, viewer input send, and viewer disconnect.
+Wrong-role, denied, failed, or missing evidence fails closed as
+`audit-not-ready`. The summary is read-only and does not print raw signal
+payloads, authorization ids, event ids, actor ids, target ids, audit paths, raw
+audit contents, raw audit actions, details, reasons, raw input commands, host
+or viewer local surface URLs, mutation tokens, or pairing codes. It is a local
+preflight only: it does
 not use Windows capture, apply OS
 input, launch a browser, install services, configure startup persistence, run
 unattended, elevate privileges, or bypass Windows prompts.
@@ -459,10 +465,11 @@ relay, host, viewer, browser, capture, input, services, startup persistence,
 network listeners, unattended access, privilege elevation, remote log retrieval,
 or log upload. The explicit `--require-mvp-evidence` flag fails closed with
 bounded reason metadata unless accepted host evidence covers approval, active
-visible authorization, frame send, revocation, and host disconnect or terminal
-lifecycle, and accepted viewer evidence covers frame output, input send, and
-viewer disconnect. Wrong-role, denied, or failed evidence does not satisfy the
-strict gate. Omit that flag only when inspecting partial troubleshooting logs.
+visible authorization, frame send, revocation, and host disconnect, host local
+session disconnected, or terminal lifecycle, and accepted viewer evidence
+covers frame output, input send, and viewer disconnect. Wrong-role, denied, or
+failed evidence does not satisfy the strict gate. Omit that flag only when
+inspecting partial troubleshooting logs.
 
 To explicitly exercise the same smoke workflow with the consent-bound Windows
 capture adapter on a Windows host:

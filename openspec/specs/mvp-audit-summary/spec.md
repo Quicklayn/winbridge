@@ -97,24 +97,25 @@ The MVP audit summary helper SHALL support an explicit
 post-run gate. When the option is supplied, the helper MUST require accepted
 audit outcomes for the fixed MVP evidence flags in their expected local roles:
 host authorization approval, host active visible authorization, host screen
-frame sent, host permission revoked, host disconnect or terminal lifecycle
-evidence, viewer screen frame output, viewer input sent, and viewer disconnect
-evidence. Denied or failed audit outcomes MUST NOT satisfy required MVP
-evidence. Accepted evidence for the wrong role MUST NOT satisfy required MVP
-evidence. If any required role-bound fixed flag is missing, the helper MUST
-exit non-zero with the bounded reason `missing-required-evidence`. Text and
-JSON failure output MUST NOT echo raw audit records, record details, paths,
-event ids, actor ids, target ids, session ids, authorization ids, display
-names, private reasons, pointer coordinates, key values, frame bytes, screen
-content, input content, clipboard content, file-transfer content, diagnostic
-content, tokens, token environment values, pairing codes, credentials, command
-strings, stdout, stderr, or full secrets.
+frame sent, host permission revoked, host disconnect, host local session
+disconnected, or terminal lifecycle evidence, viewer screen frame output,
+viewer input sent, and viewer disconnect evidence. Denied or failed audit
+outcomes MUST NOT satisfy required MVP evidence. Accepted evidence for the
+wrong role MUST NOT satisfy required MVP evidence. If any required role-bound
+fixed flag is missing, the helper MUST exit non-zero with the bounded reason
+`missing-required-evidence`. Text and JSON failure output MUST NOT echo raw
+audit records, record details, paths, event ids, actor ids, target ids, session
+ids, authorization ids, display names, private reasons, pointer coordinates,
+key values, frame bytes, screen content, input content, clipboard content,
+file-transfer content, diagnostic content, tokens, token environment values,
+pairing codes, credentials, command strings, stdout, stderr, or full secrets.
 
 #### Scenario: Strict MVP audit evidence passes
 
 - **WHEN** the host audit log contains accepted safe records for authorization
   approval, active visible authorization, screen frame sent, permission revoked,
-  and host disconnect or terminal lifecycle evidence
+  and host disconnect, host local session disconnected, or terminal lifecycle
+  evidence
 - **AND** the viewer audit log contains accepted safe records for screen frame
   output, input sent, and viewer disconnect evidence
 - **AND** the developer runs

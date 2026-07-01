@@ -101,7 +101,7 @@ describe("MVP audit summary", () => {
           auditRecord("agent-shell.authorization.active", "accepted", "host"),
           auditRecord("agent-shell.remote-interaction.screen-frame.sent", "accepted", "host"),
           auditRecord("agent-shell.permission.revoked", "accepted", "host"),
-          auditRecord("agent-shell.lifecycle.disconnected", "accepted", "host")
+          auditRecord("agent-shell.session.disconnected", "accepted", "host")
         ])
       );
       writeFileSync(

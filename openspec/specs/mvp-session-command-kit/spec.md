@@ -485,22 +485,41 @@ The root MVP smoke check SHALL derive a read-only bounded audit summary from
 the existing configured local smoke audit files after audit readiness passes.
 The summary SHALL include only fixed role-local record counts, outcome counts,
 and known coverage booleans for expected MVP smoke evidence such as consent,
-screen-frame output, input sending, and lifecycle revocation. Human and JSON
-output MUST NOT include audit paths, raw audit lines, event ids, authorization
-ids, actor ids, target ids, detail values, reasons, raw action strings, raw
-child output, tokens, pairing codes, credentials, private reasons, screen
-contents, input contents, clipboard contents, file-transfer contents,
-diagnostics dumps, or full secrets.
+screen-frame send/output, input sending, lifecycle revocation, and disconnect
+or terminal lifecycle evidence. Before the smoke check reports the audit
+subcheck as passed, it MUST require accepted audit outcomes for the fixed MVP
+evidence flags in their expected local roles: host authorization approval, host
+active visible authorization, host screen frame sent, host permission revoked,
+host disconnect, host local session disconnected, or terminal lifecycle
+evidence, viewer screen frame output, viewer input sent, and viewer disconnect
+evidence. Denied, failed, missing, or wrong-role evidence MUST NOT satisfy
+smoke audit readiness. Human and JSON output MUST NOT include audit paths, raw
+audit lines, event ids, authorization ids, actor ids, target ids, detail
+values, reasons, raw action strings, raw child output, tokens, pairing codes,
+credentials, private reasons, screen contents, input contents, clipboard
+contents, file-transfer contents, diagnostics dumps, or full secrets.
 
 #### Scenario: Smoke JSON includes bounded audit summary
 
 - **WHEN** the smoke workflow verifies relay, frame, surface, signal, input,
-  audit, and lifecycle readiness and is invoked with `--json`
+  strict role-bound audit evidence, and lifecycle readiness and is invoked
+  with `--json`
 - **THEN** the emitted JSON includes a fixed `auditSummary` object for host and
   viewer audit coverage
 - **AND** the summary contains only bounded counts and fixed booleans
 - **AND** it does not include raw audit record content or local audit file
   paths
+
+#### Scenario: Wrong-role or partial smoke audit evidence fails closed
+
+- **WHEN** the configured smoke audit files are parseable but host-required
+  evidence appears only in the viewer log, viewer-required evidence appears
+  only in the host log, disconnect evidence is missing for either role, or one
+  or more required records are denied or failed
+- **THEN** the smoke helper exits non-zero with bounded diagnostics
+- **AND** it reports only the fixed `audit-not-ready` reason
+- **AND** diagnostics MUST NOT expose raw logs, paths, record details,
+  identifiers, frame bytes, input contents, command strings, or secrets
 
 #### Scenario: Ready helper preserves bounded smoke audit summary
 

@@ -4170,7 +4170,8 @@ function smokeAuditSummary() {
       screenFrameSent: true,
       screenFrameOutput: false,
       inputSent: true,
-      permissionRevoked: true
+      permissionRevoked: true,
+      disconnectObserved: true
     },
     viewer: {
       records: 1,
@@ -4182,7 +4183,8 @@ function smokeAuditSummary() {
       screenFrameSent: false,
       screenFrameOutput: true,
       inputSent: false,
-      permissionRevoked: false
+      permissionRevoked: false,
+      disconnectObserved: true
     }
   };
 }

@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   createSmokeProcessEnvironment,
@@ -28,7 +30,8 @@ import {
   tryPostSurfaceInput,
   tryPostSurfaceInputDenied,
   tryPostSurfaceDisconnect,
-  tryPostSurfaceKeyboardInput
+  tryPostSurfaceKeyboardInput,
+  tryReadSmokeAuditSummary
 } from "./mvp-session-smoke.mjs";
 
 describe("MVP session smoke check", () => {
@@ -1531,7 +1534,8 @@ describe("MVP session smoke check", () => {
       screenFrameSent: true,
       screenFrameOutput: false,
       inputSent: true,
-      permissionRevoked: true
+      permissionRevoked: true,
+      disconnectObserved: false
     });
 
     const output = formatMvpSessionSmokeJsonSuccess({
@@ -1549,7 +1553,8 @@ describe("MVP session smoke check", () => {
           screenFrameSent: false,
           screenFrameOutput: true,
           inputSent: false,
-          permissionRevoked: false
+          permissionRevoked: false,
+          disconnectObserved: false
         }
       }
     });
@@ -1595,6 +1600,125 @@ describe("MVP session smoke check", () => {
         }) + "x".repeat(4096)
       )
     ).toBeUndefined();
+  });
+
+  it("requires strict role-bound smoke audit evidence before returning a summary", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-smoke-audit-"));
+    try {
+      const hostPath = join(tempDir, "host-audit.jsonl");
+      const viewerPath = join(tempDir, "viewer-audit.jsonl");
+      writeFileSync(
+        hostPath,
+        [
+          smokeAuditLine("agent-shell.authorization.approved"),
+          smokeAuditLine("agent-shell.authorization.active"),
+          smokeAuditLine("agent-shell.remote-interaction.screen-frame.sent"),
+          smokeAuditLine("agent-shell.permission.revoked"),
+          smokeAuditLine("agent-shell.session.disconnected")
+        ].join("\n")
+      );
+      writeFileSync(
+        viewerPath,
+        [
+          smokeAuditLine("agent-shell.remote-interaction.screen-frame.output-written"),
+          smokeAuditLine("agent-shell.remote-interaction.input-event.sent"),
+          smokeAuditLine("agent-shell.viewer.disconnect.sent")
+        ].join("\n")
+      );
+
+      expect(tryReadSmokeAuditSummary(hostPath, viewerPath)).toMatchObject({
+        host: {
+          authorizationApproved: true,
+          authorizationActive: true,
+          screenFrameSent: true,
+          permissionRevoked: true,
+          disconnectObserved: true
+        },
+        viewer: {
+          screenFrameOutput: true,
+          inputSent: true,
+          disconnectObserved: true
+        }
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects wrong-role or non-accepted smoke audit evidence for strict summary", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-smoke-audit-"));
+    try {
+      const hostPath = join(tempDir, "host-audit.jsonl");
+      const viewerPath = join(tempDir, "viewer-audit.jsonl");
+      writeFileSync(
+        hostPath,
+        [
+          smokeAuditLine("agent-shell.authorization.approved"),
+          smokeAuditLine("agent-shell.authorization.active"),
+          smokeAuditLine("agent-shell.remote-interaction.screen-frame.sent"),
+          smokeAuditLine("agent-shell.permission.revoked"),
+          smokeAuditLine("agent-shell.viewer.disconnect.sent")
+        ].join("\n")
+      );
+      writeFileSync(
+        viewerPath,
+        [
+          smokeAuditLine("agent-shell.remote-interaction.screen-frame.output-written"),
+          smokeAuditLine("agent-shell.remote-interaction.input-event.sent", "denied"),
+          smokeAuditLine("agent-shell.host.disconnect.sent")
+        ].join("\n")
+      );
+
+      expect(tryReadSmokeAuditSummary(hostPath, viewerPath)).toBeUndefined();
+      const viewerSummary = summarizeSmokeAuditLogContent(readFileSync(viewerPath, "utf8"), "viewer");
+      expect(viewerSummary).toMatchObject({
+        records: 3,
+        accepted: 2,
+        denied: 1,
+        inputSent: false,
+        disconnectObserved: true
+      });
+      expect(formatMvpSessionSmokeError(new Error("audit-not-ready"))).toBe(
+        "WinBridge MVP smoke check failed. reason=audit-not-ready"
+      );
+      expect(formatMvpSessionSmokeJsonError(new Error("audit-not-ready"))).not.toContain(
+        "agent-shell"
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects missing disconnect or failed smoke audit evidence for strict summary", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-smoke-audit-"));
+    try {
+      const hostPath = join(tempDir, "host-audit.jsonl");
+      const viewerPath = join(tempDir, "viewer-audit.jsonl");
+      writeFileSync(
+        hostPath,
+        [
+          smokeAuditLine("agent-shell.authorization.approved"),
+          smokeAuditLine("agent-shell.authorization.active"),
+          smokeAuditLine("agent-shell.remote-interaction.screen-frame.sent"),
+          smokeAuditLine("agent-shell.permission.revoked"),
+          smokeAuditLine("agent-shell.session.disconnected", "failed")
+        ].join("\n")
+      );
+      writeFileSync(
+        viewerPath,
+        [
+          smokeAuditLine("agent-shell.remote-interaction.screen-frame.output-written"),
+          smokeAuditLine("agent-shell.remote-interaction.input-event.sent")
+        ].join("\n")
+      );
+
+      expect(tryReadSmokeAuditSummary(hostPath, viewerPath)).toBeUndefined();
+      expect(formatMvpSessionSmokeJsonError(new Error("audit-not-ready"))).toBe(
+        '{"ok":false,"reason":"audit-not-ready","checks":[{"name":"relay","ok":true},{"name":"indicator","ok":true},{"name":"host-surface","ok":true},{"name":"frame","ok":true},{"name":"surface","ok":true},{"name":"signal","ok":true},{"name":"surface-guards","ok":true},{"name":"input","ok":true},{"name":"audit","ok":false},{"name":"lifecycle","ok":false,"skipped":true},{"name":"viewer-disconnect","ok":false,"skipped":true}]}'
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("stops child processes in reverse start order", async () => {
