@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-07-01
+goal: Prove screen capture and native input application in one consent-bound
+  Windows smoke session

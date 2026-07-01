@@ -594,6 +594,34 @@ describe("MVP session smoke check", () => {
     expect(serialized).not.toContain("keylog");
   });
 
+  it("builds explicit combined Windows capture and input smoke plans", () => {
+    const plan = createMvpSmokePlan({
+      npmCommand: "npm",
+      workDir: "C:\\Temp\\winbridge-smoke",
+      relayPort: 18787,
+      surfacePort: 35987,
+      session: "smoke-test",
+      windowsCapture: true,
+      windowsInput: true
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.host.args).toContain("--dev-screen-frame-source");
+    expect(plan.host.args).toContain("windows-capture");
+    expect(plan.host.args).not.toContain("static");
+    expect(plan.host.args).toContain("--host-apply-input");
+    expect(plan.host.args).toContain("true");
+    expect(plan.host.args).toContain("--visible-session");
+    expect(plan.host.args).toContain("--audit-log");
+    expect(serialized).not.toContain("Start-Process");
+    expect(serialized).not.toContain("playwright");
+    expect(serialized).not.toContain("browser");
+    expect(serialized).not.toContain("unattended");
+    expect(serialized).not.toContain("service");
+    expect(serialized).not.toContain("startup");
+    expect(serialized).not.toContain("keylog");
+  });
+
   it("builds the default smoke viewer plan with an ephemeral local surface port", () => {
     const plan = createMvpSmokePlan({
       npmCommand: "npm",
@@ -1640,6 +1668,33 @@ describe("MVP session smoke check", () => {
     expect(
       formatMvpSessionSmokeJsonError(new Error("native-input-unsupported"), { windowsInput: true })
     ).not.toContain("C:\\Temp\\native-input-smoke");
+  });
+
+  it("fails combined Windows control smoke before startup on non-Windows platforms", async () => {
+    const spawned: string[] = [];
+
+    await expect(
+      runMvpSessionSmokeCheck({
+        cwd: "C:\\repo",
+        workDir: "C:\\Temp\\native-control-smoke",
+        relayPort: 18787,
+        surfacePort: 35987,
+        timeoutMs: 1000,
+        keepArtifacts: true,
+        windowsCapture: true,
+        windowsInput: true,
+        platform: "linux",
+        spawnProcess: (command: string, args: string[]) => {
+          spawned.push([command, ...args].join(" "));
+          return fakeChild(600 + spawned.length);
+        }
+      })
+    ).rejects.toThrow("WinBridge MVP smoke check failed. reason=native-capture-unsupported");
+
+    expect(spawned).toEqual([]);
+    expect(
+      formatMvpSessionSmokeJsonError(new Error("native-capture-unsupported"), { windowsInput: true })
+    ).not.toContain("C:\\Temp\\native-control-smoke");
   });
 
   it("cleans up started children when the smoke check fails", async () => {

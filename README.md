@@ -357,7 +357,9 @@ relay bind settings, discovery, firewall rules, services, startup persistence,
 unattended access, Windows capture, OS input application, browser automation,
 or hidden sessions. Native Windows capture smoke remains a separate explicit
 opt-in through `--include-windows-capture-smoke`; native Windows input smoke
-remains a separate explicit opt-in through `--include-windows-input-smoke`.
+remains a separate explicit opt-in through `--include-windows-input-smoke`;
+combined native Windows control smoke remains a separate explicit opt-in
+through `--include-windows-control-smoke`.
 
 To also aggregate the token-protected local smoke path, set a bounded relay
 token environment variable and include the explicit token smoke flag:
@@ -512,6 +514,33 @@ npm run mvp:ready -- --include-windows-input-smoke
 
 Without `--include-windows-input-smoke`, readiness reports
 `windows-input-smoke` as skipped metadata only.
+
+To explicitly exercise native capture and native input application in the same
+consent-bound Windows smoke session, combine the two native flags:
+
+```powershell
+npm run mvp:smoke -- --windows-capture --windows-input
+```
+
+This is the closest automated MVP readiness path for "view and control" on one
+Windows host. It remains Windows-only and explicit: it reads the local screen
+through the reviewed capture adapter, applies only the bounded smoke input
+through the reviewed input adapter, keeps host approval and visible session
+state, verifies audit evidence, and preserves revocation and disconnect
+checks. It does not run by default or through `--include-all-smoke`, and it
+does not launch a browser, install services, configure startup persistence, run
+unattended, elevate privileges, bypass Windows prompts, read credentials, read
+clipboard contents, keylog, evade AV/EDR, or hide session activity.
+
+To include this combined native control smoke check in aggregate readiness,
+use:
+
+```powershell
+npm run mvp:ready -- --include-windows-control-smoke
+```
+
+Without `--include-windows-control-smoke`, readiness reports
+`windows-control-smoke` as skipped metadata only.
 
 To exercise the same smoke workflow through the development relay shared-token
 gate, set a bounded token in an environment variable and pass only the variable

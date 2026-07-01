@@ -11,6 +11,7 @@ export const MVP_READY_USAGE = [
   "  --include-lan-token-smoke",
   "  --include-windows-capture-smoke",
   "  --include-windows-input-smoke",
+  "  --include-windows-control-smoke",
   "  --include-all-smoke",
   "  --role relay|host|viewer",
   "",
@@ -128,6 +129,7 @@ export function parseMvpReadyArgs(rawArgs) {
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
+      includeWindowsControlSmoke: false,
       includeAllSmoke: false
     };
   }
@@ -146,6 +148,7 @@ export function parseMvpReadyArgs(rawArgs) {
   let includeLanTokenSmoke = false;
   let includeWindowsCaptureSmoke = false;
   let includeWindowsInputSmoke = false;
+  let includeWindowsControlSmoke = false;
   let includeAllSmoke = false;
   let role;
 
@@ -199,6 +202,14 @@ export function parseMvpReadyArgs(rawArgs) {
       continue;
     }
 
+    if (arg === "--include-windows-control-smoke") {
+      if (includeWindowsControlSmoke) {
+        throw new MvpReadyUsageError();
+      }
+      includeWindowsControlSmoke = true;
+      continue;
+    }
+
     if (arg === "--include-all-smoke") {
       if (includeAllSmoke) {
         throw new MvpReadyUsageError();
@@ -235,6 +246,7 @@ export function parseMvpReadyArgs(rawArgs) {
       includeLanTokenSmoke ||
       includeWindowsCaptureSmoke ||
       includeWindowsInputSmoke ||
+      includeWindowsControlSmoke ||
       includeAllSmoke
     )
   ) {
@@ -249,6 +261,7 @@ export function parseMvpReadyArgs(rawArgs) {
     includeLanTokenSmoke,
     includeWindowsCaptureSmoke,
     includeWindowsInputSmoke,
+    includeWindowsControlSmoke,
     includeAllSmoke,
     ...(role ? { role } : {})
   };
@@ -380,6 +393,18 @@ export function createMvpReadyPlan(options = {}) {
           {
             name: "windows-input-smoke",
             ...commandWithArgs("mvp:smoke", ["--json", "--windows-input"])
+          }
+        ]
+      : []),
+    ...(options.includeWindowsControlSmoke
+      ? [
+          {
+            name: "windows-control-smoke",
+            ...commandWithArgs("mvp:smoke", [
+              "--json",
+              "--windows-capture",
+              "--windows-input"
+            ])
           }
         ]
       : [])
@@ -717,6 +742,7 @@ export function runMvpReadyCheck(options = {}) {
   const includeLanTokenSmoke = options.includeLanTokenSmoke || options.includeAllSmoke;
   const includeWindowsCaptureSmoke = options.includeWindowsCaptureSmoke === true;
   const includeWindowsInputSmoke = options.includeWindowsInputSmoke === true;
+  const includeWindowsControlSmoke = options.includeWindowsControlSmoke === true;
   if (!includeSmoke && !role) {
     checks.push({ name: "smoke", ok: true, skipped: true });
     checks.push({ name: "lan-smoke", ok: true, skipped: true });
@@ -732,6 +758,9 @@ export function runMvpReadyCheck(options = {}) {
   }
   if (!includeWindowsInputSmoke && !role) {
     checks.push({ name: "windows-input-smoke", ok: true, skipped: true });
+  }
+  if (!includeWindowsControlSmoke && !role) {
+    checks.push({ name: "windows-control-smoke", ok: true, skipped: true });
   }
 
   return {
@@ -831,12 +860,13 @@ function isSmokeStep(name) {
     name === "token-smoke" ||
     name === "lan-token-smoke" ||
     name === "windows-capture-smoke" ||
-    name === "windows-input-smoke"
+    name === "windows-input-smoke" ||
+    name === "windows-control-smoke"
   );
 }
 
 function smokeReadinessOptionsForStep(name) {
-  return { windowsInput: name === "windows-input-smoke" };
+  return { windowsInput: name === "windows-input-smoke" || name === "windows-control-smoke" };
 }
 
 function roleFilterTargetForStep(name) {
@@ -1694,6 +1724,7 @@ function runCli(rawArgs = process.argv.slice(2), streams = process) {
       includeLanTokenSmoke: parsed.includeLanTokenSmoke,
       includeWindowsCaptureSmoke: parsed.includeWindowsCaptureSmoke,
       includeWindowsInputSmoke: parsed.includeWindowsInputSmoke,
+      includeWindowsControlSmoke: parsed.includeWindowsControlSmoke,
       includeAllSmoke: parsed.includeAllSmoke,
       role: parsed.role
     });
