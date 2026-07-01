@@ -493,7 +493,8 @@ function renderPostRunAuditSummaryCommand(parsed = {}) {
     "--host",
     quotePowerShellArgument(hostAuditLog),
     "--viewer",
-    quotePowerShellArgument(viewerAuditLog)
+    quotePowerShellArgument(viewerAuditLog),
+    "--require-mvp-evidence"
   ].join(" ");
 }
 

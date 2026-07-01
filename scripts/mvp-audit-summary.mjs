@@ -2,7 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 export const MVP_AUDIT_SUMMARY_USAGE = [
-  "Usage: npm run mvp:audit-summary -- --host logs\\host-audit.jsonl --viewer logs\\viewer-audit.jsonl [--json]",
+  "Usage: npm run mvp:audit-summary -- --host logs\\host-audit.jsonl --viewer logs\\viewer-audit.jsonl [--json] [--require-mvp-evidence]",
   "",
   "Reads explicit local host and viewer audit JSONL files after a development",
   "MVP trial and prints bounded evidence metadata only. It does not start",
@@ -51,7 +51,8 @@ const FAILURE_REASONS = new Set([
   "record-limit-exceeded",
   "malformed-jsonl",
   "malformed-record",
-  "unsafe-audit-metadata"
+  "unsafe-audit-metadata",
+  "missing-required-evidence"
 ]);
 const ROLE_NAMES = Object.freeze(["host", "viewer"]);
 const EVIDENCE_FLAGS = Object.freeze([
@@ -63,6 +64,7 @@ const EVIDENCE_FLAGS = Object.freeze([
   "permissionRevoked",
   "disconnectObserved"
 ]);
+const REQUIRED_MVP_EVIDENCE_FLAGS = EVIDENCE_FLAGS;
 const ACTION_EVIDENCE = Object.freeze({
   "agent-shell.authorization.approved": "authorizationApproved",
   "agent-shell.authorization.active": "authorizationActive",
@@ -104,6 +106,7 @@ export function parseMvpAuditSummaryArgs(rawArgs) {
   let hostPath;
   let viewerPath;
   let json = false;
+  let requireMvpEvidence = false;
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
     if (arg === "--json") {
@@ -111,6 +114,13 @@ export function parseMvpAuditSummaryArgs(rawArgs) {
         throw new MvpAuditSummaryUsageError();
       }
       json = true;
+      continue;
+    }
+    if (arg === "--require-mvp-evidence") {
+      if (requireMvpEvidence) {
+        throw new MvpAuditSummaryUsageError();
+      }
+      requireMvpEvidence = true;
       continue;
     }
     if (arg === "--host" || arg === "--viewer") {
@@ -139,7 +149,7 @@ export function parseMvpAuditSummaryArgs(rawArgs) {
     throw new MvpAuditSummaryUsageError();
   }
 
-  return { help: false, hostPath, viewerPath, json };
+  return { help: false, hostPath, viewerPath, json, requireMvpEvidence };
 }
 
 export function runMvpAuditSummaryCheck(options) {
@@ -147,11 +157,18 @@ export function runMvpAuditSummaryCheck(options) {
   const stat = options.stat ?? statSync;
   const host = readAuditSummaryRole("host", options.hostPath, { readText, stat });
   const viewer = readAuditSummaryRole("viewer", options.viewerPath, { readText, stat });
-  return sanitizeAuditSummaryResult({
+  const result = sanitizeAuditSummaryResult({
     ok: true,
     roles: { host, viewer },
     coverage: summarizeCoverage({ host, viewer })
   });
+  if (!result) {
+    throw new MvpAuditSummaryError("malformed-record");
+  }
+  if (options.requireMvpEvidence === true && !hasRequiredMvpEvidence(result.coverage)) {
+    throw new MvpAuditSummaryError("missing-required-evidence");
+  }
+  return result;
 }
 
 export function formatMvpAuditSummaryResult(result) {
@@ -257,7 +274,7 @@ export function summarizeAuditSummaryContent(role, content) {
 
     summary.records += 1;
     summary[record.outcome] += 1;
-    const evidence = actionEvidenceFlag(record.action);
+    const evidence = actionEvidenceFlag(record.action, record.outcome);
     if (evidence) {
       summary[evidence] = true;
     }
@@ -368,7 +385,11 @@ function isIsoTimestamp(value) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value));
 }
 
-function actionEvidenceFlag(action) {
+function actionEvidenceFlag(action, outcome) {
+  if (outcome !== "accepted") {
+    return undefined;
+  }
+
   return ACTION_EVIDENCE[action] ?? (DISCONNECT_ACTION_PATTERN.test(action) ? "disconnectObserved" : undefined);
 }
 
@@ -392,6 +413,10 @@ function summarizeCoverage(roles) {
   return EVIDENCE_FLAGS.filter(
     (flag) => roles.host[flag] === true || roles.viewer[flag] === true
   );
+}
+
+function hasRequiredMvpEvidence(coverage) {
+  return REQUIRED_MVP_EVIDENCE_FLAGS.every((flag) => coverage.includes(flag));
 }
 
 function sanitizeAuditSummaryResult(result) {

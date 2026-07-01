@@ -85,7 +85,7 @@ const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
 const REVIEWED_HOST_CONSENT_TIMEOUT_ARG = "--host-consent-timeout-ms '60000'";
 const REVIEWED_HOST_CONTROL_SURFACE_ARG = "--host-control-surface-port '0'";
 const REVIEWED_AUDIT_SUMMARY_COMMAND =
-  "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'";
+  "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence";
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;

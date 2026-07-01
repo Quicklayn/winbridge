@@ -32,17 +32,19 @@ describe("MVP audit summary", () => {
       help: false,
       hostPath: String.raw`logs\host-audit.jsonl`,
       viewerPath: String.raw`logs\viewer-audit.jsonl`,
-      json: false
+      json: false,
+      requireMvpEvidence: false
     });
     expect(
       parseMvpAuditSummaryArgs([
         "--json",
+        "--require-mvp-evidence",
         "--viewer",
         String.raw`logs\viewer-audit.jsonl`,
         "--host",
         String.raw`logs\host-audit.jsonl`
       ])
-    ).toMatchObject({ json: true });
+    ).toMatchObject({ json: true, requireMvpEvidence: true });
     expect(parseMvpAuditSummaryArgs(["--help"])).toEqual({ help: true });
   });
 
@@ -64,6 +66,14 @@ describe("MVP audit summary", () => {
         String.raw`\\?\C:\logs\host-audit.jsonl`,
         "--viewer",
         String.raw`logs\viewer-audit.jsonl`
+      ],
+      [
+        "--host",
+        String.raw`logs\host-audit.jsonl`,
+        "--viewer",
+        String.raw`logs\viewer-audit.jsonl`,
+        "--require-mvp-evidence",
+        "--require-mvp-evidence"
       ]
     ]) {
       let thrown: unknown;
@@ -104,7 +114,7 @@ describe("MVP audit summary", () => {
         ])
       );
 
-      const result = runMvpAuditSummaryCheck({ hostPath, viewerPath });
+      const result = runMvpAuditSummaryCheck({ hostPath, viewerPath, requireMvpEvidence: true });
       const text = formatMvpAuditSummaryResult(result);
       const parsed = JSON.parse(formatMvpAuditSummaryJsonResult(result));
 
@@ -159,6 +169,85 @@ describe("MVP audit summary", () => {
       });
       assertNoUnsafeOutput(text);
       assertNoUnsafeOutput(JSON.stringify(parsed));
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails strict MVP evidence mode without exposing raw audit data", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-audit-summary-"));
+    try {
+      const hostPath = join(tempDir, "host-audit.jsonl");
+      const viewerPath = join(tempDir, "viewer-audit.jsonl");
+      writeFileSync(
+        hostPath,
+        jsonl([
+          auditRecord("agent-shell.authorization.approved", "accepted", "host"),
+          auditRecord("agent-shell.authorization.active", "accepted", "host")
+        ])
+      );
+      writeFileSync(
+        viewerPath,
+        jsonl([auditRecord("agent-shell.remote-interaction.screen-frame.output-written", "accepted", "viewer")])
+      );
+
+      const partial = runMvpAuditSummaryCheck({ hostPath, viewerPath });
+      expect(partial.coverage).toEqual([
+        "authorizationApproved",
+        "authorizationActive",
+        "screenFrameOutput"
+      ]);
+
+      let thrown: unknown;
+      try {
+        runMvpAuditSummaryCheck({ hostPath, viewerPath, requireMvpEvidence: true });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(MvpAuditSummaryError);
+      const text = formatMvpAuditSummaryError(thrown);
+      const json = formatMvpAuditSummaryJsonError(thrown);
+      expect(text).toBe("WinBridge MVP audit summary failed. reason=missing-required-evidence");
+      expect(json).toBe('{"ok":false,"reason":"missing-required-evidence"}');
+      assertNoUnsafeOutput(text);
+      assertNoUnsafeOutput(json);
+      expect(text).not.toContain(tempDir);
+      expect(json).not.toContain(tempDir);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not count denied or failed audit outcomes as required MVP evidence", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-audit-summary-"));
+    try {
+      const hostPath = join(tempDir, "host-audit.jsonl");
+      const viewerPath = join(tempDir, "viewer-audit.jsonl");
+      writeFileSync(
+        hostPath,
+        jsonl([
+          auditRecord("agent-shell.authorization.approved", "denied", "host"),
+          auditRecord("agent-shell.authorization.active", "failed", "host"),
+          auditRecord("agent-shell.remote-interaction.screen-frame.sent", "failed", "host"),
+          auditRecord("agent-shell.permission.revoked", "denied", "host"),
+          auditRecord("agent-shell.lifecycle.disconnected", "failed", "host")
+        ])
+      );
+      writeFileSync(
+        viewerPath,
+        jsonl([
+          auditRecord("agent-shell.remote-interaction.screen-frame.output-written", "failed", "viewer"),
+          auditRecord("agent-shell.remote-interaction.input-event.sent", "denied", "viewer"),
+          auditRecord("agent-shell.viewer.disconnect.sent", "failed", "viewer")
+        ])
+      );
+
+      const partial = runMvpAuditSummaryCheck({ hostPath, viewerPath });
+      expect(partial.coverage).toEqual([]);
+      expect(() =>
+        runMvpAuditSummaryCheck({ hostPath, viewerPath, requireMvpEvidence: true })
+      ).toThrow(MvpAuditSummaryError);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

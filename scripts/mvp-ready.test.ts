@@ -3174,6 +3174,14 @@ describe("MVP ready helper", () => {
     ).toBe(false);
     expect(
       parseCommandPlanReadiness(
+        commandPlanOutput({
+          auditSummaryCommand:
+            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
         JSON.stringify({
           ...JSON.parse(commandPlanOutput()),
           stdout: "raw-secret-token",
@@ -3267,6 +3275,14 @@ describe("MVP ready helper", () => {
         preflightCommandPlanOutput({
           auditSummaryCommand:
             "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --token raw-secret-token"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({
+          auditSummaryCommand:
+            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
         })
       )
     ).toBe(false);
@@ -4295,7 +4311,7 @@ function preflightCommandPlanCommands(
 function auditSummaryCommand(command: string | undefined) {
   return (
     command ??
-    "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+    "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
   );
 }
 

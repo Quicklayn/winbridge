@@ -66,7 +66,7 @@ describe("MVP session command kit", () => {
     expect(output).toContain("Click the visible Pointer Off/On control");
     expect(output).toContain("5. Post-run audit evidence:");
     expect(output).toContain(
-      "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+      "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
     );
     expect(output).toContain("The audit summary command is read-only");
     expect(output).toContain("pause | resume");
@@ -105,7 +105,7 @@ describe("MVP session command kit", () => {
     expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
     expect(output).toContain("Post-run audit evidence after the two-PC trial:");
     expect(output).toContain(
-      "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+      "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
     );
     expect(output).toContain("Host consent and visible sessions are required");
     expect(output).toContain("This helper printed commands only");
@@ -331,7 +331,7 @@ describe("MVP session command kit", () => {
         {
           name: "preflight.audit-summary",
           command:
-            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
         },
         { name: "relay", command: "npm run dev:relay" },
         expect.objectContaining({ name: "host" }),
@@ -473,7 +473,7 @@ describe("MVP session command kit", () => {
         {
           name: "preflight.audit-summary",
           command:
-            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+            "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
         }
       ],
       safety: expect.arrayContaining([
@@ -522,7 +522,7 @@ describe("MVP session command kit", () => {
     expect(parsed.commands).toContainEqual({
       name: "preflight.audit-summary",
       command:
-        "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'"
+        "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
     });
     expect(onlyPreflightOutput).not.toContain("npm run dev:relay");
     expect(onlyPreflightOutput).not.toContain("npm run dev:agent -- host");

@@ -141,7 +141,7 @@ the token value. The same token-env reference is available in preflight-only
 text and JSON output so token-protected dry runs do not need a full session
 command plan. The generated full and preflight-only plans also print a post-run
 read-only audit evidence command:
-`npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl`.
+`npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence`.
 Run it only after the visible, consented two-PC trial has produced both local
 audit logs. Command generation does not read audit files, retrieve logs,
 upload logs, start runtimes, or print raw audit records.
@@ -442,8 +442,8 @@ After a development two-PC trial, summarize the explicit local host and viewer
 audit files:
 
 ```powershell
-npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl
-npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --json
+npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence
+npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence --json
 ```
 
 `mvp:audit-summary` is a read-only post-run evidence check. It reads only the
@@ -457,7 +457,11 @@ frame bytes, screen contents, input contents, clipboard contents, file contents,
 diagnostics, tokens, pairing codes, credentials, and secrets. It does not start
 relay, host, viewer, browser, capture, input, services, startup persistence,
 network listeners, unattended access, privilege elevation, remote log retrieval,
-or log upload.
+or log upload. The explicit `--require-mvp-evidence` flag fails closed with
+bounded reason metadata unless the fixed approval, active visible authorization,
+frame send/output, input, revocation, and disconnect evidence flags are all
+present across the two logs. Omit that flag only when inspecting partial
+troubleshooting logs.
 
 To explicitly exercise the same smoke workflow with the consent-bound Windows
 capture adapter on a Windows host:
