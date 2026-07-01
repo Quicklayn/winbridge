@@ -66,6 +66,7 @@ const REQUIRED_COMMAND_PLAN_NAMES = new Set([
   "preflight.native",
   "preflight.smoke",
   "preflight.ready-all-smoke",
+  "preflight.ready-windows-control-smoke",
   "preflight.audit-summary",
   "relay",
   "host",
@@ -78,6 +79,7 @@ const REQUIRED_PREFLIGHT_COMMAND_PLAN_NAMES = new Set([
   "preflight.native",
   "preflight.smoke",
   "preflight.ready-all-smoke",
+  "preflight.ready-windows-control-smoke",
   "preflight.audit-summary"
 ]);
 const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
@@ -87,6 +89,7 @@ const REVIEWED_HOST_CONSENT_TIMEOUT_ARG = "--host-consent-timeout-ms '60000'";
 const REVIEWED_HOST_CONTROL_SURFACE_ARG = "--host-control-surface-port '0'";
 const REVIEWED_AUDIT_SUMMARY_COMMAND =
   "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence";
+const REVIEWED_WINDOWS_CONTROL_SMOKE_COMMAND = "npm run mvp:ready -- --include-windows-control-smoke";
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
@@ -1066,6 +1069,7 @@ export function parseCommandPlanReadiness(output, options = {}) {
   return (
     commandPlanUsesReviewedHostConsentTimeout(commandsByName) &&
     commandPlanUsesReviewedHostControlSurface(commandsByName) &&
+    commandPlanUsesReviewedWindowsControlSmoke(commandsByName) &&
     commandPlanUsesReviewedAuditSummary(commandsByName)
   );
 }
@@ -1142,7 +1146,10 @@ export function parsePreflightCommandPlanReadiness(output, options = {}) {
     return false;
   }
 
-  return preflightCommandPlanUsesReviewedAuditSummary(commandsByName);
+  return (
+    preflightCommandPlanUsesReviewedWindowsControlSmoke(commandsByName) &&
+    preflightCommandPlanUsesReviewedAuditSummary(commandsByName)
+  );
 }
 
 function parseCommandPlanCommandsByName(output) {
@@ -1457,6 +1464,15 @@ function commandPlanUsesReviewedHostControlSurface(commandsByName) {
 function commandPlanUsesReviewedAuditSummary(commandsByName) {
   const auditSummaryCommand = commandsByName.get("preflight.audit-summary")?.command;
   return auditSummaryCommand === REVIEWED_AUDIT_SUMMARY_COMMAND;
+}
+
+function commandPlanUsesReviewedWindowsControlSmoke(commandsByName) {
+  const windowsControlSmokeCommand = commandsByName.get("preflight.ready-windows-control-smoke")?.command;
+  return windowsControlSmokeCommand === REVIEWED_WINDOWS_CONTROL_SMOKE_COMMAND;
+}
+
+function preflightCommandPlanUsesReviewedWindowsControlSmoke(commandsByName) {
+  return commandPlanUsesReviewedWindowsControlSmoke(commandsByName);
 }
 
 function preflightCommandPlanUsesReviewedAuditSummary(commandsByName) {

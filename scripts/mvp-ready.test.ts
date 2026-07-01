@@ -3147,6 +3147,18 @@ describe("MVP ready helper", () => {
           mode: "session",
           nonExecuting: true,
           commands: commandPlanCommands().filter(
+            (command) => command.name !== "preflight.ready-windows-control-smoke"
+          )
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        JSON.stringify({
+          ok: true,
+          mode: "session",
+          nonExecuting: true,
+          commands: commandPlanCommands().filter(
             (command) => command.name !== "preflight.ready-all-smoke"
           )
         })
@@ -3161,6 +3173,13 @@ describe("MVP ready helper", () => {
           commands: commandPlanCommands().filter(
             (command) => command.name !== "preflight.audit-summary"
           )
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          windowsControlSmokeCommand: "npm run mvp:ready -- --include-windows-input-smoke"
         })
       )
     ).toBe(false);
@@ -3267,7 +3286,19 @@ describe("MVP ready helper", () => {
     ).toBe(false);
     expect(
       parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({ missing: "preflight.ready-windows-control-smoke" })
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
         preflightCommandPlanOutput({ missing: "preflight.audit-summary" })
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({
+          windowsControlSmokeCommand: "npm run mvp:ready -- --include-windows-input-smoke"
+        })
       )
     ).toBe(false);
     expect(
@@ -4197,6 +4228,7 @@ type CommandPlanFixtureOptions = {
   browserCommand?: string;
   hostControlSurfaceArg?: string | null;
   hostConsentTimeoutArg?: string | null;
+  windowsControlSmokeCommand?: string;
   auditSummaryCommand?: string;
 };
 
@@ -4213,6 +4245,7 @@ function commandPlanOutput(options: CommandPlanFixtureOptions = {}) {
 function preflightCommandPlanOutput(
   options: {
     allSmokeCommand?: string;
+    windowsControlSmokeCommand?: string;
     missing?: string;
     mode?: string;
     nonExecuting?: boolean;
@@ -4264,6 +4297,12 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
       command: allSmokePreflightCommand(tokenEnv)
     },
     {
+      name: "preflight.ready-windows-control-smoke",
+      command:
+        options.windowsControlSmokeCommand ??
+        "npm run mvp:ready -- --include-windows-control-smoke"
+    },
+    {
       name: "preflight.audit-summary",
       command: auditSummaryCommand(options.auditSummaryCommand)
     },
@@ -4292,7 +4331,12 @@ function effectiveCommandPlanTokenEnv(relayUrl: string, tokenEnv: string | null 
 }
 
 function preflightCommandPlanCommands(
-  options: { allSmokeCommand?: string; auditSummaryCommand?: string; tokenEnv?: string } = {}
+  options: {
+    allSmokeCommand?: string;
+    windowsControlSmokeCommand?: string;
+    auditSummaryCommand?: string;
+    tokenEnv?: string;
+  } = {}
 ) {
   return [
     { name: "preflight.ready", command: "npm run mvp:ready" },
@@ -4302,6 +4346,12 @@ function preflightCommandPlanCommands(
     {
       name: "preflight.ready-all-smoke",
       command: options.allSmokeCommand ?? allSmokePreflightCommand(options.tokenEnv)
+    },
+    {
+      name: "preflight.ready-windows-control-smoke",
+      command:
+        options.windowsControlSmokeCommand ??
+        "npm run mvp:ready -- --include-windows-control-smoke"
     },
     {
       name: "preflight.audit-summary",

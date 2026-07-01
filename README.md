@@ -139,7 +139,13 @@ all-smoke preflight uses a bounded
 `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:<NAME>` reference and never prints
 the token value. The same token-env reference is available in preflight-only
 text and JSON output so token-protected dry runs do not need a full session
-command plan. The generated full and preflight-only plans also print a post-run
+command plan. The generated full and preflight-only plans also print the
+explicit native Windows control smoke gate,
+`npm run mvp:ready -- --include-windows-control-smoke`, as a separate
+non-executing preflight command. It remains separate from `--include-all-smoke`
+because it reads the local screen and applies bounded smoke input through the
+reviewed native adapters only when the developer explicitly runs it. The
+generated full and preflight-only plans also print a post-run
 read-only audit evidence command:
 `npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence`.
 Run it only after the visible, consented two-PC trial has produced both local
@@ -281,8 +287,8 @@ validation sequentially. It also validates the target-specific text outputs
 from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
 `preflight`, the tokenized LAN role-filter relay/host/viewer outputs, the
 shared-token environment-reference relay/host/viewer/browser/preflight text
-outputs, the fixed all-smoke preflight entry in generated command plans, plus
-the bounded `mvp:commands -- --only preflight --json` plan, the bounded
+outputs, the fixed all-smoke and Windows-control preflight entries in generated
+command plans, plus the bounded `mvp:commands -- --only preflight --json` plan, the bounded
 token-env preflight JSON plan, and explicit ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
 checked before a live trial. It then prints only bounded step status. The LAN

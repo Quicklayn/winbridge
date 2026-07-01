@@ -27,6 +27,8 @@ describe("MVP session command kit", () => {
     expect(output).toContain("Full local smoke coverage before the two-PC trial:");
     expect(output).toContain("Set $env:WINBRIDGE_RELAY_SHARED_TOKEN, then run:");
     expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
+    expect(output).toContain("Explicit native Windows control smoke before the two-PC trial:");
+    expect(output).toContain("npm run mvp:ready -- --include-windows-control-smoke");
     expect(output).toContain("Relay address:");
     expect(output).toContain("Current relay URL: ws://localhost:8787/");
     expect(output).toContain("localhost relay URLs are same-machine only");
@@ -103,6 +105,8 @@ describe("MVP session command kit", () => {
     expect(output).toContain("npm run mvp:smoke");
     expect(output).toContain("Full local smoke coverage before the two-PC trial:");
     expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
+    expect(output).toContain("Explicit native Windows control smoke before the two-PC trial:");
+    expect(output).toContain("npm run mvp:ready -- --include-windows-control-smoke");
     expect(output).toContain("Post-run audit evidence after the two-PC trial:");
     expect(output).toContain(
       "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
@@ -215,6 +219,7 @@ describe("MVP session command kit", () => {
     expect(preflight).toContain("# WinBridge MVP preflight commands");
     expect(preflight).toContain("npm run mvp:ready");
     expect(preflight).toContain("npm run mvp:ready -- --include-all-smoke");
+    expect(preflight).toContain("npm run mvp:ready -- --include-windows-control-smoke");
     expect(preflight).toContain("npm run mvp:audit-summary");
     expect(preflight).not.toContain("npm run dev:relay");
     expect(preflight).not.toContain("npm run dev:agent -- host");
@@ -328,6 +333,10 @@ describe("MVP session command kit", () => {
         { name: "preflight.native", command: "npm run mvp:native-preflight" },
         { name: "preflight.smoke", command: "npm run mvp:smoke" },
         { name: "preflight.ready-all-smoke", command: "npm run mvp:ready -- --include-all-smoke" },
+        {
+          name: "preflight.ready-windows-control-smoke",
+          command: "npm run mvp:ready -- --include-windows-control-smoke"
+        },
         {
           name: "preflight.audit-summary",
           command:
@@ -471,6 +480,10 @@ describe("MVP session command kit", () => {
         { name: "preflight.smoke", command: "npm run mvp:smoke" },
         { name: "preflight.ready-all-smoke", command: "npm run mvp:ready -- --include-all-smoke" },
         {
+          name: "preflight.ready-windows-control-smoke",
+          command: "npm run mvp:ready -- --include-windows-control-smoke"
+        },
+        {
           name: "preflight.audit-summary",
           command:
             "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
@@ -520,6 +533,10 @@ describe("MVP session command kit", () => {
         "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run mvp:ready -- --include-all-smoke"
     });
     expect(parsed.commands).toContainEqual({
+      name: "preflight.ready-windows-control-smoke",
+      command: "npm run mvp:ready -- --include-windows-control-smoke"
+    });
+    expect(parsed.commands).toContainEqual({
       name: "preflight.audit-summary",
       command:
         "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
@@ -555,6 +572,10 @@ describe("MVP session command kit", () => {
     expect(parsed.commands).toContainEqual({
       name: "preflight.ready-all-smoke",
       command: "npm run mvp:ready -- --include-all-smoke"
+    });
+    expect(parsed.commands).toContainEqual({
+      name: "preflight.ready-windows-control-smoke",
+      command: "npm run mvp:ready -- --include-windows-control-smoke"
     });
     expect(parsed.safety).toContain(
       "Token mode references $env:WINBRIDGE_RELAY_SHARED_TOKEN; the raw token value is not printed."

@@ -68,6 +68,7 @@ const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]{0,127}$/;
 const TOKEN_OPTION_NAMES = new Set(["token"]);
 const COMMAND_ONLY_TARGETS = new Set(["relay", "host", "viewer", "browser", "preflight"]);
 const ALL_SMOKE_READY_COMMAND = "npm run mvp:ready -- --include-all-smoke";
+const WINDOWS_CONTROL_SMOKE_READY_COMMAND = "npm run mvp:ready -- --include-windows-control-smoke";
 const KNOWN_OPTIONS = new Set([
   "session",
   "pairing",
@@ -284,6 +285,8 @@ export function renderMvpSessionCommands(parsed) {
     "npm run mvp:smoke",
     "- Full local smoke coverage before the two-PC trial:",
     ...renderAllSmokePreflightLines(parsed),
+    "- Explicit native Windows control smoke before the two-PC trial:",
+    WINDOWS_CONTROL_SMOKE_READY_COMMAND,
     "",
     "Relay address:",
     `- Current relay URL: ${parsed.relay}`,
@@ -342,6 +345,7 @@ export function formatMvpSessionCommandsJson(parsed) {
     { name: "preflight.native", command: "npm run mvp:native-preflight" },
     { name: "preflight.smoke", command: "npm run mvp:smoke" },
     { name: "preflight.ready-all-smoke", command: renderAllSmokePreflightCommand(parsed) },
+    { name: "preflight.ready-windows-control-smoke", command: WINDOWS_CONTROL_SMOKE_READY_COMMAND },
     { name: "preflight.audit-summary", command: renderPostRunAuditSummaryCommand(parsed) }
   ];
   const safety = renderCommandPlanSafety(parsed);
@@ -389,6 +393,8 @@ function renderMvpPreflightOnlyCommands(parsed = {}) {
     "npm run mvp:smoke",
     "- Full local smoke coverage before the two-PC trial:",
     ...renderAllSmokePreflightLines(parsed),
+    "- Explicit native Windows control smoke before the two-PC trial:",
+    WINDOWS_CONTROL_SMOKE_READY_COMMAND,
     "",
     "Post-run audit evidence after the two-PC trial:",
     renderPostRunAuditSummaryCommand(parsed),
