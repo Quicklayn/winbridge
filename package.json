@@ -18,6 +18,7 @@
     "dev:agent": "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/audit-log run build && npm --workspace @winbridge/windows-capture run build && npm --workspace @winbridge/windows-input run build && npm --workspace @winbridge/agent-shell run dev --",
     "dev:relay": "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/audit-log run build && npm --workspace @winbridge/relay run dev",
     "mvp:commands": "node scripts/mvp-session-commands.mjs",
+    "mvp:audit-summary": "node scripts/mvp-audit-summary.mjs",
     "mvp:doctor": "node scripts/mvp-doctor.mjs",
     "mvp:native-preflight": "node scripts/mvp-native-preflight.mjs",
     "mvp:ready": "node scripts/mvp-ready.mjs",

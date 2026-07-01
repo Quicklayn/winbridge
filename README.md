@@ -417,6 +417,27 @@ codes. It is a local preflight only: it does not use Windows capture, apply OS
 input, launch a browser, install services, configure startup persistence, run
 unattended, elevate privileges, or bypass Windows prompts.
 
+After a development two-PC trial, summarize the explicit local host and viewer
+audit files:
+
+```powershell
+npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl
+npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --json
+```
+
+`mvp:audit-summary` is a read-only post-run evidence check. It reads only the
+two paths passed with `--host` and `--viewer`, rejects unsafe paths or malformed
+JSONL, and prints fixed host/viewer outcome counts plus coverage flags for MVP
+evidence such as approval, visible active authorization, frame send/output,
+input, revocation, and disconnect. Output stays bounded and omits raw records,
+details, event ids, actor ids, target ids, session ids, authorization ids,
+display names, private reasons, audit paths, command strings, stdout, stderr,
+frame bytes, screen contents, input contents, clipboard contents, file contents,
+diagnostics, tokens, pairing codes, credentials, and secrets. It does not start
+relay, host, viewer, browser, capture, input, services, startup persistence,
+network listeners, unattended access, privilege elevation, remote log retrieval,
+or log upload.
+
 To explicitly exercise the same smoke workflow with the consent-bound Windows
 capture adapter on a Windows host:
 

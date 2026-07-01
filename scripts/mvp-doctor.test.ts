@@ -62,7 +62,8 @@ describe("MVP doctor", () => {
         "apps/agent-shell/src/host-control-prompt.ts",
         "apps/agent-shell/src/screen-frame-output.ts",
         "apps/agent-shell/src/viewer-control-prompt.ts",
-        "apps/agent-shell/src/viewer-local-control-surface.ts"
+        "apps/agent-shell/src/viewer-local-control-surface.ts",
+        "scripts/mvp-audit-summary.mjs"
       ])
     );
   });
@@ -356,6 +357,7 @@ function alignedRootScripts() {
       "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/audit-log run build && npm --workspace @winbridge/relay run dev",
     "dev:agent":
       "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/audit-log run build && npm --workspace @winbridge/windows-capture run build && npm --workspace @winbridge/windows-input run build && npm --workspace @winbridge/agent-shell run dev --",
+    "mvp:audit-summary": "node scripts/mvp-audit-summary.mjs",
     "mvp:commands": "node scripts/mvp-session-commands.mjs",
     "mvp:native-preflight": "node scripts/mvp-native-preflight.mjs",
     "mvp:ready": "node scripts/mvp-ready.mjs",

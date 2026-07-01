@@ -12,6 +12,7 @@ export const MVP_DOCTOR_USAGE = [
 export const REQUIRED_MVP_ROOT_SCRIPTS = Object.freeze([
   "dev:relay",
   "dev:agent",
+  "mvp:audit-summary",
   "mvp:commands",
   "mvp:native-preflight",
   "mvp:ready",
@@ -39,6 +40,7 @@ export const REQUIRED_MVP_ENTRYPOINT_FILES = Object.freeze([
   "packages/protocol/src/index.ts",
   "packages/windows-capture/src/index.ts",
   "packages/windows-input/src/index.ts",
+  "scripts/mvp-audit-summary.mjs",
   "scripts/mvp-doctor.mjs",
   "scripts/mvp-native-preflight.mjs",
   "scripts/mvp-ready.mjs",
