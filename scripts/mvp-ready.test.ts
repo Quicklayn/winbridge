@@ -3496,6 +3496,45 @@ describe("MVP ready helper", () => {
       )
     ).toBe(false);
     expect(
+      parseRoleFilteredCommandReadiness(roleFilterOutput("host", { hostApplyInputArg: null }), "host")
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(
+        roleFilterOutput("host", { hostApplyInputArg: "--host-apply-input 'false'" }),
+        "host"
+      )
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(roleFilterOutput("host", { hostWindowsCaptureArg: null }), "host")
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(
+        roleFilterOutput("host", { hostWindowsCaptureArg: "--dev-screen-frame-source 'static'" }),
+        "host"
+      )
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(roleFilterOutput("viewer", { viewerRequestArg: null }), "viewer")
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(
+        roleFilterOutput("viewer", { viewerRequestArg: "--request 'screen:view'" }),
+        "viewer"
+      )
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(
+        roleFilterOutput("viewer", { viewerFrameOutputArg: null }),
+        "viewer"
+      )
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(
+        roleFilterOutput("viewer", { viewerFrameOutputArg: "--viewer-screen-frame-output 'frames\\drift.jpg'" }),
+        "viewer"
+      )
+    ).toBe(false);
+    expect(
       parseRoleFilteredCommandReadiness(
         `${roleFilterOutput("host")}\nviewer command:\nnpm run dev:agent -- viewer`,
         "host"
@@ -3549,6 +3588,26 @@ describe("MVP ready helper", () => {
     expect(
       parseLanAgentRoleFilteredCommandReadiness(lanAgentRoleFilterOutput("viewer"), "viewer")
     ).toBe(true);
+    expect(
+      parseLanAgentRoleFilteredCommandReadiness(
+        roleFilterOutput("host", {
+          relayUrl: "ws://192.168.1.10:8787/",
+          tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN",
+          hostApplyInputArg: null
+        }),
+        "host"
+      )
+    ).toBe(false);
+    expect(
+      parseLanAgentRoleFilteredCommandReadiness(
+        roleFilterOutput("viewer", {
+          relayUrl: "ws://192.168.1.10:8787/",
+          tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN",
+          viewerFrameOutputArg: null
+        }),
+        "viewer"
+      )
+    ).toBe(false);
     expect(parseLanAgentRoleFilteredCommandReadiness(roleFilterOutput("host"), "host")).toBe(false);
     expect(
       parseLanAgentRoleFilteredCommandReadiness(lanAgentRoleFilterOutput("host"), "viewer")
@@ -3595,6 +3654,26 @@ describe("MVP ready helper", () => {
     expect(
       parseTokenEnvAgentRoleFilteredCommandReadiness(tokenEnvAgentRoleFilterOutput("viewer"), "viewer")
     ).toBe(true);
+    expect(
+      parseTokenEnvAgentRoleFilteredCommandReadiness(
+        roleFilterOutput("host", {
+          tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN",
+          tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN",
+          hostWindowsCaptureArg: "--dev-screen-frame-source 'static'"
+        }),
+        "host"
+      )
+    ).toBe(false);
+    expect(
+      parseTokenEnvAgentRoleFilteredCommandReadiness(
+        roleFilterOutput("viewer", {
+          tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN",
+          tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN",
+          viewerRequestArg: "--request 'screen:view'"
+        }),
+        "viewer"
+      )
+    ).toBe(false);
     expect(parseTokenEnvAgentRoleFilteredCommandReadiness(roleFilterOutput("host"), "host")).toBe(false);
     expect(
       parseTokenEnvAgentRoleFilteredCommandReadiness(
@@ -4086,12 +4165,16 @@ function roleFilterOutput(
   target: string,
   options: {
     browserCommand?: string;
+    hostApplyInputArg?: string | null;
     hostControlSurfaceArg?: string | null;
     hostConsentTimeoutArg?: string | null;
+    hostWindowsCaptureArg?: string | null;
     relayCommand?: string;
     relayUrl?: string;
     tokenArgument?: string;
     tokenEnv?: string;
+    viewerFrameOutputArg?: string | null;
+    viewerRequestArg?: string | null;
   } = {}
 ) {
   if (target === "preflight") {
@@ -4124,13 +4207,13 @@ function roleFilterOutput(
     relay: ["relay command:", options.relayCommand ?? "npm run dev:relay"],
     host: [
       "host command:",
-      `npm run dev:agent -- host --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true'${options.hostConsentTimeoutArg === null ? "" : ` ${options.hostConsentTimeoutArg ?? "--host-consent-timeout-ms '60000'"}`} --visible-session 'true' --host-control-prompt 'true'${options.hostControlSurfaceArg === null ? "" : ` ${options.hostControlSurfaceArg ?? "--host-control-surface-port '0'"}`} --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl' --host-apply-input 'true' --dev-screen-frame-after-ms '1000' --dev-screen-frame-source 'windows-capture' --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'${options.tokenArgument ? ` ${options.tokenArgument}` : ""}`,
+      `npm run dev:agent -- host --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true'${options.hostConsentTimeoutArg === null ? "" : ` ${options.hostConsentTimeoutArg ?? "--host-consent-timeout-ms '60000'"}`} --visible-session 'true' --host-control-prompt 'true'${options.hostControlSurfaceArg === null ? "" : ` ${options.hostControlSurfaceArg ?? "--host-control-surface-port '0'"}`} --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl'${options.hostApplyInputArg === null ? "" : ` ${options.hostApplyInputArg ?? "--host-apply-input 'true'"}`} --dev-screen-frame-after-ms '1000'${options.hostWindowsCaptureArg === null ? "" : ` ${options.hostWindowsCaptureArg ?? "--dev-screen-frame-source 'windows-capture'"}`} --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'${options.tokenArgument ? ` ${options.tokenArgument}` : ""}`,
       "Host controls:",
       "help | status | pause | resume | revoke screen:view | revoke input:pointer | revoke input:keyboard | terminate | disconnect"
     ],
     viewer: [
       "viewer command:",
-      `npm run dev:agent -- viewer --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Support Viewer' --request 'screen:view,input:pointer,input:keyboard' --request-reason 'MVP remote assistance session' --viewer-signal-probe-after-ms '1000' --audit-log 'logs\\viewer-audit.jsonl' --viewer-screen-frame-output 'frames\\latest.jpg' --viewer-control-surface-port '35987'${options.tokenArgument ? ` ${options.tokenArgument}` : ""}`,
+      `npm run dev:agent -- viewer --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Support Viewer'${options.viewerRequestArg === null ? "" : ` ${options.viewerRequestArg ?? "--request 'screen:view,input:pointer,input:keyboard'"}`} --request-reason 'MVP remote assistance session' --viewer-signal-probe-after-ms '1000' --audit-log 'logs\\viewer-audit.jsonl'${options.viewerFrameOutputArg === null ? "" : ` ${options.viewerFrameOutputArg ?? "--viewer-screen-frame-output 'frames\\latest.jpg'"}`} --viewer-control-surface-port '35987'${options.tokenArgument ? ` ${options.tokenArgument}` : ""}`,
       "Open the separate browser command on the viewer PC after this viewer command is running."
     ],
     browser: [

@@ -1328,6 +1328,8 @@ function roleFilterMarkersForTarget(target, options = {}) {
       "--host-control-prompt 'true'",
       REVIEWED_HOST_CONTROL_SURFACE_ARG,
       "--host-signal-probe-ack 'true'",
+      REVIEWED_HOST_APPLY_INPUT_ARG,
+      REVIEWED_HOST_WINDOWS_CAPTURE_ARG,
       "Host controls:"
     ],
     viewer: [
@@ -1336,9 +1338,10 @@ function roleFilterMarkersForTarget(target, options = {}) {
       "Relay URL:",
       "viewer command:",
       "npm run dev:agent -- viewer",
-      "--request 'screen:view,input:pointer,input:keyboard'",
+      REVIEWED_VIEWER_CONTROL_REQUEST_ARG,
       "--request-reason 'MVP remote assistance session'",
       "--viewer-signal-probe-after-ms",
+      REVIEWED_VIEWER_FRAME_OUTPUT_ARG,
       "--viewer-control-surface-port"
     ],
     browser: [

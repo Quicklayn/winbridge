@@ -287,8 +287,10 @@ validation sequentially. It also validates the target-specific text outputs
 from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
 `preflight`, the tokenized LAN role-filter relay/host/viewer outputs, the
 shared-token environment-reference relay/host/viewer/browser/preflight text
-outputs, the fixed all-smoke and Windows-control preflight entries in generated
-command plans, and the full-plan host/viewer native control markers:
+outputs, including the host/viewer native control markers in the role-filtered
+host/viewer text blocks. It also validates the fixed all-smoke and
+Windows-control preflight entries in generated command plans, and the full-plan
+host/viewer native control markers:
 `--host-apply-input true`, `--dev-screen-frame-source windows-capture`, the
 viewer `screen:view,input:pointer,input:keyboard` request, and
 `--viewer-screen-frame-output frames\latest.jpg`. It also validates the bounded
