@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-07-01
+goal: Prove consent-bound host OS input application only through an opt-in
+  Windows smoke path

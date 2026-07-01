@@ -356,7 +356,8 @@ is mutually exclusive with the portable local smoke flags and is rejected with
 relay bind settings, discovery, firewall rules, services, startup persistence,
 unattended access, Windows capture, OS input application, browser automation,
 or hidden sessions. Native Windows capture smoke remains a separate explicit
-opt-in through `--include-windows-capture-smoke`.
+opt-in through `--include-windows-capture-smoke`; native Windows input smoke
+remains a separate explicit opt-in through `--include-windows-input-smoke`.
 
 To also aggregate the token-protected local smoke path, set a bounded relay
 token environment variable and include the explicit token smoke flag:
@@ -483,6 +484,34 @@ npm run mvp:ready -- --include-windows-capture-smoke
 `--include-all-smoke` intentionally does not include native capture because it
 reads the local screen; without `--include-windows-capture-smoke`, readiness
 reports `windows-capture-smoke` as skipped metadata only.
+
+To explicitly exercise the same smoke workflow with the consent-bound Windows
+input adapter on a Windows host:
+
+```powershell
+npm run mvp:smoke -- --windows-input
+```
+
+This is Windows-only and fails before starting child processes on other
+platforms. It keeps explicit host approval, `--visible-session true`, the host
+control surface, the viewer control surface, protocol input, audit checks,
+revocation, and viewer disconnect behavior, then verifies bounded host audit
+evidence for `agent-shell.remote-interaction.input-event.applied`. It does not
+run by default, does not run through `--include-all-smoke`, does not launch a
+browser, install services, configure startup persistence, run unattended,
+elevate privileges, bypass Windows prompts, read credentials, read clipboard
+contents, keylog, evade AV/EDR, or hide session/input activity. Human and JSON
+output remain bounded and do not print input payloads, PowerShell diagnostics,
+tokens, pairing codes, local paths, command strings, child output, or secrets.
+
+To include this explicit native input smoke check in aggregate readiness, use:
+
+```powershell
+npm run mvp:ready -- --include-windows-input-smoke
+```
+
+Without `--include-windows-input-smoke`, readiness reports
+`windows-input-smoke` as skipped metadata only.
 
 To exercise the same smoke workflow through the development relay shared-token
 gate, set a bounded token in an environment variable and pass only the variable

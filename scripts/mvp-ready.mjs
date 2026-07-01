@@ -10,6 +10,7 @@ export const MVP_READY_USAGE = [
   "  --include-token-smoke",
   "  --include-lan-token-smoke",
   "  --include-windows-capture-smoke",
+  "  --include-windows-input-smoke",
   "  --include-all-smoke",
   "  --role relay|host|viewer",
   "",
@@ -29,6 +30,20 @@ const SAFE_SMOKE_SUBCHECK_NAMES = new Set([
   "signal",
   "surface-guards",
   "input",
+  "audit",
+  "lifecycle",
+  "viewer-disconnect"
+]);
+const SAFE_WINDOWS_INPUT_SMOKE_SUBCHECK_NAMES = new Set([
+  "relay",
+  "indicator",
+  "host-surface",
+  "frame",
+  "surface",
+  "signal",
+  "surface-guards",
+  "input",
+  "windows-input",
   "audit",
   "lifecycle",
   "viewer-disconnect"
@@ -112,6 +127,7 @@ export function parseMvpReadyArgs(rawArgs) {
       includeTokenSmoke: false,
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: false
     };
   }
@@ -129,6 +145,7 @@ export function parseMvpReadyArgs(rawArgs) {
   let includeTokenSmoke = false;
   let includeLanTokenSmoke = false;
   let includeWindowsCaptureSmoke = false;
+  let includeWindowsInputSmoke = false;
   let includeAllSmoke = false;
   let role;
 
@@ -174,6 +191,14 @@ export function parseMvpReadyArgs(rawArgs) {
       continue;
     }
 
+    if (arg === "--include-windows-input-smoke") {
+      if (includeWindowsInputSmoke) {
+        throw new MvpReadyUsageError();
+      }
+      includeWindowsInputSmoke = true;
+      continue;
+    }
+
     if (arg === "--include-all-smoke") {
       if (includeAllSmoke) {
         throw new MvpReadyUsageError();
@@ -204,7 +229,14 @@ export function parseMvpReadyArgs(rawArgs) {
 
   if (
     role !== undefined &&
-    (includeSmoke || includeTokenSmoke || includeLanTokenSmoke || includeWindowsCaptureSmoke || includeAllSmoke)
+    (
+      includeSmoke ||
+      includeTokenSmoke ||
+      includeLanTokenSmoke ||
+      includeWindowsCaptureSmoke ||
+      includeWindowsInputSmoke ||
+      includeAllSmoke
+    )
   ) {
     throw new MvpReadyUsageError();
   }
@@ -216,6 +248,7 @@ export function parseMvpReadyArgs(rawArgs) {
     includeTokenSmoke,
     includeLanTokenSmoke,
     includeWindowsCaptureSmoke,
+    includeWindowsInputSmoke,
     includeAllSmoke,
     ...(role ? { role } : {})
   };
@@ -341,6 +374,14 @@ export function createMvpReadyPlan(options = {}) {
             ...commandWithArgs("mvp:smoke", ["--json", "--windows-capture"])
           }
         ]
+      : []),
+    ...(options.includeWindowsInputSmoke
+      ? [
+          {
+            name: "windows-input-smoke",
+            ...commandWithArgs("mvp:smoke", ["--json", "--windows-input"])
+          }
+        ]
       : [])
   ];
 }
@@ -356,7 +397,7 @@ export function runMvpReadyCheck(options = {}) {
     if (!result.ok) {
       const smokeResult =
         isSmokeStep(step.name) && result.reason === "exit-nonzero"
-          ? parseSmokeReadiness(result.output)
+          ? parseSmokeReadiness(result.output, smokeReadinessOptionsForStep(step.name))
           : undefined;
       const failed = {
         name: step.name,
@@ -647,7 +688,7 @@ export function runMvpReadyCheck(options = {}) {
     }
 
     if (isSmokeStep(step.name)) {
-      const smokeResult = parseSmokeReadiness(result.output);
+      const smokeResult = parseSmokeReadiness(result.output, smokeReadinessOptionsForStep(step.name));
       if (smokeResult?.ok !== true) {
         const failed = {
           name: step.name,
@@ -675,6 +716,7 @@ export function runMvpReadyCheck(options = {}) {
   const includeTokenSmoke = options.includeTokenSmoke || options.includeAllSmoke;
   const includeLanTokenSmoke = options.includeLanTokenSmoke || options.includeAllSmoke;
   const includeWindowsCaptureSmoke = options.includeWindowsCaptureSmoke === true;
+  const includeWindowsInputSmoke = options.includeWindowsInputSmoke === true;
   if (!includeSmoke && !role) {
     checks.push({ name: "smoke", ok: true, skipped: true });
     checks.push({ name: "lan-smoke", ok: true, skipped: true });
@@ -687,6 +729,9 @@ export function runMvpReadyCheck(options = {}) {
   }
   if (!includeWindowsCaptureSmoke && !role) {
     checks.push({ name: "windows-capture-smoke", ok: true, skipped: true });
+  }
+  if (!includeWindowsInputSmoke && !role) {
+    checks.push({ name: "windows-input-smoke", ok: true, skipped: true });
   }
 
   return {
@@ -785,8 +830,13 @@ function isSmokeStep(name) {
     name === "lan-smoke" ||
     name === "token-smoke" ||
     name === "lan-token-smoke" ||
-    name === "windows-capture-smoke"
+    name === "windows-capture-smoke" ||
+    name === "windows-input-smoke"
   );
+}
+
+function smokeReadinessOptionsForStep(name) {
+  return { windowsInput: name === "windows-input-smoke" };
 }
 
 function roleFilterTargetForStep(name) {
@@ -1406,12 +1456,12 @@ function commandPlanSafetyUsesTokenEnv(safety, expectedTokenEnv) {
   );
 }
 
-export function parseSmokeSubchecks(output) {
-  const result = parseSmokeReadiness(output);
+export function parseSmokeSubchecks(output, options = {}) {
+  const result = parseSmokeReadiness(output, options);
   return result?.ok === true ? result.checks : undefined;
 }
 
-export function parseSmokeReadiness(output) {
+export function parseSmokeReadiness(output, options = {}) {
   if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
     return undefined;
   }
@@ -1431,6 +1481,7 @@ export function parseSmokeReadiness(output) {
   }
 
   const expectedOk = parsed.ok === true;
+  const expectedSubcheckNames = smokeSubcheckNamesForOptions(options);
   const seen = new Set();
   const subchecks = [];
   for (const check of parsed.checks) {
@@ -1438,7 +1489,7 @@ export function parseSmokeReadiness(output) {
       !check ||
       !hasExactSmokeSubcheckShape(check) ||
       typeof check.name !== "string" ||
-      !SAFE_SMOKE_SUBCHECK_NAMES.has(check.name) ||
+      !expectedSubcheckNames.has(check.name) ||
       seen.has(check.name) ||
       typeof check.ok !== "boolean" ||
       (expectedOk && check.ok !== true) ||
@@ -1455,7 +1506,7 @@ export function parseSmokeReadiness(output) {
     });
   }
 
-  if (subchecks.length !== SAFE_SMOKE_SUBCHECK_NAMES.size) {
+  if (subchecks.length !== expectedSubcheckNames.size) {
     return undefined;
   }
 
@@ -1472,6 +1523,10 @@ export function parseSmokeReadiness(output) {
   }
 
   return { ok: expectedOk, checks: subchecks, ...(auditSummary ? { auditSummary } : {}) };
+}
+
+function smokeSubcheckNamesForOptions(options = {}) {
+  return options.windowsInput ? SAFE_WINDOWS_INPUT_SMOKE_SUBCHECK_NAMES : SAFE_SMOKE_SUBCHECK_NAMES;
 }
 
 function hasExactSmokeSubcheckShape(check) {
@@ -1638,6 +1693,7 @@ function runCli(rawArgs = process.argv.slice(2), streams = process) {
       includeTokenSmoke: parsed.includeTokenSmoke,
       includeLanTokenSmoke: parsed.includeLanTokenSmoke,
       includeWindowsCaptureSmoke: parsed.includeWindowsCaptureSmoke,
+      includeWindowsInputSmoke: parsed.includeWindowsInputSmoke,
       includeAllSmoke: parsed.includeAllSmoke,
       role: parsed.role
     });

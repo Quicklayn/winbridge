@@ -35,6 +35,7 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: false,
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--json"])).toEqual({
@@ -44,6 +45,7 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: false,
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-smoke", "--json"])).toEqual({
@@ -53,6 +55,7 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: false,
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-token-smoke", "--json"])).toEqual({
@@ -62,6 +65,7 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: true,
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-lan-token-smoke", "--json"])).toEqual({
@@ -71,6 +75,7 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: false,
       includeLanTokenSmoke: true,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-windows-capture-smoke", "--json"])).toEqual({
@@ -80,6 +85,17 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: false,
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: true,
+      includeWindowsInputSmoke: false,
+      includeAllSmoke: false
+    });
+    expect(parseMvpReadyArgs(["--include-windows-input-smoke", "--json"])).toEqual({
+      help: false,
+      json: true,
+      includeSmoke: false,
+      includeTokenSmoke: false,
+      includeLanTokenSmoke: false,
+      includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: true,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-all-smoke", "--json"])).toEqual({
@@ -89,6 +105,7 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: false,
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: true
     });
     expect(
@@ -100,6 +117,7 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: true,
       includeLanTokenSmoke: true,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--role", "host"])).toEqual({
@@ -109,6 +127,7 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: false,
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: false,
       role: "host"
     });
@@ -119,6 +138,7 @@ describe("MVP ready helper", () => {
       includeTokenSmoke: false,
       includeLanTokenSmoke: false,
       includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
       includeAllSmoke: false,
       role: "viewer"
     });
@@ -129,6 +149,7 @@ describe("MVP ready helper", () => {
     expect(MVP_READY_USAGE).toContain("Default mode runs doctor, native");
     expect(MVP_READY_USAGE).toContain("non-executing command-plan validation");
     expect(MVP_READY_USAGE).toContain("role-filter, LAN, token-env, and ephemeral browser outputs");
+    expect(MVP_READY_USAGE).toContain("--include-windows-input-smoke");
     expect(MVP_READY_USAGE).toContain("Smoke checks are explicit through include flags.");
     expect(MVP_READY_USAGE).not.toContain("Default mode runs only");
     expect(MVP_READY_USAGE).not.toContain("only\nread-only doctor and native preflight");
@@ -158,6 +179,9 @@ describe("MVP ready helper", () => {
     );
     expect(() =>
       parseMvpReadyArgs(["--include-windows-capture-smoke", "--include-windows-capture-smoke"])
+    ).toThrow(MvpReadyUsageError);
+    expect(() =>
+      parseMvpReadyArgs(["--include-windows-input-smoke", "--include-windows-input-smoke"])
     ).toThrow(MvpReadyUsageError);
     expect(() => parseMvpReadyArgs(["--include-all-smoke", "--include-all-smoke"])).toThrow(
       MvpReadyUsageError
@@ -203,6 +227,12 @@ describe("MVP ready helper", () => {
     );
     expect(() =>
       parseMvpReadyArgs(["--include-windows-capture-smoke", "--role", "viewer"])
+    ).toThrow(MvpReadyUsageError);
+    expect(() => parseMvpReadyArgs(["--role", "host", "--include-windows-input-smoke"])).toThrow(
+      MvpReadyUsageError
+    );
+    expect(() =>
+      parseMvpReadyArgs(["--include-windows-input-smoke", "--role", "viewer"])
     ).toThrow(MvpReadyUsageError);
     expect(() => parseMvpReadyArgs(["--role", "host", "--include-all-smoke"])).toThrow(
       MvpReadyUsageError
@@ -506,7 +536,62 @@ describe("MVP ready helper", () => {
     ]);
   });
 
-  it("includes every smoke variant when all smoke is explicitly requested", () => {
+  it("includes Windows input smoke only when explicitly requested", () => {
+    expect(createMvpReadyPlan({ npmCommand: "npm", includeWindowsInputSmoke: true })).toEqual([
+      ...createMvpReadyPlan({ npmCommand: "npm" }),
+      {
+        name: "windows-input-smoke",
+        command: "npm",
+        args: ["run", "mvp:smoke", "--", "--json", "--windows-input"]
+      }
+    ]);
+    expect(
+      createMvpReadyPlan({
+        npmCommand: "npm",
+        includeAllSmoke: true,
+        includeWindowsInputSmoke: true
+      }).slice(-5)
+    ).toEqual([
+      { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] },
+      {
+        name: "lan-smoke",
+        command: "npm",
+        args: ["run", "mvp:smoke", "--", "--json", "--lan-relay"]
+      },
+      {
+        name: "token-smoke",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:smoke",
+          "--",
+          "--json",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
+      },
+      {
+        name: "lan-token-smoke",
+        command: "npm",
+        args: [
+          "run",
+          "mvp:smoke",
+          "--",
+          "--json",
+          "--lan-relay",
+          "--token-env",
+          "WINBRIDGE_RELAY_SHARED_TOKEN"
+        ]
+      },
+      {
+        name: "windows-input-smoke",
+        command: "npm",
+        args: ["run", "mvp:smoke", "--", "--json", "--windows-input"]
+      }
+    ]);
+  });
+
+  it("includes every default smoke variant when all smoke is explicitly requested", () => {
     expect(createMvpReadyPlan({ npmCommand: "npm", includeAllSmoke: true }).slice(-4)).toEqual([
       { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] },
       {
@@ -540,6 +625,9 @@ describe("MVP ready helper", () => {
         ]
       }
     ]);
+    expect(JSON.stringify(createMvpReadyPlan({ npmCommand: "npm", includeAllSmoke: true }))).not.toContain(
+      "--windows-input"
+    );
   });
 
   it("builds role-scoped readiness plans without changing the default plan", () => {
@@ -734,7 +822,8 @@ describe("MVP ready helper", () => {
         { name: "lan-smoke", ok: true, skipped: true },
         { name: "token-smoke", ok: true, skipped: true },
         { name: "lan-token-smoke", ok: true, skipped: true },
-        { name: "windows-capture-smoke", ok: true, skipped: true }
+        { name: "windows-capture-smoke", ok: true, skipped: true },
+        { name: "windows-input-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toBe(
@@ -763,7 +852,8 @@ describe("MVP ready helper", () => {
         "lan-smoke=skipped",
         "token-smoke=skipped",
         "lan-token-smoke=skipped",
-        "windows-capture-smoke=skipped"
+        "windows-capture-smoke=skipped",
+        "windows-input-smoke=skipped"
       ].join("\n")
     );
   });
@@ -929,7 +1019,8 @@ describe("MVP ready helper", () => {
         { name: "lan-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
         { name: "token-smoke", ok: true, skipped: true },
         { name: "lan-token-smoke", ok: true, skipped: true },
-        { name: "windows-capture-smoke", ok: true, skipped: true }
+        { name: "windows-capture-smoke", ok: true, skipped: true },
+        { name: "windows-input-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toContain("smoke.audit=ok");
@@ -990,7 +1081,8 @@ describe("MVP ready helper", () => {
         { name: "smoke", ok: true, skipped: true },
         { name: "lan-smoke", ok: true, skipped: true },
         { name: "lan-token-smoke", ok: true, skipped: true },
-        { name: "windows-capture-smoke", ok: true, skipped: true }
+        { name: "windows-capture-smoke", ok: true, skipped: true },
+        { name: "windows-input-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toContain("token-smoke.audit=ok");
@@ -1103,7 +1195,8 @@ describe("MVP ready helper", () => {
         { name: "smoke", ok: true, skipped: true },
         { name: "lan-smoke", ok: true, skipped: true },
         { name: "token-smoke", ok: true, skipped: true },
-        { name: "windows-capture-smoke", ok: true, skipped: true }
+        { name: "windows-capture-smoke", ok: true, skipped: true },
+        { name: "windows-input-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toContain("lan-token-smoke.audit=ok");
@@ -1218,7 +1311,8 @@ describe("MVP ready helper", () => {
         { name: "smoke", ok: true, skipped: true },
         { name: "lan-smoke", ok: true, skipped: true },
         { name: "token-smoke", ok: true, skipped: true },
-        { name: "lan-token-smoke", ok: true, skipped: true }
+        { name: "lan-token-smoke", ok: true, skipped: true },
+        { name: "windows-input-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toContain("windows-capture-smoke.audit=ok");
@@ -1308,6 +1402,128 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyJsonResult(result)).not.toContain("dev-screen-frame-source");
   });
 
+  it("runs Windows input smoke after default checks when explicitly included", () => {
+    const calls: string[] = [];
+    const smokeOutput = JSON.stringify({
+      ok: true,
+      checks: windowsInputSmokeSubchecks(),
+      auditSummary: smokeAuditSummary()
+    });
+    const result = runMvpReadyCheck({
+      includeWindowsInputSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeWindowsInputSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        calls.push(step.name);
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "preflight-json-command-plan") {
+          return { ok: true, output: preflightCommandPlanOutput() };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return step.name === "windows-input-smoke" ? { ok: true, output: smokeOutput } : { ok: true };
+      }
+    });
+
+    expect(calls).toEqual([...defaultReadyCheckNames(), "windows-input-smoke"]);
+    expect(result).toEqual({
+      ok: true,
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        { name: "preflight-json-command-plan", ok: true },
+        ...roleFilterCheckResults(),
+        {
+          name: "windows-input-smoke",
+          ok: true,
+          checks: windowsInputSmokeSubchecks(),
+          auditSummary: smokeAuditSummary()
+        },
+        { name: "smoke", ok: true, skipped: true },
+        { name: "lan-smoke", ok: true, skipped: true },
+        { name: "token-smoke", ok: true, skipped: true },
+        { name: "lan-token-smoke", ok: true, skipped: true },
+        { name: "windows-capture-smoke", ok: true, skipped: true }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).toContain("windows-input-smoke.windows-input=ok");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("--windows-input");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("host-apply-input");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("pointer-move");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("powershell diagnostics");
+  });
+
+  it("fails closed when Windows input smoke metadata is missing or unsafe", () => {
+    const result = runMvpReadyCheck({
+      includeWindowsInputSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeWindowsInputSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "preflight-json-command-plan") {
+          return { ok: true, output: preflightCommandPlanOutput() };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return step.name === "windows-input-smoke"
+          ? {
+              ok: false,
+              reason: "exit-nonzero",
+              output: `${JSON.stringify({ ok: true, checks: smokeSubchecks() })}\npointer-move\npowershell diagnostics`
+            }
+          : { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        { name: "preflight-json-command-plan", ok: true },
+        ...roleFilterCheckResults(),
+        { name: "windows-input-smoke", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("pointer-move");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("powershell diagnostics");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("--windows-input");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("host-apply-input");
+  });
+
   it("runs every smoke variant after default checks when all smoke is explicitly included", () => {
     const calls: string[] = [];
     const smokeOutput = JSON.stringify({
@@ -1367,7 +1583,8 @@ describe("MVP ready helper", () => {
         { name: "lan-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
         { name: "token-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
         { name: "lan-token-smoke", ok: true, checks: smokeSubchecks(), auditSummary: smokeAuditSummary() },
-        { name: "windows-capture-smoke", ok: true, skipped: true }
+        { name: "windows-capture-smoke", ok: true, skipped: true },
+        { name: "windows-input-smoke", ok: true, skipped: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toContain("smoke.audit=ok");
@@ -3518,6 +3735,23 @@ function smokeSubchecks() {
     { name: "signal", ok: true },
     { name: "surface-guards", ok: true },
     { name: "input", ok: true },
+    { name: "audit", ok: true },
+    { name: "lifecycle", ok: true },
+    { name: "viewer-disconnect", ok: true }
+  ];
+}
+
+function windowsInputSmokeSubchecks() {
+  return [
+    { name: "relay", ok: true },
+    { name: "indicator", ok: true },
+    { name: "host-surface", ok: true },
+    { name: "frame", ok: true },
+    { name: "surface", ok: true },
+    { name: "signal", ok: true },
+    { name: "surface-guards", ok: true },
+    { name: "input", ok: true },
+    { name: "windows-input", ok: true },
     { name: "audit", ok: true },
     { name: "lifecycle", ok: true },
     { name: "viewer-disconnect", ok: true }

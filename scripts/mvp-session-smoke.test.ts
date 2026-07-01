@@ -11,6 +11,7 @@ import {
   formatMvpSessionSmokeJsonSuccess,
   formatMvpSessionSmokeSuccess,
   hasActiveVisibleHostIndicatorOutput,
+  hasSmokeAuditLogAction,
   hasUsableSmokeAuditLogContent,
   MvpSessionSmokeUsageError,
   parseMvpSessionSmokeArgs,
@@ -60,6 +61,7 @@ describe("MVP session smoke check", () => {
         "--keep-artifacts",
         "--lan-relay",
         "--windows-capture",
+        "--windows-input",
         "--token-env",
         "WINBRIDGE_TEST_RELAY_TOKEN",
         "--timeout-ms",
@@ -70,6 +72,7 @@ describe("MVP session smoke check", () => {
       keepArtifacts: true,
       lanRelay: true,
       windowsCapture: true,
+      windowsInput: true,
       tokenEnv: "WINBRIDGE_TEST_RELAY_TOKEN",
       json: true
     });
@@ -103,6 +106,9 @@ describe("MVP session smoke check", () => {
       MvpSessionSmokeUsageError
     );
     expect(() => parseMvpSessionSmokeArgs(["--windows-capture", "--windows-capture"])).toThrow(
+      MvpSessionSmokeUsageError
+    );
+    expect(() => parseMvpSessionSmokeArgs(["--windows-input", "--windows-input"])).toThrow(
       MvpSessionSmokeUsageError
     );
     expect(() => parseMvpSessionSmokeArgs(["--json", "raw-secret-token"])).toThrow(
@@ -221,6 +227,63 @@ describe("MVP session smoke check", () => {
     expect(output).not.toContain("key-down KeyA shift,control");
     expect(output).not.toContain("123-456");
     expect(output).not.toContain("relay.peer.join.accepted");
+  });
+
+  it("formats explicit Windows input JSON success with a fixed subcheck only", () => {
+    const output = formatMvpSessionSmokeJsonSuccess(
+      {
+        ok: true,
+        workDir: "C:\\Temp\\winbridge-mvp-smoke-safe",
+        framePath: "C:\\Temp\\winbridge-mvp-smoke-safe\\frames\\latest.png",
+        surfaceUrl: "http://127.0.0.1:35987/"
+      },
+      { windowsInput: true }
+    );
+    const parsed = JSON.parse(output);
+
+    expect(parsed.checks).toContainEqual({ name: "windows-input", ok: true });
+    expect(parsed.checks.map((check: { name: string }) => check.name)).toEqual([
+      "relay",
+      "indicator",
+      "host-surface",
+      "frame",
+      "surface",
+      "signal",
+      "surface-guards",
+      "input",
+      "windows-input",
+      "audit",
+      "lifecycle",
+      "viewer-disconnect"
+    ]);
+    expect(output).not.toContain("host-apply-input");
+    expect(output).not.toContain("pointer-move");
+    expect(output).not.toContain("key-down");
+    expect(output).not.toContain("PowerShell");
+  });
+
+  it("does not print retained artifact paths for explicit Windows input smoke", () => {
+    const result = {
+      ok: true,
+      workDir: "C:\\Temp\\native-input-smoke",
+      framePath: "C:\\Temp\\native-input-smoke\\frames\\latest.png",
+      surfaceUrl: "http://127.0.0.1:35987/"
+    };
+    const textOutput = formatMvpSessionSmokeSuccess(result, {
+      keepArtifacts: true,
+      windowsInput: true
+    });
+    const jsonOutput = formatMvpSessionSmokeJsonSuccess(result, {
+      keepArtifacts: true,
+      windowsInput: true
+    });
+    const parsed = JSON.parse(jsonOutput);
+
+    expect(textOutput).toContain("artifacts=retained");
+    expect(textOutput).not.toContain("C:\\Temp\\native-input-smoke");
+    expect(parsed.artifacts).toBe("retained");
+    expect(parsed).not.toHaveProperty("artifactDir");
+    expect(jsonOutput).not.toContain("C:\\Temp\\native-input-smoke");
   });
 
   it("formats retained artifact directory only when JSON artifacts are explicitly kept", () => {
@@ -378,6 +441,46 @@ describe("MVP session smoke check", () => {
         { name: "viewer-disconnect", ok: false, skipped: true }
       ]
     });
+    expect(
+      JSON.parse(formatMvpSessionSmokeJsonError(new Error("native-input-unsupported"), { windowsInput: true }))
+    ).toEqual({
+      ok: false,
+      reason: "native-input-unsupported",
+      checks: [
+        { name: "relay", ok: false },
+        { name: "indicator", ok: false, skipped: true },
+        { name: "host-surface", ok: false, skipped: true },
+        { name: "frame", ok: false, skipped: true },
+        { name: "surface", ok: false, skipped: true },
+        { name: "signal", ok: false, skipped: true },
+        { name: "surface-guards", ok: false, skipped: true },
+        { name: "input", ok: false, skipped: true },
+        { name: "windows-input", ok: false, skipped: true },
+        { name: "audit", ok: false, skipped: true },
+        { name: "lifecycle", ok: false, skipped: true },
+        { name: "viewer-disconnect", ok: false, skipped: true }
+      ]
+    });
+    expect(
+      JSON.parse(formatMvpSessionSmokeJsonError(new Error("windows-input-not-ready"), { windowsInput: true }))
+    ).toEqual({
+      ok: false,
+      reason: "windows-input-not-ready",
+      checks: [
+        { name: "relay", ok: true },
+        { name: "indicator", ok: true },
+        { name: "host-surface", ok: true },
+        { name: "frame", ok: true },
+        { name: "surface", ok: true },
+        { name: "signal", ok: true },
+        { name: "surface-guards", ok: true },
+        { name: "input", ok: true },
+        { name: "windows-input", ok: false },
+        { name: "audit", ok: false, skipped: true },
+        { name: "lifecycle", ok: false, skipped: true },
+        { name: "viewer-disconnect", ok: false, skipped: true }
+      ]
+    });
     expect(formatMvpSessionSmokeJsonError(new Error("raw-secret-token"))).not.toContain(
       "raw-secret-token"
     );
@@ -466,6 +569,29 @@ describe("MVP session smoke check", () => {
     expect(serialized).not.toContain("unattended");
     expect(serialized).not.toContain("service");
     expect(serialized).not.toContain("startup");
+  });
+
+  it("builds explicit Windows input smoke plans without changing default smoke", () => {
+    const plan = createMvpSmokePlan({
+      npmCommand: "npm",
+      workDir: "C:\\Temp\\winbridge-smoke",
+      relayPort: 18787,
+      surfacePort: 35987,
+      session: "smoke-test",
+      windowsInput: true
+    });
+    const serialized = JSON.stringify(plan);
+
+    expect(plan.host.args).toContain("--host-apply-input");
+    expect(plan.host.args).toContain("true");
+    expect(plan.host.args).toContain("--audit-log");
+    expect(plan.host.args).toContain("C:\\Temp\\winbridge-smoke\\logs\\host-audit.jsonl");
+    expect(serialized).not.toContain("Start-Process");
+    expect(serialized).not.toContain("playwright");
+    expect(serialized).not.toContain("unattended");
+    expect(serialized).not.toContain("service");
+    expect(serialized).not.toContain("startup");
+    expect(serialized).not.toContain("keylog");
   });
 
   it("builds the default smoke viewer plan with an ephemeral local surface port", () => {
@@ -1334,6 +1460,13 @@ describe("MVP session smoke check", () => {
 
     expect(hasUsableSmokeAuditLogContent(`${auditLine}\n`)).toBe(true);
     expect(
+      hasSmokeAuditLogAction(
+        `${smokeAuditLine("agent-shell.remote-interaction.input-event.applied")}\n`,
+        "agent-shell.remote-interaction.input-event.applied"
+      )
+    ).toBe(true);
+    expect(hasSmokeAuditLogAction(`${auditLine}\n`, "agent-shell.remote-interaction.input-event.applied")).toBe(false);
+    expect(
       hasUsableSmokeAuditLogContent(
         '{"eventId":"short","timestamp":"not-a-date","action":"raw-token","outcome":"accepted"}\n'
       )
@@ -1478,6 +1611,35 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeJsonError(new Error("native-capture-unsupported"))).not.toContain(
       "C:\\Temp\\native-capture-smoke"
     );
+  });
+
+  it("fails Windows input smoke before startup on non-Windows platforms", async () => {
+    const spawned: string[] = [];
+
+    await expect(
+      runMvpSessionSmokeCheck({
+        cwd: "C:\\repo",
+        workDir: "C:\\Temp\\native-input-smoke",
+        relayPort: 18787,
+        surfacePort: 35987,
+        timeoutMs: 1000,
+        keepArtifacts: true,
+        windowsInput: true,
+        platform: "linux",
+        spawnProcess: (command: string, args: string[]) => {
+          spawned.push([command, ...args].join(" "));
+          return fakeChild(500 + spawned.length);
+        }
+      })
+    ).rejects.toThrow("WinBridge MVP smoke check failed. reason=native-input-unsupported");
+
+    expect(spawned).toEqual([]);
+    expect(formatMvpSessionSmokeError(new Error("native-input-unsupported"))).toBe(
+      "WinBridge MVP smoke check failed. reason=native-input-unsupported"
+    );
+    expect(
+      formatMvpSessionSmokeJsonError(new Error("native-input-unsupported"), { windowsInput: true })
+    ).not.toContain("C:\\Temp\\native-input-smoke");
   });
 
   it("cleans up started children when the smoke check fails", async () => {

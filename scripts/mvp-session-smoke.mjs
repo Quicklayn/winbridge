@@ -23,14 +23,16 @@ export const MVP_SESSION_SMOKE_USAGE = [
   "  --keep-artifacts",
   "  --lan-relay",
   "  --windows-capture",
+  "  --windows-input",
   "  --token-env WINBRIDGE_RELAY_SHARED_TOKEN",
   "  --json",
   "",
   "The smoke check starts local relay, host, and viewer development processes",
-  "with static frames by default. Use --windows-capture only on Windows to",
-  "exercise the consent-bound host capture adapter. By default it does not use",
-  "relay shared tokens; with --token-env it references one bounded environment",
-  "variable without printing the token value. It does not use OS input, browser",
+  "with static frames by default. Use --windows-capture or --windows-input only",
+  "on Windows to exercise the consent-bound host native adapters. By default it",
+  "does not use relay shared tokens; with --token-env it references one bounded",
+  "environment variable without printing the token value. It does not use OS",
+  "input unless --windows-input is explicit, and it never uses browser",
   "automation, services, startup persistence, or unattended access."
 ].join("\n");
 
@@ -49,6 +51,20 @@ const MVP_SMOKE_CHECK_NAMES = Object.freeze([
   "signal",
   "surface-guards",
   "input",
+  "audit",
+  "lifecycle",
+  "viewer-disconnect"
+]);
+const MVP_WINDOWS_INPUT_SMOKE_CHECK_NAMES = Object.freeze([
+  "relay",
+  "indicator",
+  "host-surface",
+  "frame",
+  "surface",
+  "signal",
+  "surface-guards",
+  "input",
+  "windows-input",
   "audit",
   "lifecycle",
   "viewer-disconnect"
@@ -100,6 +116,7 @@ const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "relay-not-ready": 0,
   "port-unavailable": 0,
   "native-capture-unsupported": 0,
+  "native-input-unsupported": 0,
   "indicator-not-ready": 1,
   "host-surface-not-ready": 2,
   "frame-not-ready": 3,
@@ -107,10 +124,18 @@ const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "signal-not-ready": 5,
   "surface-guards-not-ready": 6,
   "input-not-ready": 7,
+  "windows-input-not-ready": 8,
   "audit-not-ready": 8,
   "lifecycle-not-ready": 9,
   "viewer-disconnect-not-ready": 10
 });
+const MVP_WINDOWS_INPUT_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
+  ...MVP_SMOKE_FAILURE_CHECK_INDEX,
+  "audit-not-ready": 9,
+  "lifecycle-not-ready": 10,
+  "viewer-disconnect-not-ready": 11
+});
+const WINDOWS_INPUT_APPLIED_AUDIT_ACTION = "agent-shell.remote-interaction.input-event.applied";
 
 export class MvpSessionSmokeUsageError extends Error {
   constructor() {
@@ -140,6 +165,7 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
   let json = false;
   let lanRelay = false;
   let windowsCapture = false;
+  let windowsInput = false;
   let tokenEnv;
   let sawTimeout = false;
   let sawTokenEnv = false;
@@ -170,6 +196,15 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
         throw new MvpSessionSmokeUsageError();
       }
       windowsCapture = true;
+      index += 1;
+      continue;
+    }
+
+    if (key === "--windows-input") {
+      if (windowsInput) {
+        throw new MvpSessionSmokeUsageError();
+      }
+      windowsInput = true;
       index += 1;
       continue;
     }
@@ -223,6 +258,7 @@ export function parseMvpSessionSmokeArgs(rawArgs) {
     keepArtifacts,
     lanRelay,
     windowsCapture,
+    windowsInput,
     ...(tokenEnv ? { tokenEnv } : {}),
     json
   };
@@ -283,6 +319,7 @@ export function createMvpSmokePlan(options) {
         "true",
         "--host-control-surface-port",
         "0",
+        ...(options.windowsInput ? ["--host-apply-input", "true"] : []),
         "--revoke-after-ms",
         String(DEFAULT_MVP_SMOKE_OPTIONS.lifecycleRevokeAfterMs),
         "--revoke-permission",
@@ -355,6 +392,11 @@ export async function runMvpSessionSmokeCheck(rawOptions = {}) {
       formatMvpSessionSmokeError(new Error("native-capture-unsupported"))
     );
   }
+  if (rawOptions.windowsInput && (rawOptions.platform ?? process.platform) !== "win32") {
+    throw new MvpSessionSmokeError(
+      formatMvpSessionSmokeError(new Error("native-input-unsupported"))
+    );
+  }
   const deadline = options.now() + options.timeoutMs;
   const workDir = rawOptions.workDir ?? mkdtempSync(join(tmpdir(), "winbridge-mvp-smoke-"));
   const relayPort = rawOptions.relayPort ?? 0;
@@ -403,7 +445,8 @@ async function runMvpSessionSmokeSteps(context) {
           relayPort: resolvedRelayPort,
           surfacePort,
           sharedToken: rawOptions.sharedToken,
-          windowsCapture: rawOptions.windowsCapture
+          windowsCapture: rawOptions.windowsCapture,
+          windowsInput: rawOptions.windowsInput
         });
 
   const host = startSmokeProcess(readyPlan.host, options);
@@ -422,6 +465,9 @@ async function runMvpSessionSmokeSteps(context) {
   await waitForViewerSignalReadiness(surfaceUrl, deadline, options);
   await waitForViewerSurfaceGuards(surfaceUrl, surface.mutationToken, deadline, options);
   await waitForViewerSurfaceInput(surfaceUrl, surface.mutationToken, deadline, options);
+  if (rawOptions.windowsInput) {
+    await waitForWindowsInputAudit(readyPlan.hostAuditPath, deadline, options);
+  }
   await waitForSmokeAuditLogs(
     [readyPlan.hostAuditPath, readyPlan.viewerAuditPath],
     deadline,
@@ -550,11 +596,14 @@ export function formatMvpSessionSmokeSuccess(result, options = {}) {
     "signal=verified",
     "surface-guards=verified",
     "input=verified",
+    ...(options.windowsInput ? ["windows-input=verified"] : []),
     "audit=verified",
     "lifecycle=verified",
     "viewer-disconnect=verified",
     ...formatSmokeAuditSummaryLines(result.auditSummary),
-    options.keepArtifacts ? `artifacts=${result.workDir}` : "artifacts=cleaned"
+    options.keepArtifacts && !options.windowsInput
+      ? `artifacts=${result.workDir}`
+      : `artifacts=${artifactStatusForOptions(options)}`
   ].join("\n");
 }
 
@@ -562,16 +611,20 @@ export function formatMvpSessionSmokeJsonSuccess(result, options = {}) {
   const auditSummary = sanitizeSmokeAuditSummary(result.auditSummary);
   return JSON.stringify({
     ok: true,
-    checks: MVP_SMOKE_CHECK_NAMES.map((name) => ({ name, ok: true })),
-    artifacts: options.keepArtifacts ? "retained" : "cleaned",
+    checks: smokeCheckNamesForOptions(options).map((name) => ({ name, ok: true })),
+    artifacts: artifactStatusForOptions(options),
     ...(auditSummary ? { auditSummary } : {}),
-    ...(options.keepArtifacts ? { artifactDir: result.workDir } : {})
+    ...(options.keepArtifacts && !options.windowsInput ? { artifactDir: result.workDir } : {})
   });
 }
 
-export function formatMvpSessionSmokeJsonError(error) {
+function artifactStatusForOptions(options = {}) {
+  return options.keepArtifacts ? "retained" : "cleaned";
+}
+
+export function formatMvpSessionSmokeJsonError(error, options = {}) {
   const reason = safeSmokeJsonFailureReason(error);
-  const checks = smokeFailureChecksForReason(reason);
+  const checks = smokeFailureChecksForReason(reason, options);
   return JSON.stringify({
     ok: false,
     ...(reason ? { reason } : {}),
@@ -579,13 +632,22 @@ export function formatMvpSessionSmokeJsonError(error) {
   });
 }
 
-function smokeFailureChecksForReason(reason) {
+function smokeFailureChecksForReason(reason, options = {}) {
   if (!reason || !Object.hasOwn(MVP_SMOKE_FAILURE_CHECK_INDEX, reason)) {
     return undefined;
   }
+  if (reason === "windows-input-not-ready" && !options.windowsInput) {
+    return undefined;
+  }
 
-  const failedIndex = MVP_SMOKE_FAILURE_CHECK_INDEX[reason];
-  return MVP_SMOKE_CHECK_NAMES.map((name, index) => {
+  const failureIndexes = options.windowsInput
+    ? MVP_WINDOWS_INPUT_SMOKE_FAILURE_CHECK_INDEX
+    : MVP_SMOKE_FAILURE_CHECK_INDEX;
+  const failedIndex = failureIndexes[reason];
+  if (!Number.isInteger(failedIndex)) {
+    return undefined;
+  }
+  return smokeCheckNamesForOptions(options).map((name, index) => {
     if (index < failedIndex) {
       return { name, ok: true };
     }
@@ -594,6 +656,10 @@ function smokeFailureChecksForReason(reason) {
     }
     return { name, ok: false, skipped: true };
   });
+}
+
+function smokeCheckNamesForOptions(options = {}) {
+  return options.windowsInput ? MVP_WINDOWS_INPUT_SMOKE_CHECK_NAMES : MVP_SMOKE_CHECK_NAMES;
 }
 
 function safeSmokeJsonFailureReason(error) {
@@ -626,6 +692,7 @@ function safeSmokeFailureReason(error) {
       "relay-not-ready",
       "host-not-ready",
       "native-capture-unsupported",
+      "native-input-unsupported",
       "indicator-not-ready",
       "host-surface-not-ready",
       "frame-not-ready",
@@ -633,6 +700,7 @@ function safeSmokeFailureReason(error) {
       "signal-not-ready",
       "surface-guards-not-ready",
       "input-not-ready",
+      "windows-input-not-ready",
       "audit-not-ready",
       "lifecycle-not-ready",
       "viewer-disconnect-not-ready",
@@ -1204,6 +1272,20 @@ async function waitForSmokeAuditLogs(auditPaths, deadline, options) {
   throw new Error("audit-not-ready");
 }
 
+async function waitForWindowsInputAudit(hostAuditPath, deadline, options) {
+  while (options.now() <= deadline) {
+    try {
+      if (hasSmokeAuditLogAction(readFileSync(hostAuditPath, "utf8"), WINDOWS_INPUT_APPLIED_AUDIT_ACTION)) {
+        return;
+      }
+    } catch {
+      // Keep polling until the bounded deadline.
+    }
+    await options.sleep(100);
+  }
+  throw new Error("windows-input-not-ready");
+}
+
 export function tryReadSmokeAuditLog(auditPath) {
   try {
     return summarizeSmokeAuditLogContent(readFileSync(auditPath, "utf8")) !== undefined;
@@ -1214,6 +1296,14 @@ export function tryReadSmokeAuditLog(auditPath) {
 
 export function hasUsableSmokeAuditLogContent(content) {
   return summarizeSmokeAuditLogContent(content) !== undefined;
+}
+
+export function hasSmokeAuditLogAction(content, action) {
+  if (typeof action !== "string" || action.length === 0 || action.length > 160) {
+    return false;
+  }
+  const records = parseSmokeAuditLogRecords(content);
+  return records?.some((record) => record.action === action) === true;
 }
 
 export function tryReadSmokeAuditSummary(hostAuditPath, viewerAuditPath) {
@@ -1227,6 +1317,25 @@ export function tryReadSmokeAuditSummary(hostAuditPath, viewerAuditPath) {
 }
 
 export function summarizeSmokeAuditLogContent(content) {
+  const records = parseSmokeAuditLogRecords(content);
+  if (records === undefined) {
+    return undefined;
+  }
+
+  const summary = createEmptySmokeAuditRoleSummary();
+  for (const record of records) {
+    summary.records += 1;
+    summary[record.outcome] += 1;
+    const coverageFlag = SMOKE_AUDIT_SUMMARY_ACTIONS[record.action];
+    if (coverageFlag) {
+      summary[coverageFlag] = true;
+    }
+  }
+
+  return summary.records > 0 ? summary : undefined;
+}
+
+function parseSmokeAuditLogRecords(content) {
   if (typeof content !== "string") {
     return undefined;
   }
@@ -1239,7 +1348,7 @@ export function summarizeSmokeAuditLogContent(content) {
     return undefined;
   }
 
-  const summary = createEmptySmokeAuditRoleSummary();
+  const records = [];
   for (const line of lines) {
     if (Buffer.byteLength(line, "utf8") > SMOKE_AUDIT_LOG_LINE_LIMIT_BYTES) {
       return undefined;
@@ -1253,16 +1362,10 @@ export function summarizeSmokeAuditLogContent(content) {
     if (!isSmokeAuditRecordLike(record)) {
       return undefined;
     }
-
-    summary.records += 1;
-    summary[record.outcome] += 1;
-    const coverageFlag = SMOKE_AUDIT_SUMMARY_ACTIONS[record.action];
-    if (coverageFlag) {
-      summary[coverageFlag] = true;
-    }
+    records.push(record);
   }
 
-  return summary.records > 0 ? summary : undefined;
+  return records;
 }
 
 function isSmokeAuditRecordLike(value) {
@@ -1511,6 +1614,7 @@ async function runCli(rawArgs = process.argv.slice(2), streams = process) {
       keepArtifacts: parsed.keepArtifacts,
       lanRelay: parsed.lanRelay,
       windowsCapture: parsed.windowsCapture,
+      windowsInput: parsed.windowsInput,
       sharedToken
     });
     streams.stdout.write(
@@ -1523,7 +1627,7 @@ async function runCli(rawArgs = process.argv.slice(2), streams = process) {
     return 0;
   } catch (error) {
     streams.stderr.write(
-      `${wantsJson ? formatMvpSessionSmokeJsonError(error) : formatMvpSessionSmokeError(error)}\n`
+      `${wantsJson ? formatMvpSessionSmokeJsonError(error, { windowsInput: rawArgs.includes("--windows-input") }) : formatMvpSessionSmokeError(error)}\n`
     );
     return 1;
   }
