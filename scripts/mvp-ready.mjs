@@ -330,6 +330,39 @@ export function createMvpReadyPlan(options = {}) {
       ...commandWithArgs("mvp:commands", ["--only", target])
     })),
     {
+      name: "lan-role-filter-relay-command",
+      ...commandWithArgs("mvp:commands", [
+        "--only",
+        "relay",
+        "--relay-host",
+        MVP_READY_LAN_RELAY_HOST,
+        "--token-env",
+        MVP_READY_TOKEN_ENV_NAME
+      ])
+    },
+    {
+      name: "lan-role-filter-host-command",
+      ...commandWithArgs("mvp:commands", [
+        "--only",
+        "host",
+        "--relay-host",
+        MVP_READY_LAN_RELAY_HOST,
+        "--token-env",
+        MVP_READY_TOKEN_ENV_NAME
+      ])
+    },
+    {
+      name: "lan-role-filter-viewer-command",
+      ...commandWithArgs("mvp:commands", [
+        "--only",
+        "viewer",
+        "--relay-host",
+        MVP_READY_LAN_RELAY_HOST,
+        "--token-env",
+        MVP_READY_TOKEN_ENV_NAME
+      ])
+    },
+    {
       name: "token-role-filter-relay-command",
       ...commandWithArgs("mvp:commands", ["--only", "relay", "--token-env", MVP_READY_TOKEN_ENV_NAME])
     },
@@ -1184,8 +1217,14 @@ export function parseEphemeralBrowserRoleFilteredCommandReadiness(output) {
 }
 
 export function parseLanRelayRoleFilteredCommandReadiness(output) {
-  return parseRoleFilteredCommandReadiness(output, "relay") &&
-    output.includes("WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'");
+  return (
+    parseRoleFilteredCommandReadiness(output, "relay") &&
+    output.includes("WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'") &&
+    output.includes(`$env:${MVP_READY_TOKEN_ENV_NAME}`) &&
+    output.includes("The token value is referenced through the environment") &&
+    !output.includes("--token '") &&
+    !output.includes("raw-secret-token")
+  );
 }
 
 export function parseTokenEnvRelayRoleFilteredCommandReadiness(output) {

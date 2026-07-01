@@ -948,6 +948,9 @@ describe("MVP ready helper", () => {
         "role-filter-viewer-command=ok",
         "role-filter-browser-command=ok",
         "role-filter-preflight-command=ok",
+        "lan-role-filter-relay-command=ok",
+        "lan-role-filter-host-command=ok",
+        "lan-role-filter-viewer-command=ok",
         "token-role-filter-relay-command=ok",
         "token-role-filter-host-command=ok",
         "token-role-filter-viewer-command=ok",
@@ -1017,6 +1020,68 @@ describe("MVP ready helper", () => {
       ]
     });
     expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
+  });
+
+  it("fails closed when default LAN role-filter output drifts", () => {
+    const result = runMvpReadyCheck({
+      plan: createMvpReadyPlan({ npmCommand: "npm" }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "preflight-json-command-plan") {
+          return { ok: true, output: preflightCommandPlanOutput() };
+        }
+        if (step.name === "lan-role-filter-host-command") {
+          return {
+            ok: true,
+            output: roleFilterOutput("host", { relayUrl: "ws://localhost:8787/" })
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        { name: "preflight-json-command-plan", ok: true },
+        ...roleFilterCheckResults().filter(
+          (check) =>
+            check.name !== "lan-role-filter-host-command" &&
+            check.name !== "lan-role-filter-viewer-command" &&
+            check.name !== "token-role-filter-relay-command" &&
+            check.name !== "token-role-filter-host-command" &&
+            check.name !== "token-role-filter-viewer-command" &&
+            check.name !== "token-role-filter-browser-command" &&
+            check.name !== "ephemeral-role-filter-browser-command"
+        ),
+        { name: "lan-role-filter-host-command", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("ws://localhost:8787/");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("192.168.1.10");
     expect(formatMvpReadyJsonResult(result)).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
   });
 
@@ -2561,6 +2626,9 @@ describe("MVP ready helper", () => {
           name: `role-filter-${target}-command`,
           ok: true
         })),
+        { name: "lan-role-filter-relay-command", ok: true },
+        { name: "lan-role-filter-host-command", ok: true },
+        { name: "lan-role-filter-viewer-command", ok: true },
         { name: "token-role-filter-relay-command", ok: true },
         { name: "token-role-filter-host-command", ok: true },
         { name: "token-role-filter-viewer-command", ok: true },
@@ -3327,6 +3395,14 @@ describe("MVP ready helper", () => {
   it("parses only reviewed LAN relay role-filter output", () => {
     expect(parseLanRelayRoleFilteredCommandReadiness(lanRelayRoleFilterOutput())).toBe(true);
     expect(parseLanRelayRoleFilteredCommandReadiness(roleFilterOutput("relay"))).toBe(false);
+    expect(parseLanRelayRoleFilteredCommandReadiness(lanRelayRoleFilterOutput({ tokenEnv: null }))).toBe(
+      false
+    );
+    expect(
+      parseLanRelayRoleFilteredCommandReadiness(
+        lanRelayRoleFilterOutput({ relayCommand: "--token 'raw-secret-token'; npm run dev:relay" })
+      )
+    ).toBe(false);
     expect(
       parseLanRelayRoleFilteredCommandReadiness(
         lanRelayRoleFilterOutput({ relayCommand: "npm run dev:relay" })
@@ -3684,6 +3760,51 @@ function roleFilterPlanSteps() {
       args: ["run", "mvp:commands", "--", "--only", target]
     })),
     {
+      name: "lan-role-filter-relay-command",
+      command: "npm",
+      args: [
+        "run",
+        "mvp:commands",
+        "--",
+        "--only",
+        "relay",
+        "--relay-host",
+        "192.168.1.10",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ]
+    },
+    {
+      name: "lan-role-filter-host-command",
+      command: "npm",
+      args: [
+        "run",
+        "mvp:commands",
+        "--",
+        "--only",
+        "host",
+        "--relay-host",
+        "192.168.1.10",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ]
+    },
+    {
+      name: "lan-role-filter-viewer-command",
+      command: "npm",
+      args: [
+        "run",
+        "mvp:commands",
+        "--",
+        "--only",
+        "viewer",
+        "--relay-host",
+        "192.168.1.10",
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
+      ]
+    },
+    {
       name: "token-role-filter-relay-command",
       command: "npm",
       args: [
@@ -3763,6 +3884,9 @@ function defaultReadyCheckNames() {
     "preflight-token-json-command-plan",
     "token-role-filter-preflight-command",
     ...roleFilterTargets().map((target) => `role-filter-${target}-command`),
+    "lan-role-filter-relay-command",
+    "lan-role-filter-host-command",
+    "lan-role-filter-viewer-command",
     "token-role-filter-relay-command",
     "token-role-filter-host-command",
     "token-role-filter-viewer-command",
@@ -3779,6 +3903,9 @@ function roleFilterCheckResults() {
       name: `role-filter-${target}-command`,
       ok: true
     })),
+    { name: "lan-role-filter-relay-command", ok: true },
+    { name: "lan-role-filter-host-command", ok: true },
+    { name: "lan-role-filter-viewer-command", ok: true },
     { name: "token-role-filter-relay-command", ok: true },
     { name: "token-role-filter-host-command", ok: true },
     { name: "token-role-filter-viewer-command", ok: true },
@@ -3915,9 +4042,12 @@ function ephemeralBrowserRoleFilterOutput() {
   });
 }
 
-function lanRelayRoleFilterOutput(options: { relayCommand?: string } = {}) {
+function lanRelayRoleFilterOutput(options: { relayCommand?: string; tokenEnv?: string | null } = {}) {
   return roleFilterOutput("relay", {
     relayUrl: "ws://192.168.1.10:8787/",
+    ...(options.tokenEnv === null
+      ? {}
+      : { tokenEnv: options.tokenEnv ?? "WINBRIDGE_RELAY_SHARED_TOKEN" }),
     relayCommand:
       options.relayCommand ??
       "$env:WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'; npm run dev:relay"

@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-07-01
+goal: Make default readiness verify per-role two-PC LAN command snippets, not
+  only the aggregate LAN plan

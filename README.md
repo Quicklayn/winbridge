@@ -280,8 +280,8 @@ command-plan validation, and a non-executing shared-token command-plan
 validation sequentially. It also validates the target-specific text outputs
 from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
 `preflight`, the tokenized LAN role-filter relay/host/viewer outputs, the
-shared-token environment-reference host and viewer text outputs, the fixed
-all-smoke preflight entry in generated command plans, plus
+shared-token environment-reference relay/host/viewer/browser/preflight text
+outputs, the fixed all-smoke preflight entry in generated command plans, plus
 the bounded `mvp:commands -- --only preflight --json` plan, the bounded
 token-env preflight JSON plan, and explicit ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
@@ -291,7 +291,7 @@ validation uses a fixed safe `--relay-host` value plus the fixed
 command generator path; token validation also uses the fixed
 `WINBRIDGE_RELAY_SHARED_TOKEN` environment variable name only to exercise the
 token-protected command generator path in full-plan, preflight-only, and
-host/viewer role-filter forms. It does not detect local IP addresses, probe ports, start
+role-filter forms. It does not detect local IP addresses, probe ports, start
 processes, read token values, or open sockets. The LAN
 validation also requires token-env references and the non-executing relay
 command to use the reviewed `WINBRIDGE_RELAY_BIND_HOST = '0.0.0.0'` setting
