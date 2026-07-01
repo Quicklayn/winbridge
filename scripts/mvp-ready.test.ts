@@ -2542,6 +2542,22 @@ describe("MVP ready helper", () => {
       )
     ).toBe(false);
     expect(
+      parseCommandPlanReadiness(commandPlanOutput({ hostControlSurfaceArg: null }))
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({ hostControlSurfaceArg: "--host-control-surface-port '35986'" })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          hostControlSurfaceArg:
+            "--host-control-surface-port '0' --host-control-surface-port '0'"
+        })
+      )
+    ).toBe(false);
+    expect(
       parseCommandPlanReadiness(
         [
           "> winbridge@0.1.0 mvp:commands",
@@ -2652,6 +2668,16 @@ describe("MVP ready helper", () => {
     expect(
       parseEphemeralCommandPlanReadiness(
         ephemeralCommandPlanOutput({ hostConsentTimeoutArg: null })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ hostControlSurfaceArg: null })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ hostControlSurfaceArg: "--host-control-surface-port '35986'" })
       )
     ).toBe(false);
     expect(
@@ -2780,6 +2806,15 @@ describe("MVP ready helper", () => {
     expect(
       parseRoleFilteredCommandReadiness(
         roleFilterOutput("host", { hostConsentTimeoutArg: "--host-consent-timeout-ms '30000'" }),
+        "host"
+      )
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(roleFilterOutput("host", { hostControlSurfaceArg: null }), "host")
+    ).toBe(false);
+    expect(
+      parseRoleFilteredCommandReadiness(
+        roleFilterOutput("host", { hostControlSurfaceArg: "--host-control-surface-port '35986'" }),
         "host"
       )
     ).toBe(false);
@@ -3315,6 +3350,7 @@ function roleFilterOutput(
   target: string,
   options: {
     browserCommand?: string;
+    hostControlSurfaceArg?: string | null;
     hostConsentTimeoutArg?: string | null;
     relayCommand?: string;
     relayUrl?: string;
@@ -3352,7 +3388,7 @@ function roleFilterOutput(
     relay: ["relay command:", options.relayCommand ?? "npm run dev:relay"],
     host: [
       "host command:",
-      `npm run dev:agent -- host --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true'${options.hostConsentTimeoutArg === null ? "" : ` ${options.hostConsentTimeoutArg ?? "--host-consent-timeout-ms '60000'"}`} --visible-session 'true' --host-control-prompt 'true' --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl' --host-apply-input 'true' --dev-screen-frame-after-ms '1000' --dev-screen-frame-source 'windows-capture' --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'${options.tokenArgument ? ` ${options.tokenArgument}` : ""}`,
+      `npm run dev:agent -- host --relay '${options.relayUrl ?? "ws://localhost:8787/"}' --session 'demo' --pairing '123-456' --name 'WinBridge Assisted Host' --host-consent-prompt 'true'${options.hostConsentTimeoutArg === null ? "" : ` ${options.hostConsentTimeoutArg ?? "--host-consent-timeout-ms '60000'"}`} --visible-session 'true' --host-control-prompt 'true'${options.hostControlSurfaceArg === null ? "" : ` ${options.hostControlSurfaceArg ?? "--host-control-surface-port '0'"}`} --host-signal-probe-ack 'true' --audit-log 'logs\\host-audit.jsonl' --host-apply-input 'true' --dev-screen-frame-after-ms '1000' --dev-screen-frame-source 'windows-capture' --dev-screen-frame-count '600' --dev-screen-frame-interval-ms '1000'${options.tokenArgument ? ` ${options.tokenArgument}` : ""}`,
       "Host controls:",
       "help | status | pause | resume | revoke screen:view | revoke input:pointer | revoke input:keyboard | terminate | disconnect"
     ],
@@ -3509,6 +3545,7 @@ type CommandPlanFixtureOptions = {
   relayBindHost?: string | null;
   viewerSurfacePort?: number;
   browserCommand?: string;
+  hostControlSurfaceArg?: string | null;
   hostConsentTimeoutArg?: string | null;
   auditSummaryCommand?: string;
 };
@@ -3557,6 +3594,9 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
   const hostConsentTimeoutArg = Object.hasOwn(options, "hostConsentTimeoutArg")
     ? options.hostConsentTimeoutArg
     : "--host-consent-timeout-ms '60000'";
+  const hostControlSurfaceArg = Object.hasOwn(options, "hostControlSurfaceArg")
+    ? options.hostControlSurfaceArg
+    : "--host-control-surface-port '0'";
   const viewerSurfaceArg =
     options.viewerSurfacePort === undefined
       ? ""
@@ -3580,7 +3620,7 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
     { name: "relay", command: relayCommand },
     {
       name: "host",
-      command: `npm run dev:agent -- host --relay '${relayUrl}' --pairing '123-456' --host-consent-prompt 'true'${hostConsentTimeoutArg ? ` ${hostConsentTimeoutArg}` : ""}${tokenArg}`
+      command: `npm run dev:agent -- host --relay '${relayUrl}' --pairing '123-456' --host-consent-prompt 'true'${hostConsentTimeoutArg ? ` ${hostConsentTimeoutArg}` : ""}${hostControlSurfaceArg ? ` ${hostControlSurfaceArg}` : ""}${tokenArg}`
     },
     {
       name: "viewer",

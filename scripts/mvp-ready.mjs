@@ -66,6 +66,7 @@ const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
 const MVP_READY_LAN_RELAY_URL = `ws://${MVP_READY_LAN_RELAY_HOST}:8787/`;
 const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
 const REVIEWED_HOST_CONSENT_TIMEOUT_ARG = "--host-consent-timeout-ms '60000'";
+const REVIEWED_HOST_CONTROL_SURFACE_ARG = "--host-control-surface-port '0'";
 const REVIEWED_AUDIT_SUMMARY_COMMAND =
   "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl'";
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
@@ -949,6 +950,7 @@ export function parseCommandPlanReadiness(output, options = {}) {
 
   return (
     commandPlanUsesReviewedHostConsentTimeout(commandsByName) &&
+    commandPlanUsesReviewedHostControlSurface(commandsByName) &&
     commandPlanUsesReviewedAuditSummary(commandsByName)
   );
 }
@@ -969,6 +971,7 @@ export function parseEphemeralCommandPlanReadiness(output) {
     typeof viewerCommand === "string" &&
     typeof browserCommand === "string" &&
     hostCommandHasReviewedConsentTimeout(hostCommand) &&
+    hostCommandHasReviewedControlSurface(hostCommand) &&
     viewerCommand.includes("--viewer-control-surface-port '0'") &&
     browserCommand === EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION &&
     !allCommands.includes("http://127.0.0.1:0/")
@@ -1189,6 +1192,7 @@ function roleFilterMarkersForTarget(target, options = {}) {
       REVIEWED_HOST_CONSENT_TIMEOUT_ARG,
       "--visible-session 'true'",
       "--host-control-prompt 'true'",
+      REVIEWED_HOST_CONTROL_SURFACE_ARG,
       "--host-signal-probe-ack 'true'",
       "Host controls:"
     ],
@@ -1226,6 +1230,7 @@ function roleFilterForbiddenMarkersForTarget(target, options = {}) {
       ...ROLE_FILTER_RUNTIME_BLOCK_MARKERS,
       ...ROLE_FILTER_LIVE_COMMAND_MARKERS,
       "--host-apply-input",
+      "--host-control-surface-port",
       "windows-capture",
       "--viewer-control-surface-port"
     ];
@@ -1323,6 +1328,11 @@ function commandPlanUsesReviewedHostConsentTimeout(commandsByName) {
   return typeof hostCommand === "string" && hostCommandHasReviewedConsentTimeout(hostCommand);
 }
 
+function commandPlanUsesReviewedHostControlSurface(commandsByName) {
+  const hostCommand = commandsByName.get("host")?.command;
+  return typeof hostCommand === "string" && hostCommandHasReviewedControlSurface(hostCommand);
+}
+
 function commandPlanUsesReviewedAuditSummary(commandsByName) {
   const auditSummaryCommand = commandsByName.get("preflight.audit-summary")?.command;
   return auditSummaryCommand === REVIEWED_AUDIT_SUMMARY_COMMAND;
@@ -1334,6 +1344,10 @@ function preflightCommandPlanUsesReviewedAuditSummary(commandsByName) {
 
 function hostCommandHasReviewedConsentTimeout(hostCommand) {
   return countOccurrences(hostCommand, REVIEWED_HOST_CONSENT_TIMEOUT_ARG) === 1;
+}
+
+function hostCommandHasReviewedControlSurface(hostCommand) {
+  return countOccurrences(hostCommand, REVIEWED_HOST_CONTROL_SURFACE_ARG) === 1;
 }
 
 function countOccurrences(value, needle) {

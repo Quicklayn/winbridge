@@ -11,6 +11,7 @@ export const DEFAULT_MVP_SESSION_COMMAND_OPTIONS = Object.freeze({
   hostAuditLog: "logs\\host-audit.jsonl",
   viewerAuditLog: "logs\\viewer-audit.jsonl",
   viewerFrameOutput: "frames\\latest.jpg",
+  hostControlSurfacePort: 0,
   viewerControlSurfacePort: 35987,
   viewerSignalProbeAfterMs: 1000,
   hostConsentTimeoutMs: 60000,
@@ -34,6 +35,7 @@ export const MVP_SESSION_COMMAND_KIT_USAGE = [
   "  --host-audit-log logs\\host-audit.jsonl",
   "  --viewer-audit-log logs\\viewer-audit.jsonl",
   "  --viewer-frame-output frames\\latest.jpg",
+  "  --host-control-surface-port 0",
   "  --viewer-control-surface-port 35987",
   "  --viewer-signal-probe-after-ms 1000",
   "  --host-consent-timeout-ms 60000",
@@ -77,6 +79,7 @@ const KNOWN_OPTIONS = new Set([
   "host-audit-log",
   "viewer-audit-log",
   "viewer-frame-output",
+  "host-control-surface-port",
   "viewer-control-surface-port",
   "viewer-signal-probe-after-ms",
   "host-consent-timeout-ms",
@@ -91,6 +94,8 @@ const SECRET_MARKER_PATTERN =
 const WINDOWS_RESERVED_PATH_SEGMENT_PATTERN = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
+const EPHEMERAL_HOST_SURFACE_INSTRUCTION =
+  "Open the host local control surface URL printed by the host command log on the assisted PC.";
 
 export class MvpSessionCommandKitUsageError extends Error {
   constructor() {
@@ -210,7 +215,11 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
     viewerFrameOutput: parseSafePath(
       options.get("viewer-frame-output") ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.viewerFrameOutput
     ),
-    viewerControlSurfacePort: parseViewerControlSurfacePortOption(
+    hostControlSurfacePort: parseLocalControlSurfacePortOption(
+      options.get("host-control-surface-port") ??
+        String(DEFAULT_MVP_SESSION_COMMAND_OPTIONS.hostControlSurfacePort)
+    ),
+    viewerControlSurfacePort: parseLocalControlSurfacePortOption(
       options.get("viewer-control-surface-port") ??
         String(DEFAULT_MVP_SESSION_COMMAND_OPTIONS.viewerControlSurfacePort)
     ),
@@ -292,6 +301,8 @@ export function renderMvpSessionCommands(parsed) {
     "",
     "2. Host terminal on the assisted Windows PC:",
     renderHostCommand(parsed),
+    "- Host local controls:",
+    renderHostSurfaceInstruction(parsed.hostControlSurfacePort),
     "",
     "3. Viewer terminal on the assisting Windows PC:",
     renderViewerCommand(parsed),
@@ -498,7 +509,9 @@ function filteredTargetHints(target) {
     case "host":
       return [
         "Host controls:",
-        "help | status | pause | resume | revoke screen:view | revoke input:pointer | revoke input:keyboard | terminate | disconnect"
+        "help | status | pause | resume | revoke screen:view | revoke input:pointer | revoke input:keyboard | terminate | disconnect",
+        "Host local browser controls:",
+        "Open the host local control surface URL printed by the host command log on the assisted PC."
       ];
     case "viewer":
       return ["Open the separate browser command on the viewer PC after this viewer command is running."];
@@ -632,6 +645,7 @@ function renderHostCommand(options) {
     ["host-consent-timeout-ms", String(options.hostConsentTimeoutMs)],
     ["visible-session", "true"],
     ["host-control-prompt", "true"],
+    ["host-control-surface-port", String(options.hostControlSurfacePort)],
     ["host-signal-probe-ack", "true"],
     ["audit-log", options.hostAuditLog],
     ["host-apply-input", "true"],
@@ -681,6 +695,14 @@ function renderBrowserCommandForViewerSurfacePort(port) {
   }
 
   return renderBrowserCommand(`http://127.0.0.1:${port}/`);
+}
+
+function renderHostSurfaceInstruction(port) {
+  if (port === 0) {
+    return EPHEMERAL_HOST_SURFACE_INSTRUCTION;
+  }
+
+  return `Open ${quotePowerShellArgument(`http://127.0.0.1:${port}/`)} on the assisted PC after the host command reports active visible authorization.`;
 }
 
 function parseOptionMap(rawArgs) {
@@ -916,7 +938,7 @@ function parseIntegerOption(raw, min, max) {
   return value;
 }
 
-function parseViewerControlSurfacePortOption(raw) {
+function parseLocalControlSurfacePortOption(raw) {
   const port = parseIntegerOption(raw, 0, 65535);
   if (port !== 0 && port < 1024) {
     throw new MvpSessionCommandKitUsageError();

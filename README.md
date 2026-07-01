@@ -147,11 +147,14 @@ audit logs. Command generation does not read audit files, retrieve logs,
 upload logs, start runtimes, or print raw audit records.
 The generated host command uses the interactive host consent prompt,
 visible session state, metadata-only audit,
-`--host-apply-input true`, finite Windows capture, and
-`--host-control-prompt true`. Host controls start after approved active visible
-authorization, so the host terminal can run `pause`, `resume`,
+`--host-apply-input true`, finite Windows capture,
+`--host-control-prompt true`, and `--host-control-surface-port 0`. Host
+controls start after approved active visible authorization, so the host
+terminal or the host-local loopback browser page can run `pause`, `resume`,
 `revoke screen:view`, `revoke input:pointer`, `revoke input:keyboard`,
-`terminate`, or `disconnect` immediately after approval.
+`terminate`, or `disconnect` immediately after approval. With the default
+ephemeral host surface port, open the bounded `127.0.0.1:<port>` URL printed by
+the host command log on the assisted PC.
 
 The generated host command also prints the explicit host consent timeout,
 `--host-consent-timeout-ms 60000`, so the approval window is visible in the
@@ -271,7 +274,8 @@ npm run mvp:ready
 `mvp:ready` runs `mvp:doctor`, `mvp:native-preflight`, a non-executing
 localhost `mvp:commands -- --json` command-plan validation, a non-executing
 ephemeral viewer surface command-plan validation with
-`--viewer-control-surface-port 0`, a non-executing representative LAN
+`--viewer-control-surface-port 0`, reviewed host local surface command
+validation with `--host-control-surface-port 0`, a non-executing representative LAN
 command-plan validation, and a non-executing shared-token command-plan
 validation sequentially. It also validates the target-specific text outputs
 from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
@@ -687,9 +691,14 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 To use the local development viewer surface for MVP end-to-end checks:
 
 ```powershell
-npm run dev:agent -- host --session demo --pairing 123-456 --host-consent-prompt true --visible-session true --host-control-prompt true --audit-log logs\host-audit.jsonl --host-apply-input true --dev-screen-frame-after-ms 1000 --dev-screen-frame-source windows-capture --dev-screen-frame-count 100 --dev-screen-frame-interval-ms 1000
+npm run dev:agent -- host --session demo --pairing 123-456 --host-consent-prompt true --visible-session true --host-control-prompt true --host-control-surface-port 0 --audit-log logs\host-audit.jsonl --host-apply-input true --dev-screen-frame-after-ms 1000 --dev-screen-frame-source windows-capture --dev-screen-frame-count 100 --dev-screen-frame-interval-ms 1000
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view,input:pointer,input:keyboard --audit-log logs\viewer-audit.jsonl --viewer-screen-frame-output frames\latest.jpg --viewer-control-surface-port 35987
 ```
+
+Open the host-local `http://127.0.0.1:<port>/` URL printed by the host log on
+the assisted PC for visible host controls. This is optional UI over the same
+host-side pause, resume, revoke, terminate, and disconnect controls; it does
+not approve sessions, grant permissions, capture frames, or apply input.
 
 Open `http://127.0.0.1:35987/` on the viewer machine. The page displays only
 the latest authorized frame from the explicit output file. Visible input

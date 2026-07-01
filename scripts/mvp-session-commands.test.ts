@@ -41,6 +41,7 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("--host-decision 'approve'");
     expect(output).toContain("--visible-session 'true'");
     expect(output).toContain("--host-control-prompt 'true'");
+    expect(output).toContain("--host-control-surface-port '0'");
     expect(output).toContain("--host-signal-probe-ack 'true'");
     expect(output).toContain("--audit-log 'logs\\host-audit.jsonl'");
     expect(output).toContain("--host-apply-input 'true'");
@@ -55,6 +56,7 @@ describe("MVP session command kit", () => {
     expect(output).toContain("--viewer-signal-probe-after-ms '1000'");
     expect(output).toContain("--viewer-screen-frame-output 'frames\\latest.jpg'");
     expect(output).toContain("--viewer-control-surface-port '35987'");
+    expect(output).toContain("Open the host local control surface URL printed by the host command log on the assisted PC.");
     expect(output).toContain("Signal readiness:");
     expect(output).toContain("Viewer sends one bounded readiness probe 1000 ms");
     expect(output).toContain("Host acknowledgement is metadata-only");
@@ -115,6 +117,7 @@ describe("MVP session command kit", () => {
     expect(output).not.toContain("--host-apply-input");
     expect(output).not.toContain("--request 'screen:view,input:pointer,input:keyboard'");
     expect(output).not.toContain("--viewer-control-surface-port");
+    expect(output).not.toContain("--host-control-surface-port");
     expect(output).not.toContain("--dev-screen-frame-source");
     expect(output).not.toContain("Pointer Off/On");
     expect(output).not.toContain("WINBRIDGE_RELAY_BIND_HOST");
@@ -342,6 +345,7 @@ describe("MVP session command kit", () => {
     expect(output).toContain("--visible-session 'true'");
     expect(output).toContain("--request-reason 'MVP remote assistance session'");
     expect(output).toContain("--host-signal-probe-ack 'true'");
+    expect(output).toContain("--host-control-surface-port '0'");
     expect(output).toContain("--viewer-signal-probe-after-ms '1000'");
     expect(output).toContain("--host-apply-input 'true'");
     expect(output).toContain("--dev-screen-frame-count '600'");
@@ -389,6 +393,32 @@ describe("MVP session command kit", () => {
     expect(filteredBrowser).toContain("browser command:");
     expect(filteredBrowser).toContain("Open the viewer local control surface URL printed by the viewer command log.");
     expect(filteredBrowser).not.toContain("http://127.0.0.1:0/");
+  });
+
+  it("prints bounded host surface instructions without starting a host browser", () => {
+    const defaultText = renderMvpSessionCommands(parseMvpSessionCommandArgs([]));
+    const fixedPortText = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--host-control-surface-port", "35986"])
+    );
+    const json = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--host-control-surface-port", "35986", "--json"])
+    );
+    const filteredHost = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--host-control-surface-port", "35986", "--only", "host"])
+    );
+    const parsed = JSON.parse(json);
+    const hostCommand = parsed.commands.find((command: { name: string }) => command.name === "host")
+      ?.command;
+
+    expect(defaultText).toContain("--host-control-surface-port '0'");
+    expect(defaultText).toContain("Open the host local control surface URL printed by the host command log on the assisted PC.");
+    expect(defaultText).not.toContain("http://127.0.0.1:0/");
+    expect(fixedPortText).toContain("--host-control-surface-port '35986'");
+    expect(fixedPortText).toContain("Open 'http://127.0.0.1:35986/' on the assisted PC");
+    expect(fixedPortText).not.toContain("Start-Process 'http://127.0.0.1:35986/'");
+    expect(hostCommand).toContain("--host-control-surface-port '35986'");
+    expect(filteredHost).toContain("Host local browser controls:");
+    expect(filteredHost).toContain("Open the host local control surface URL printed by the host command log on the assisted PC.");
   });
 
   it("uses a deterministic generated pairing code consistently in text output", () => {
@@ -971,6 +1001,13 @@ describe("MVP session command kit", () => {
       ["--host-consent-timeout-ms", "token=raw-host-timeout"],
       ["--host-consent-timeout-ms", "60000", "--host-consent-timeout-ms", "30000"],
       ["--viewer-frame-output", "frames\\latest.png:hidden"],
+      ["--host-control-surface-port", ""],
+      ["--host-control-surface-port", "80"],
+      ["--host-control-surface-port", "-1"],
+      ["--host-control-surface-port", "1.5"],
+      ["--host-control-surface-port", "65536"],
+      ["--host-control-surface-port", "token=raw-host-surface"],
+      ["--host-control-surface-port", "0", "--host-control-surface-port", "1024"],
       ["--viewer-control-surface-port", "80"],
       ["--capture-duration-minutes", "0"],
       ["--capture-duration-minutes", "17"],
