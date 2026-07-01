@@ -288,7 +288,11 @@ from `mvp:commands -- --only relay`, `host`, `viewer`, `browser`, and
 `preflight`, the tokenized LAN role-filter relay/host/viewer outputs, the
 shared-token environment-reference relay/host/viewer/browser/preflight text
 outputs, the fixed all-smoke and Windows-control preflight entries in generated
-command plans, plus the bounded `mvp:commands -- --only preflight --json` plan, the bounded
+command plans, and the full-plan host/viewer native control markers:
+`--host-apply-input true`, `--dev-screen-frame-source windows-capture`, the
+viewer `screen:view,input:pointer,input:keyboard` request, and
+`--viewer-screen-frame-output frames\latest.jpg`. It also validates the bounded
+`mvp:commands -- --only preflight --json` plan, the bounded
 token-env preflight JSON plan, and explicit ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
 checked before a live trial. It then prints only bounded step status. The LAN

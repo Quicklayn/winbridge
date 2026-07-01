@@ -3109,6 +3109,65 @@ describe("MVP ready helper", () => {
       )
     ).toBe(false);
     expect(
+      parseCommandPlanReadiness(commandPlanOutput({ hostApplyInputArg: null }))
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(commandPlanOutput({ hostApplyInputArg: "--host-apply-input 'false'" }))
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          hostApplyInputArg: "--host-apply-input 'true' --host-apply-input 'true'"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(commandPlanOutput({ hostWindowsCaptureArg: null }))
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({ hostWindowsCaptureArg: "--dev-screen-frame-source 'static'" })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          hostWindowsCaptureArg:
+            "--dev-screen-frame-source 'windows-capture' --dev-screen-frame-source 'windows-capture'"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(commandPlanOutput({ viewerRequestArg: null }))
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(commandPlanOutput({ viewerRequestArg: "--request 'screen:view'" }))
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          viewerRequestArg:
+            "--request 'screen:view,input:pointer,input:keyboard' --request 'screen:view,input:pointer,input:keyboard'"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(commandPlanOutput({ viewerFrameOutputArg: null }))
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({ viewerFrameOutputArg: "--viewer-screen-frame-output 'frames\\drift.jpg'" })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          viewerFrameOutputArg:
+            "--viewer-screen-frame-output 'frames\\latest.jpg' --viewer-screen-frame-output 'frames\\latest.jpg'"
+        })
+      )
+    ).toBe(false);
+    expect(
       parseCommandPlanReadiness(
         [
           "> winbridge@0.1.0 mvp:commands",
@@ -3256,6 +3315,26 @@ describe("MVP ready helper", () => {
     expect(
       parseEphemeralCommandPlanReadiness(
         ephemeralCommandPlanOutput({ hostControlSurfaceArg: "--host-control-surface-port '35986'" })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ hostApplyInputArg: null })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ hostWindowsCaptureArg: "--dev-screen-frame-source 'static'" })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ viewerRequestArg: "--request 'screen:view'" })
+      )
+    ).toBe(false);
+    expect(
+      parseEphemeralCommandPlanReadiness(
+        ephemeralCommandPlanOutput({ viewerFrameOutputArg: null })
       )
     ).toBe(false);
     expect(
@@ -4228,6 +4307,10 @@ type CommandPlanFixtureOptions = {
   browserCommand?: string;
   hostControlSurfaceArg?: string | null;
   hostConsentTimeoutArg?: string | null;
+  hostApplyInputArg?: string | null;
+  hostWindowsCaptureArg?: string | null;
+  viewerRequestArg?: string | null;
+  viewerFrameOutputArg?: string | null;
   windowsControlSmokeCommand?: string;
   auditSummaryCommand?: string;
 };
@@ -4280,6 +4363,18 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
   const hostControlSurfaceArg = Object.hasOwn(options, "hostControlSurfaceArg")
     ? options.hostControlSurfaceArg
     : "--host-control-surface-port '0'";
+  const hostApplyInputArg = Object.hasOwn(options, "hostApplyInputArg")
+    ? options.hostApplyInputArg
+    : "--host-apply-input 'true'";
+  const hostWindowsCaptureArg = Object.hasOwn(options, "hostWindowsCaptureArg")
+    ? options.hostWindowsCaptureArg
+    : "--dev-screen-frame-source 'windows-capture'";
+  const viewerRequestArg = Object.hasOwn(options, "viewerRequestArg")
+    ? options.viewerRequestArg
+    : "--request 'screen:view,input:pointer,input:keyboard'";
+  const viewerFrameOutputArg = Object.hasOwn(options, "viewerFrameOutputArg")
+    ? options.viewerFrameOutputArg
+    : "--viewer-screen-frame-output 'frames\\latest.jpg'";
   const viewerSurfaceArg =
     options.viewerSurfacePort === undefined
       ? ""
@@ -4309,11 +4404,11 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
     { name: "relay", command: relayCommand },
     {
       name: "host",
-      command: `npm run dev:agent -- host --relay '${relayUrl}' --pairing '123-456' --host-consent-prompt 'true'${hostConsentTimeoutArg ? ` ${hostConsentTimeoutArg}` : ""}${hostControlSurfaceArg ? ` ${hostControlSurfaceArg}` : ""}${tokenArg}`
+      command: `npm run dev:agent -- host --relay '${relayUrl}' --pairing '123-456' --host-consent-prompt 'true'${hostConsentTimeoutArg ? ` ${hostConsentTimeoutArg}` : ""}${hostControlSurfaceArg ? ` ${hostControlSurfaceArg}` : ""}${hostApplyInputArg ? ` ${hostApplyInputArg}` : ""}${hostWindowsCaptureArg ? ` ${hostWindowsCaptureArg}` : ""}${tokenArg}`
     },
     {
       name: "viewer",
-      command: `npm run dev:agent -- viewer --relay '${relayUrl}' --pairing '123-456'${tokenArg}${viewerSurfaceArg}`
+      command: `npm run dev:agent -- viewer --relay '${relayUrl}' --pairing '123-456'${viewerRequestArg ? ` ${viewerRequestArg}` : ""}${viewerFrameOutputArg ? ` ${viewerFrameOutputArg}` : ""}${tokenArg}${viewerSurfaceArg}`
     },
     { name: "browser", command: options.browserCommand ?? "Start-Process 'http://127.0.0.1:35987/'" }
   ];

@@ -87,6 +87,10 @@ const MVP_READY_LAN_RELAY_URL = `ws://${MVP_READY_LAN_RELAY_HOST}:8787/`;
 const MVP_READY_TOKEN_ENV_NAME = "WINBRIDGE_RELAY_SHARED_TOKEN";
 const REVIEWED_HOST_CONSENT_TIMEOUT_ARG = "--host-consent-timeout-ms '60000'";
 const REVIEWED_HOST_CONTROL_SURFACE_ARG = "--host-control-surface-port '0'";
+const REVIEWED_HOST_APPLY_INPUT_ARG = "--host-apply-input 'true'";
+const REVIEWED_HOST_WINDOWS_CAPTURE_ARG = "--dev-screen-frame-source 'windows-capture'";
+const REVIEWED_VIEWER_CONTROL_REQUEST_ARG = "--request 'screen:view,input:pointer,input:keyboard'";
+const REVIEWED_VIEWER_FRAME_OUTPUT_ARG = "--viewer-screen-frame-output 'frames\\latest.jpg'";
 const REVIEWED_AUDIT_SUMMARY_COMMAND =
   "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence";
 const REVIEWED_WINDOWS_CONTROL_SMOKE_COMMAND = "npm run mvp:ready -- --include-windows-control-smoke";
@@ -1069,6 +1073,7 @@ export function parseCommandPlanReadiness(output, options = {}) {
   return (
     commandPlanUsesReviewedHostConsentTimeout(commandsByName) &&
     commandPlanUsesReviewedHostControlSurface(commandsByName) &&
+    commandPlanUsesReviewedNativeControlPath(commandsByName) &&
     commandPlanUsesReviewedWindowsControlSmoke(commandsByName) &&
     commandPlanUsesReviewedAuditSummary(commandsByName)
   );
@@ -1091,6 +1096,7 @@ export function parseEphemeralCommandPlanReadiness(output) {
     typeof browserCommand === "string" &&
     hostCommandHasReviewedConsentTimeout(hostCommand) &&
     hostCommandHasReviewedControlSurface(hostCommand) &&
+    commandPlanUsesReviewedNativeControlPath(commandsByName) &&
     viewerCommand.includes("--viewer-control-surface-port '0'") &&
     browserCommand === EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION &&
     !allCommands.includes("http://127.0.0.1:0/")
@@ -1461,6 +1467,17 @@ function commandPlanUsesReviewedHostControlSurface(commandsByName) {
   return typeof hostCommand === "string" && hostCommandHasReviewedControlSurface(hostCommand);
 }
 
+function commandPlanUsesReviewedNativeControlPath(commandsByName) {
+  const hostCommand = commandsByName.get("host")?.command;
+  const viewerCommand = commandsByName.get("viewer")?.command;
+  return (
+    typeof hostCommand === "string" &&
+    typeof viewerCommand === "string" &&
+    hostCommandHasReviewedNativeControlPath(hostCommand) &&
+    viewerCommandHasReviewedNativeControlPath(viewerCommand)
+  );
+}
+
 function commandPlanUsesReviewedAuditSummary(commandsByName) {
   const auditSummaryCommand = commandsByName.get("preflight.audit-summary")?.command;
   return auditSummaryCommand === REVIEWED_AUDIT_SUMMARY_COMMAND;
@@ -1485,6 +1502,20 @@ function hostCommandHasReviewedConsentTimeout(hostCommand) {
 
 function hostCommandHasReviewedControlSurface(hostCommand) {
   return countOccurrences(hostCommand, REVIEWED_HOST_CONTROL_SURFACE_ARG) === 1;
+}
+
+function hostCommandHasReviewedNativeControlPath(hostCommand) {
+  return (
+    countOccurrences(hostCommand, REVIEWED_HOST_APPLY_INPUT_ARG) === 1 &&
+    countOccurrences(hostCommand, REVIEWED_HOST_WINDOWS_CAPTURE_ARG) === 1
+  );
+}
+
+function viewerCommandHasReviewedNativeControlPath(viewerCommand) {
+  return (
+    countOccurrences(viewerCommand, REVIEWED_VIEWER_CONTROL_REQUEST_ARG) === 1 &&
+    countOccurrences(viewerCommand, REVIEWED_VIEWER_FRAME_OUTPUT_ARG) === 1
+  );
 }
 
 function countOccurrences(value, needle) {
