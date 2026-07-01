@@ -16,7 +16,7 @@ export type HostControlPromptHandle = {
   stop(): void;
 };
 
-type HostControlCommand =
+export type HostControlCommand =
   | { action: "help" }
   | { action: "status" }
   | { action: "pause" }
@@ -25,9 +25,14 @@ type HostControlCommand =
   | { action: "disconnect" }
   | { action: "revoke"; permission: Permission };
 
-type HostLifecycleControlCommand = Exclude<
+export type HostLifecycleControlCommand = Exclude<
   HostControlCommand,
   { action: "help" } | { action: "status" }
+>;
+
+export type HostLifecycleControlRuntime = Pick<
+  AgentShellRuntime,
+  "pause" | "resume" | "terminate" | "disconnect" | "revokePermission"
 >;
 
 const HOST_CONTROL_PROMPT_TEXT =
@@ -193,7 +198,10 @@ function handleHostControlLine(
   }
 }
 
-function runHostControlCommand(runtime: AgentShellRuntime, command: HostLifecycleControlCommand): void {
+export function runHostControlCommand(
+  runtime: HostLifecycleControlRuntime,
+  command: HostLifecycleControlCommand
+): void {
   switch (command.action) {
     case "pause":
       runtime.pause();

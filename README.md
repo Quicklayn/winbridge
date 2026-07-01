@@ -2,7 +2,7 @@
 
 WinBridge is a consent-first Windows-to-Windows remote assistance project.
 
-The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, a non-native agent shell, a Windows screen capture adapter wired into an explicit consent-bound host development frame source, an explicit viewer output-file path for authorized frames, a loopback-only local viewer control surface for development MVP checks, an MVP command kit for printing a visible relay/host/viewer launch sequence, an interactive viewer control prompt for authorized development input commands, and explicit host opt-in Windows input application for authorized development input events. It does **not** implement a production desktop viewer UI, production remote-control UX, unattended access, or production deployment yet.
+The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, a non-native agent shell, a Windows screen capture adapter wired into an explicit consent-bound host development frame source, an explicit viewer output-file path for authorized frames, loopback-only local viewer and host control surfaces for development MVP checks, an MVP command kit for printing a visible relay/host/viewer launch sequence, an interactive viewer control prompt for authorized development input commands, and explicit host opt-in Windows input application for authorized development input events. It does **not** implement a production desktop viewer UI, production remote-control UX, unattended access, or production deployment yet.
 
 ## Safety Scope
 
@@ -799,6 +799,30 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 ```
 
 Host control prompt mode accepts exact commands: `help`, `status`, `pause`, `resume`, `revoke screen:view`, `revoke input:pointer`, `revoke input:keyboard`, `terminate`, and `disconnect`. It is host-only and mutually exclusive with `--host-status-after-ms`. When combined with `--host-consent-prompt true`, the consent prompt owns stdin first; the host control prompt starts only after an approved active visible authorization. `help` prints a static command list and does not read runtime status, send protocol messages, or invoke controls. `status` prints bounded local host status metadata such as indicator state, visibility, permission count, authorization id/status when available, optional viewer device id/platform bound when the active or paused authorization was approved, and optional `inactiveCause` after local host indicator deactivation; it does not send protocol messages, invoke controls, reconnect peers, expose private disconnect reason text, or display remote self-asserted `trustLevel` values as verified trust. Other commands call the same managed runtime controls as tests, so invisible sessions, expired grants, terminal sessions, disconnected peers, and missing permissions still fail closed before lifecycle protocol messages. After successful exact `terminate` or `disconnect`, the host control prompt stops locally so the terminal no longer presents an active control surface for the terminated or closed local session; failed attempts keep the prompt available with sanitized error output.
+
+Use the development host local control surface for the same host-side controls
+from a browser page on the assisted PC:
+
+```powershell
+npm run dev:agent -- host --session demo --pairing 123-456 --host-consent-prompt true --visible-session true --host-control-surface-port 0
+npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view,input:pointer
+```
+
+`--host-control-surface-port` is host-only, accepts `0` for an OS-assigned
+loopback port or an exact port from `1024` through `65535`, and is mutually
+exclusive with `--host-status-after-ms`. The surface binds only to
+`127.0.0.1`, logs only the local URL, and starts after approved active visible
+authorization when interactive host consent is enabled. Its page exposes
+bounded status plus explicit pause, resume, revoke, terminate, and disconnect
+buttons. Mutating requests require the exact loopback `Host`, same-origin
+`Origin`, JSON content type, and a per-run local token that is not logged.
+Rejected requests and runtime failures return bounded metadata without command
+echoes, permissions, tokens, pairing codes, credentials, private reasons, raw
+protocol payloads, screen contents, input contents, clipboard contents, or
+diagnostics dumps. The host local surface does not capture the screen, send
+input, bind to LAN interfaces, launch hidden browsers, install services,
+configure startup persistence, run unattended, elevate privileges, expose a
+remote shell, hide the host indicator, or bypass Windows prompts.
 
 Print a bounded host-side local status snapshot once from the development CLI:
 

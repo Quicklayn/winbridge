@@ -8,6 +8,10 @@ import {
   shouldStartHostControlPromptAfterEvent,
   shouldStartHostControlPromptImmediately
 } from "./host-control-sequencer.js";
+import {
+  startHostLocalControlSurface,
+  type HostLocalControlSurfaceHandle
+} from "./host-local-control-surface.js";
 import { scheduleHostStatusPrint, type HostStatusPrintHandle } from "./host-status.js";
 import {
   scheduleDevelopmentCapturedScreenFrameSend,
@@ -33,6 +37,8 @@ import { scheduleViewerStatusPrint, type ViewerStatusPrintHandle } from "./viewe
 try {
   const args = parseArgs(process.argv.slice(2));
   let hostControlPrompt: HostControlPromptHandle | undefined;
+  let hostLocalControlSurface: HostLocalControlSurfaceHandle | undefined;
+  let hostLocalControlSurfaceStarting = false;
   let hostStatusPrint: HostStatusPrintHandle | undefined;
   let viewerControlPrompt: ViewerControlPromptHandle | undefined;
   let viewerLocalControlSurface: ViewerLocalControlSurfaceHandle | undefined;
@@ -48,6 +54,32 @@ try {
 
     hostControlPrompt = startInteractiveHostControlPrompt(runtime);
   };
+  const startHostLocalControlSurfaceOnce = () => {
+    if (
+      runtime === undefined ||
+      args.hostControlSurfacePort === undefined ||
+      hostLocalControlSurface !== undefined ||
+      hostLocalControlSurfaceStarting
+    ) {
+      return;
+    }
+
+    hostLocalControlSurfaceStarting = true;
+    startHostLocalControlSurface(runtime, {
+      port: args.hostControlSurfacePort,
+      logger: console
+    })
+      .then((handle) => {
+        hostLocalControlSurface = handle;
+      })
+      .catch((error) => {
+        reportAgentShellCliError(error);
+        process.exit(1);
+      })
+      .finally(() => {
+        hostLocalControlSurfaceStarting = false;
+      });
+  };
   runtime = createAgentShellRuntime({
     ...args,
     hostDecisionProvider: args.hostConsentPrompt
@@ -62,11 +94,21 @@ try {
       if (shouldStartHostControlPromptAfterEvent(args, hostControlPrompt !== undefined, event)) {
         startHostControlPrompt();
       }
+      if (
+        shouldStartHostControlPromptAfterEvent(
+          { hostControlPrompt: args.hostControlSurfacePort !== undefined, hostConsentPrompt: args.hostConsentPrompt },
+          hostLocalControlSurface !== undefined || hostLocalControlSurfaceStarting,
+          event
+        )
+      ) {
+        startHostLocalControlSurfaceOnce();
+      }
     }
   });
 
   const shutdown = async () => {
     hostControlPrompt?.stop();
+    await hostLocalControlSurface?.stop();
     hostStatusPrint?.stop();
     viewerControlPrompt?.stop();
     await viewerLocalControlSurface?.stop();
@@ -91,6 +133,15 @@ try {
     .then(async () => {
       if (shouldStartHostControlPromptImmediately(args)) {
         startHostControlPrompt();
+      }
+
+      if (
+        shouldStartHostControlPromptImmediately({
+          hostControlPrompt: args.hostControlSurfacePort !== undefined,
+          hostConsentPrompt: args.hostConsentPrompt
+        })
+      ) {
+        startHostLocalControlSurfaceOnce();
       }
 
       if (args.hostStatusAfterMs !== undefined) {

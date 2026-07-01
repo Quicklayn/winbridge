@@ -60,6 +60,7 @@ describe("MVP doctor", () => {
       expect.arrayContaining([
         "apps/agent-shell/src/cli-shutdown.ts",
         "apps/agent-shell/src/host-control-prompt.ts",
+        "apps/agent-shell/src/host-local-control-surface.ts",
         "apps/agent-shell/src/screen-frame-output.ts",
         "apps/agent-shell/src/viewer-control-prompt.ts",
         "apps/agent-shell/src/viewer-local-control-surface.ts",

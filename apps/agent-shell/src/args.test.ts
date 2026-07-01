@@ -87,6 +87,14 @@ describe("agent shell arguments", () => {
     expect(parseArgs(["host", "--host-control-prompt", "false"], {}, 42).hostControlPrompt).toBe(false);
   });
 
+  it("parses host local control surface ports for host runtimes", () => {
+    expect(parseArgs(["host", "--host-control-surface-port", "0"], {}, 42).hostControlSurfacePort).toBe(0);
+    expect(
+      parseArgs(["host", "--host-control-surface-port", "35986"], {}, 42)
+        .hostControlSurfacePort
+    ).toBe(35986);
+  });
+
   it("parses host status print mode for host runtimes without requested permissions", () => {
     expect(parseArgs(["host", "--host-status-after-ms", "0"], {}, 42).hostStatusAfterMs).toBe(
       0
@@ -1102,6 +1110,29 @@ describe("agent shell arguments", () => {
           "--host-status-after-ms",
           "0"
         ],
+        {},
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+  });
+
+  it("rejects host local control surface for viewer, unsafe ports, or one-shot host status conflict", () => {
+    expect(() => parseArgs(["viewer", "--host-control-surface-port", "35986"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+    expect(() => parseArgs(["viewer", "--host-control-surface-port", "0"], {}, 42)).toThrow(
+      AgentShellUsageError
+    );
+
+    for (const port of ["", "1", "1023", "-1", "1.5", "65536", "raw-token"]) {
+      expect(() => parseArgs(["host", "--host-control-surface-port", port], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+    }
+
+    expect(() =>
+      parseArgs(
+        ["host", "--host-control-surface-port", "35986", "--host-status-after-ms", "0"],
         {},
         42
       )
