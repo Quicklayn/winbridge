@@ -1488,15 +1488,22 @@ describe("MVP session smoke check", () => {
 
   it("accepts bounded schema-like smoke audit records without exposing raw contents", () => {
     const auditLine = smokeAuditLine("agent-shell.authorization.active");
+    const inputAppliedAction = "agent-shell.remote-interaction.input-event.applied";
 
     expect(hasUsableSmokeAuditLogContent(`${auditLine}\n`)).toBe(true);
     expect(
       hasSmokeAuditLogAction(
-        `${smokeAuditLine("agent-shell.remote-interaction.input-event.applied")}\n`,
-        "agent-shell.remote-interaction.input-event.applied"
+        `${smokeAuditLine(inputAppliedAction)}\n`,
+        inputAppliedAction
       )
     ).toBe(true);
-    expect(hasSmokeAuditLogAction(`${auditLine}\n`, "agent-shell.remote-interaction.input-event.applied")).toBe(false);
+    expect(hasSmokeAuditLogAction(`${smokeAuditLine(inputAppliedAction, "denied")}\n`, inputAppliedAction)).toBe(
+      false
+    );
+    expect(hasSmokeAuditLogAction(`${smokeAuditLine(inputAppliedAction, "failed")}\n`, inputAppliedAction)).toBe(
+      false
+    );
+    expect(hasSmokeAuditLogAction(`${auditLine}\n`, inputAppliedAction)).toBe(false);
     expect(
       hasUsableSmokeAuditLogContent(
         '{"eventId":"short","timestamp":"not-a-date","action":"raw-token","outcome":"accepted"}\n'

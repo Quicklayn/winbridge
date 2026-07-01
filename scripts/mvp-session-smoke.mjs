@@ -1356,7 +1356,7 @@ export function hasSmokeAuditLogAction(content, action) {
     return false;
   }
   const records = parseSmokeAuditLogRecords(content);
-  return records?.some((record) => record.action === action) === true;
+  return records?.some((record) => record.action === action && record.outcome === "accepted") === true;
 }
 
 export function tryReadSmokeAuditSummary(hostAuditPath, viewerAuditPath) {

@@ -2156,7 +2156,7 @@ application. When enabled, the smoke plan MUST pass `--host-apply-input true`
 to the host, MUST preserve the existing host approval, visible session state,
 host control surface, viewer control surface, signal, guard, frame, protocol
 input, audit, revocation, and viewer disconnect checks, and MUST verify a fixed
-`windows-input` subcheck from host audit evidence for
+`windows-input` subcheck from accepted host audit evidence for
 `agent-shell.remote-interaction.input-event.applied`. The helper MUST NOT enable
 OS input by default, start browser automation, bind a public relay, install
 services, configure startup persistence, request privilege elevation, enable
@@ -2172,8 +2172,18 @@ authorization ids, credentials, clipboard contents, or full secrets.
 - **WHEN** a developer runs `npm run mvp:smoke -- --windows-input` on Windows
 - **THEN** the smoke helper starts the existing local relay, host, and viewer
   smoke workflow with host native input application enabled
-- **AND** it verifies the fixed `windows-input` subcheck from bounded host audit
-  evidence
+- **AND** it verifies the fixed `windows-input` subcheck from bounded accepted
+  host audit evidence
+- **AND** diagnostics do not expose input payloads, command contents, child
+  output, local paths, URLs, tokens, pairing codes, credentials, clipboard
+  contents, PowerShell diagnostics, or secrets
+
+#### Scenario: Windows input smoke rejects denied or failed evidence
+
+- **WHEN** the host audit log contains only denied or failed
+  `agent-shell.remote-interaction.input-event.applied` evidence
+- **THEN** the smoke helper fails closed with bounded `windows-input-not-ready`
+  diagnostics
 - **AND** diagnostics do not expose input payloads, command contents, child
   output, local paths, URLs, tokens, pairing codes, credentials, clipboard
   contents, PowerShell diagnostics, or secrets

@@ -510,8 +510,9 @@ This is Windows-only and fails before starting child processes on other
 platforms. It keeps explicit host approval, `--visible-session true`, the host
 control surface, the viewer control surface, protocol input, audit checks,
 revocation, and viewer disconnect behavior, then verifies bounded host audit
-evidence for `agent-shell.remote-interaction.input-event.applied`. It does not
-run by default, does not run through `--include-all-smoke`, does not launch a
+evidence for accepted
+`agent-shell.remote-interaction.input-event.applied`. It does not run by
+default, does not run through `--include-all-smoke`, does not launch a
 browser, install services, configure startup persistence, run unattended,
 elevate privileges, bypass Windows prompts, read credentials, read clipboard
 contents, keylog, evade AV/EDR, or hide session/input activity. Human and JSON
