@@ -2348,6 +2348,14 @@ describe("MVP ready helper", () => {
       parseSmokeSubchecks(
         JSON.stringify({
           ok: true,
+          checks: smokeSubchecks().filter((check) => check.name !== "host-surface")
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeSubchecks(
+        JSON.stringify({
+          ok: true,
           checks: smokeSubchecks().filter((check) => check.name !== "viewer-disconnect")
         })
       )
@@ -2364,7 +2372,27 @@ describe("MVP ready helper", () => {
       parseSmokeSubchecks(
         JSON.stringify({
           ok: true,
+          checks: [...smokeSubchecks(), { name: "host-surface", ok: true }]
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeSubchecks(
+        JSON.stringify({
+          ok: true,
           checks: [...smokeSubchecks(), { name: "viewer-disconnect", ok: true }]
+        })
+      )
+    ).toBeUndefined();
+    expect(
+      parseSmokeSubchecks(
+        JSON.stringify({
+          ok: true,
+          checks: smokeSubchecks().map((check) =>
+            check.name === "host-surface"
+              ? { ...check, url: "http://127.0.0.1:49154/", token: "raw-secret-token" }
+              : check
+          )
         })
       )
     ).toBeUndefined();
@@ -3484,6 +3512,7 @@ function smokeSubchecks() {
   return [
     { name: "relay", ok: true },
     { name: "indicator", ok: true },
+    { name: "host-surface", ok: true },
     { name: "frame", ok: true },
     { name: "surface", ok: true },
     { name: "signal", ok: true },
@@ -3499,6 +3528,7 @@ function smokeFailureSubchecks() {
   return [
     { name: "relay", ok: true },
     { name: "indicator", ok: true },
+    { name: "host-surface", ok: true },
     { name: "frame", ok: true },
     { name: "surface", ok: true },
     { name: "signal", ok: false },

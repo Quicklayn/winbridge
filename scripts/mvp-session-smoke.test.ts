@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   createSmokeProcessEnvironment,
+  extractHostSurfaceUrlFromOutput,
   extractViewerSurfaceUrlFromOutput,
   extractViewerSurfaceMutationToken,
   formatMvpSessionSmokeError,
@@ -18,8 +19,10 @@ import {
   runMvpSessionSmokeCheck,
   stopSmokeProcesses,
   summarizeSmokeAuditLogContent,
+  tryFetchHostSurfaceReadiness,
   tryFetchSurfaceHostGuardRejection,
   tryFetchSurfaceSignalReadiness,
+  tryPostHostSurfaceGuardDenials,
   tryPostSurfaceGuardDenials,
   tryPostSurfaceInput,
   tryPostSurfaceInputDenied,
@@ -165,6 +168,7 @@ describe("MVP session smoke check", () => {
     );
 
     expect(output).toContain("WinBridge MVP smoke check passed.");
+    expect(output).toContain("host-surface=verified");
     expect(output).toContain("signal=verified");
     expect(output).toContain("surface-guards=verified");
     expect(output).toContain("audit=verified");
@@ -197,6 +201,7 @@ describe("MVP session smoke check", () => {
       checks: [
         { name: "relay", ok: true },
         { name: "indicator", ok: true },
+        { name: "host-surface", ok: true },
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
@@ -243,6 +248,7 @@ describe("MVP session smoke check", () => {
       checks: [
         { name: "relay", ok: true },
         { name: "indicator", ok: true },
+        { name: "host-surface", ok: true },
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: false },
@@ -259,6 +265,7 @@ describe("MVP session smoke check", () => {
       checks: [
         { name: "relay", ok: true },
         { name: "indicator", ok: true },
+        { name: "host-surface", ok: true },
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
@@ -275,6 +282,7 @@ describe("MVP session smoke check", () => {
       checks: [
         { name: "relay", ok: true },
         { name: "indicator", ok: true },
+        { name: "host-surface", ok: true },
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
@@ -291,6 +299,7 @@ describe("MVP session smoke check", () => {
       checks: [
         { name: "relay", ok: true },
         { name: "indicator", ok: true },
+        { name: "host-surface", ok: true },
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
@@ -307,6 +316,7 @@ describe("MVP session smoke check", () => {
       checks: [
         { name: "relay", ok: true },
         { name: "indicator", ok: true },
+        { name: "host-surface", ok: true },
         { name: "frame", ok: true },
         { name: "surface", ok: true },
         { name: "signal", ok: true },
@@ -323,6 +333,24 @@ describe("MVP session smoke check", () => {
       checks: [
         { name: "relay", ok: true },
         { name: "indicator", ok: false },
+        { name: "host-surface", ok: false, skipped: true },
+        { name: "frame", ok: false, skipped: true },
+        { name: "surface", ok: false, skipped: true },
+        { name: "signal", ok: false, skipped: true },
+        { name: "surface-guards", ok: false, skipped: true },
+        { name: "input", ok: false, skipped: true },
+        { name: "audit", ok: false, skipped: true },
+        { name: "lifecycle", ok: false, skipped: true },
+        { name: "viewer-disconnect", ok: false, skipped: true }
+      ]
+    });
+    expect(JSON.parse(formatMvpSessionSmokeJsonError(new Error("host-surface-not-ready")))).toEqual({
+      ok: false,
+      reason: "host-surface-not-ready",
+      checks: [
+        { name: "relay", ok: true },
+        { name: "indicator", ok: true },
+        { name: "host-surface", ok: false },
         { name: "frame", ok: false, skipped: true },
         { name: "surface", ok: false, skipped: true },
         { name: "signal", ok: false, skipped: true },
@@ -339,6 +367,7 @@ describe("MVP session smoke check", () => {
       checks: [
         { name: "relay", ok: false },
         { name: "indicator", ok: false, skipped: true },
+        { name: "host-surface", ok: false, skipped: true },
         { name: "frame", ok: false, skipped: true },
         { name: "surface", ok: false, skipped: true },
         { name: "signal", ok: false, skipped: true },
@@ -390,6 +419,8 @@ describe("MVP session smoke check", () => {
     expect(plan.host.args).toContain("--visible-session");
     expect(plan.host.args).toContain("true");
     expect(plan.host.args).toContain("--host-signal-probe-ack");
+    expect(plan.host.args).toContain("--host-control-surface-port");
+    expect(plan.host.args).toContain("0");
     expect(plan.host.args).toContain("--revoke-after-ms");
     expect(plan.host.args).toContain("8000");
     expect(plan.host.args).toContain("--revoke-permission");
@@ -448,6 +479,8 @@ describe("MVP session smoke check", () => {
 
     expect(plan.viewer.args).toContain("--viewer-control-surface-port");
     expect(plan.viewer.args).toContain("0");
+    expect(plan.host.args).toContain("--host-control-surface-port");
+    expect(plan.host.args).toContain("0");
     expect(plan.surfaceUrl).toBeUndefined();
     expect(JSON.stringify(plan)).not.toContain("http://127.0.0.1:0/");
   });
@@ -598,6 +631,41 @@ describe("MVP session smoke check", () => {
     expect(failure).not.toContain("127.0.0.1");
   });
 
+  it("extracts only bounded safe host surface URLs from child output", () => {
+    const readyLine =
+      "[winbridge-agent] host local control surface url=http://127.0.0.1:49154/";
+
+    expect(extractHostSurfaceUrlFromOutput(readyLine)).toBe("http://127.0.0.1:49154/");
+    expect(extractHostSurfaceUrlFromOutput(`${readyLine}\n${readyLine}`)).toBe(
+      "http://127.0.0.1:49154/"
+    );
+
+    for (const output of [
+      "",
+      "x".repeat(4097),
+      "[winbridge-agent] host local control surface url=http://localhost:49154/",
+      "[winbridge-agent] host local control surface url=http://127.0.0.1:0/",
+      "[winbridge-agent] host local control surface url=http://127.0.0.1:80/",
+      "[winbridge-agent] host local control surface url=http://127.0.0.1:49154/path",
+      "[winbridge-agent] host local control surface url=http://127.0.0.1:49154/?token=raw-secret-token",
+      "[winbridge-agent] host local control surface url=http://127.0.0.1:49154/#raw-secret-token",
+      "[winbridge-agent] host local control surface url=http://user:pass@127.0.0.1:49154/",
+      "[winbridge-agent] host local control surface url=https://127.0.0.1:49154/",
+      `${readyLine}\n[winbridge-agent] host local control surface url=http://127.0.0.1:49155/`
+    ]) {
+      expect(extractHostSurfaceUrlFromOutput(output)).toBeUndefined();
+    }
+
+    const failure = formatMvpSessionSmokeJsonError(
+      new Error(
+        "[winbridge-agent] host local control surface url=http://127.0.0.1:49154/?token=raw-secret-token"
+      )
+    );
+    expect(failure).not.toContain("49154");
+    expect(failure).not.toContain("raw-secret-token");
+    expect(failure).not.toContain("127.0.0.1");
+  });
+
   it("keeps the agent-shell CLI wired to bounded runtime logging for host indicator output", () => {
     const source = readFileSync(new URL("../apps/agent-shell/src/index.ts", import.meta.url), "utf8");
     const runtimeOptions = source.slice(
@@ -681,6 +749,74 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeError(new Error("input-not-ready"))).not.toContain("KeyA");
     expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("shift");
     expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("control");
+  });
+
+  it("verifies bounded host surface HTML and sanitized active status", async () => {
+    const calls: unknown[] = [];
+    const readiness = await tryFetchHostSurfaceReadiness(
+      async (url: string, init?: RequestInit) => {
+        calls.push({ url, init });
+        if (url === "http://127.0.0.1:35988/") {
+          return {
+            ok: true,
+            text: async () => 'WinBridge Host <script>const mutationToken = "safe_token-1234567890";</script>'
+          } as Response;
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            state: {
+              state: "active",
+              visibleToHost: true,
+              permissionCount: 3,
+              authorizationStatus: "active",
+              expiresAt: "2026-07-01T00:00:00.000Z",
+              viewerDeviceId: "viewer-smoke",
+              viewerDevicePlatform: "windows"
+            }
+          })
+        } as Response;
+      },
+      "http://127.0.0.1:35988/"
+    );
+
+    expect(readiness).toEqual({ mutationToken: "safe_token-1234567890" });
+    expect(calls).toEqual([
+      { url: "http://127.0.0.1:35988/", init: { cache: "no-store" } },
+      { url: "http://127.0.0.1:35988/status", init: { cache: "no-store" } }
+    ]);
+  });
+
+  it("rejects host surface readiness with unsafe status metadata", async () => {
+    await expect(
+      tryFetchHostSurfaceReadiness(
+        async (url: string) => {
+          if (url === "http://127.0.0.1:35988/") {
+            return {
+              ok: true,
+              text: async () => 'WinBridge Host const mutationToken = "safe_token-1234567890";'
+            } as Response;
+          }
+          return {
+            ok: true,
+            json: async () => ({
+              ok: true,
+              state: {
+                state: "active",
+                visibleToHost: true,
+                permissionCount: 1,
+                authorizationId: "authz_private"
+              }
+            })
+          } as Response;
+        },
+        "http://127.0.0.1:35988/"
+      )
+    ).resolves.toBeUndefined();
+    expect(formatMvpSessionSmokeJsonError(new Error("host-surface-not-ready"))).not.toContain(
+      "authz_private"
+    );
   });
 
   it("rejects unexpected keyboard surface input responses without exposing command details", async () => {
@@ -784,6 +920,105 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready"))).not.toContain(
       "raw-secret-token"
     );
+  });
+
+  it("verifies host surface control guard denials without accepted host mutations", async () => {
+    const calls: unknown[] = [];
+    const guarded = await tryPostHostSurfaceGuardDenials(
+      async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return {
+          status: 403,
+          json: async () => ({ ok: false, error: "rejected" })
+        } as Response;
+      },
+      "http://127.0.0.1:35988/",
+      "safe-token"
+    );
+
+    expect(guarded).toBe(true);
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:35988/control",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            host: "example.invalid:80",
+            origin: "http://127.0.0.1:35988",
+            "x-winbridge-local-surface-token": "safe-token"
+          },
+          body: JSON.stringify({ command: "pause" })
+        }
+      },
+      {
+        url: "http://127.0.0.1:35988/control",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://127.0.0.1:35988"
+          },
+          body: JSON.stringify({ command: "pause" })
+        }
+      },
+      {
+        url: "http://127.0.0.1:35988/control",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://example.invalid",
+            "x-winbridge-local-surface-token": "safe-token"
+          },
+          body: JSON.stringify({ command: "pause" })
+        }
+      },
+      {
+        url: "http://127.0.0.1:35988/control",
+        init: {
+          method: "POST",
+          headers: {
+            "content-type": "text/plain",
+            origin: "http://127.0.0.1:35988",
+            "x-winbridge-local-surface-token": "safe-token"
+          },
+          body: JSON.stringify({ command: "pause" })
+        }
+      }
+    ]);
+    expect(formatMvpSessionSmokeJsonError(new Error("host-surface-not-ready"))).not.toContain(
+      "safe-token"
+    );
+    expect(formatMvpSessionSmokeJsonError(new Error("host-surface-not-ready"))).not.toContain(
+      "example.invalid"
+    );
+  });
+
+  it("does not treat accepted host surface guard probes as guarded", async () => {
+    await expect(
+      tryPostHostSurfaceGuardDenials(
+        async () =>
+          ({
+            status: 202,
+            json: async () => ({ ok: true, action: "pause" })
+          }) as Response,
+        "http://127.0.0.1:35988/",
+        "safe-token"
+      )
+    ).resolves.toBe(false);
+
+    await expect(
+      tryPostHostSurfaceGuardDenials(
+        async () =>
+          ({
+            status: 403,
+            json: async () => ({ ok: false, error: "rejected", token: "raw-secret-token" })
+          }) as Response,
+        "http://127.0.0.1:35988/",
+        "safe-token"
+      )
+    ).resolves.toBe(false);
   });
 
   it("verifies local surface mismatched Host rejection with bounded JSON", async () => {

@@ -43,6 +43,7 @@ const SMOKE_AUDIT_LOG_LINE_LIMIT_BYTES = 4096;
 const MVP_SMOKE_CHECK_NAMES = Object.freeze([
   "relay",
   "indicator",
+  "host-surface",
   "frame",
   "surface",
   "signal",
@@ -81,20 +82,34 @@ const SAFE_SURFACE_STATUS_STATE_KEYS = Object.freeze([
   "inputKeyboardReady",
   "signalProbeAckReceived"
 ]);
+const SAFE_HOST_SURFACE_STATUS_TOP_LEVEL_KEYS = Object.freeze(["ok", "state"]);
+const SAFE_HOST_SURFACE_STATUS_STATE_KEYS = Object.freeze([
+  "state",
+  "authorizationStatus",
+  "expiresAt",
+  "remoteDisconnectReasonCode",
+  "inactiveCause",
+  "visibleToHost",
+  "permissionCount",
+  "viewerDeviceId",
+  "viewerDevicePlatform"
+]);
 const SMOKE_VIEWER_SURFACE_MISMATCHED_HOST = "example.invalid:80";
+const SMOKE_HOST_SURFACE_MISMATCHED_HOST = "example.invalid:80";
 const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "relay-not-ready": 0,
   "port-unavailable": 0,
   "native-capture-unsupported": 0,
   "indicator-not-ready": 1,
-  "frame-not-ready": 2,
-  "surface-not-ready": 3,
-  "signal-not-ready": 4,
-  "surface-guards-not-ready": 5,
-  "input-not-ready": 6,
-  "audit-not-ready": 7,
-  "lifecycle-not-ready": 8,
-  "viewer-disconnect-not-ready": 9
+  "host-surface-not-ready": 2,
+  "frame-not-ready": 3,
+  "surface-not-ready": 4,
+  "signal-not-ready": 5,
+  "surface-guards-not-ready": 6,
+  "input-not-ready": 7,
+  "audit-not-ready": 8,
+  "lifecycle-not-ready": 9,
+  "viewer-disconnect-not-ready": 10
 });
 
 export class MvpSessionSmokeUsageError extends Error {
@@ -266,6 +281,8 @@ export function createMvpSmokePlan(options) {
         "true",
         "--host-signal-probe-ack",
         "true",
+        "--host-control-surface-port",
+        "0",
         "--revoke-after-ms",
         String(DEFAULT_MVP_SMOKE_OPTIONS.lifecycleRevokeAfterMs),
         "--revoke-permission",
@@ -396,6 +413,9 @@ async function runMvpSessionSmokeSteps(context) {
   children.push(viewer);
 
   await waitForHostActiveVisibleIndicator(host, deadline, options);
+  const hostSurfaceUrl = await waitForHostSurfaceUrl(host, deadline, options);
+  const hostSurface = await waitForHostSurface(hostSurfaceUrl, deadline, options);
+  await waitForHostSurfaceGuards(hostSurfaceUrl, hostSurface.mutationToken, deadline, options);
   await waitForFrameFile(readyPlan.framePath, deadline, options);
   const surfaceUrl = readyPlan.surfaceUrl ?? (await waitForViewerSurfaceUrl(viewer, deadline, options));
   const surface = await waitForViewerSurface(surfaceUrl, deadline, options);
@@ -524,6 +544,7 @@ export function formatMvpSessionSmokeSuccess(result, options = {}) {
   return [
     "WinBridge MVP smoke check passed.",
     "indicator=verified",
+    "host-surface=verified",
     "surface=verified",
     "frame=verified",
     "signal=verified",
@@ -606,6 +627,7 @@ function safeSmokeFailureReason(error) {
       "host-not-ready",
       "native-capture-unsupported",
       "indicator-not-ready",
+      "host-surface-not-ready",
       "frame-not-ready",
       "surface-not-ready",
       "signal-not-ready",
@@ -664,6 +686,25 @@ async function waitForHostActiveVisibleIndicator(hostHandle, deadline, options) 
   throw new Error("indicator-not-ready");
 }
 
+async function waitForHostSurfaceUrl(hostHandle, deadline, options) {
+  while (options.now() <= deadline) {
+    assertChildRunning(hostHandle);
+    const surfaceUrl = extractHostSurfaceUrlFromOutput(hostHandle.output);
+    if (surfaceUrl !== undefined) {
+      return surfaceUrl;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("host-surface-not-ready");
+}
+
+export function extractHostSurfaceUrlFromOutput(output) {
+  return extractSafeLoopbackSurfaceUrlFromOutput(
+    output,
+    /\[winbridge-agent\] host local control surface url=(http:\/\/[^\s]+)/g
+  );
+}
+
 async function waitForViewerSurfaceUrl(viewerHandle, deadline, options) {
   while (options.now() <= deadline) {
     assertChildRunning(viewerHandle);
@@ -677,18 +718,23 @@ async function waitForViewerSurfaceUrl(viewerHandle, deadline, options) {
 }
 
 export function extractViewerSurfaceUrlFromOutput(output) {
+  return extractSafeLoopbackSurfaceUrlFromOutput(
+    output,
+    /\[winbridge-agent\] viewer local control surface url=(http:\/\/[^\s]+)/g
+  );
+}
+
+function extractSafeLoopbackSurfaceUrlFromOutput(output, pattern) {
   if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
     return undefined;
   }
 
-  const pattern =
-    /\[winbridge-agent\] viewer local control surface url=(http:\/\/[^\s]+)/g;
   const matches = [...output.matchAll(pattern)];
   if (matches.length === 0) {
     return undefined;
   }
 
-  const urls = matches.map((match) => parseSafeViewerSurfaceUrl(match[1]));
+  const urls = matches.map((match) => parseSafeLoopbackSurfaceUrl(match[1]));
   if (urls.some((url) => url === undefined)) {
     return undefined;
   }
@@ -697,7 +743,7 @@ export function extractViewerSurfaceUrlFromOutput(output) {
   return uniqueUrls.size === 1 ? urls[0] : undefined;
 }
 
-function parseSafeViewerSurfaceUrl(value) {
+function parseSafeLoopbackSurfaceUrl(value) {
   try {
     const url = new URL(value);
     const port = Number.parseInt(url.port, 10);
@@ -735,6 +781,75 @@ export function hasActiveVisibleHostIndicatorOutput(output) {
         line.includes("visibleToHost=true") &&
         /\bpermissionCount=([1-9]\d*)\b/.test(line)
     );
+}
+
+async function waitForHostSurface(surfaceUrl, deadline, options) {
+  while (options.now() <= deadline) {
+    const surface = await tryFetchHostSurfaceReadiness(options.fetchImpl, surfaceUrl);
+    if (surface !== undefined) {
+      return surface;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("host-surface-not-ready");
+}
+
+export async function tryFetchHostSurfaceReadiness(fetchImpl, surfaceUrl) {
+  const html = await tryFetchText(fetchImpl, surfaceUrl);
+  const mutationToken = html === undefined ? undefined : extractViewerSurfaceMutationToken(html);
+  if (!html?.includes("WinBridge Host") || mutationToken === undefined) {
+    return undefined;
+  }
+
+  const ready = await tryFetchHostSurfaceStatusReadiness(fetchImpl, surfaceUrl);
+  return ready ? { mutationToken } : undefined;
+}
+
+export async function tryFetchHostSurfaceStatusReadiness(fetchImpl, surfaceUrl) {
+  try {
+    const response = await fetchImpl(`${surfaceUrl}status`, { cache: "no-store" });
+    if (!response.ok) {
+      return false;
+    }
+
+    const body = await response.json();
+    return isBoundedHostSurfaceStatusReady(body);
+  } catch {
+    return false;
+  }
+}
+
+function isBoundedHostSurfaceStatusReady(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return false;
+  }
+
+  const keys = Object.keys(body);
+  if (
+    !keys.includes("ok") ||
+    !keys.includes("state") ||
+    !keys.every((key) => SAFE_HOST_SURFACE_STATUS_TOP_LEVEL_KEYS.includes(key))
+  ) {
+    return false;
+  }
+
+  const state = body.state;
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    return false;
+  }
+
+  const stateKeys = Object.keys(state);
+  if (!stateKeys.every((key) => SAFE_HOST_SURFACE_STATUS_STATE_KEYS.includes(key))) {
+    return false;
+  }
+
+  return (
+    body.ok === true &&
+    state.state === "active" &&
+    state.visibleToHost === true &&
+    Number.isInteger(state.permissionCount) &&
+    state.permissionCount > 0
+  );
 }
 
 async function waitForFrameFile(framePath, deadline, options) {
@@ -865,6 +980,61 @@ export async function tryPostSurfaceGuardDenials(fetchImpl, surfaceUrl, mutation
     })
   ]);
   return guarded.every(Boolean);
+}
+
+async function waitForHostSurfaceGuards(surfaceUrl, mutationToken, deadline, options) {
+  while (options.now() <= deadline) {
+    const guarded = await tryPostHostSurfaceGuardDenials(options.fetchImpl, surfaceUrl, mutationToken);
+    if (guarded) {
+      return;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("host-surface-not-ready");
+}
+
+export async function tryPostHostSurfaceGuardDenials(fetchImpl, surfaceUrl, mutationToken) {
+  const localOrigin = surfaceUrl.replace(/\/$/, "");
+  const guarded = await Promise.all([
+    tryPostHostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
+      "content-type": "application/json",
+      host: SMOKE_HOST_SURFACE_MISMATCHED_HOST,
+      origin: localOrigin,
+      "x-winbridge-local-surface-token": mutationToken
+    }),
+    tryPostHostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
+      "content-type": "application/json",
+      origin: localOrigin
+    }),
+    tryPostHostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
+      "content-type": "application/json",
+      origin: "http://example.invalid",
+      "x-winbridge-local-surface-token": mutationToken
+    }),
+    tryPostHostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
+      "content-type": "text/plain",
+      origin: localOrigin,
+      "x-winbridge-local-surface-token": mutationToken
+    })
+  ]);
+  return guarded.every(Boolean);
+}
+
+async function tryPostHostSurfaceGuardProbe(fetchImpl, surfaceUrl, headers) {
+  try {
+    const response = await fetchImpl(`${surfaceUrl}control`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ command: "pause" })
+    });
+    if (response.status < 400 || response.status >= 500) {
+      return false;
+    }
+    const body = await response.json();
+    return hasExactRejectedSurfaceGuardShape(body);
+  } catch {
+    return false;
+  }
 }
 
 export async function tryFetchSurfaceHostGuardRejection(fetchImpl, surfaceUrl) {

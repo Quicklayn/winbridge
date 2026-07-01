@@ -23,6 +23,7 @@ const FAILURE_REASONS = new Set(["usage", "spawn-failed", "exit-nonzero"]);
 const SAFE_SMOKE_SUBCHECK_NAMES = new Set([
   "relay",
   "indicator",
+  "host-surface",
   "frame",
   "surface",
   "signal",

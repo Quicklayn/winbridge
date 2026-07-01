@@ -337,9 +337,9 @@ npm run mvp:ready -- --json --include-smoke
 ```
 
 The aggregate JSON keeps child output and generated command strings hidden and
-may include fixed smoke subchecks for relay, host indicator, frame, surface,
-signal, surface guard, input, audit, lifecycle, and viewer-disconnect readiness
-for the default smoke and LAN-style smoke steps.
+may include fixed smoke subchecks for relay, host indicator, host surface,
+frame, viewer surface, signal, surface guard, input, audit, lifecycle, and
+viewer-disconnect readiness for the default smoke and LAN-style smoke steps.
 
 For full local smoke coverage before a two-PC trial, set the bounded relay
 token environment variable and use the explicit all-smoke flag:
@@ -397,9 +397,16 @@ npm run mvp:smoke
 The smoke check builds the workspace, starts local relay, host, and viewer
 development processes, uses explicit static host approval with
 `--visible-session true`, publishes a static authorized frame to a temporary
-viewer output file, starts the loopback viewer surface with
-`--viewer-control-surface-port 0`, resolves the actual `127.0.0.1` surface URL
-from the bounded viewer log marker, verifies the loopback viewer surface and
+viewer output file, starts the loopback host surface with
+`--host-control-surface-port 0`, resolves exactly one bounded host
+`127.0.0.1` surface URL from the host log marker, verifies the host surface
+HTML and sanitized `/status` endpoint report an active visible host session
+with a positive permission count, verifies fixed unsafe host `/control`
+mutation requests with mismatched Host, missing token, foreign Origin, and
+unsafe content type are rejected before lifecycle controls, starts the loopback
+viewer surface with `--viewer-control-surface-port 0`, resolves the actual
+`127.0.0.1` surface URL from the bounded viewer log marker, verifies the
+loopback viewer surface and
 `/frame` endpoint, verifies the host process emitted the bounded active visible
 host indicator marker with a positive permission count,
 verifies the sanitized viewer `/status` endpoint reports
@@ -415,14 +422,16 @@ audit records, verifies that scheduled host revocation of `input:pointer` makes
 a later pointer command fail closed through the same local `/input` path,
 verifies that the token-protected local `/disconnect` path closes the viewer
 side through the existing local surface route, and then stops the child
-processes. The host indicator, signal readiness, audit, surface guard,
-lifecycle, and viewer-disconnect checks are metadata-only. Successful JSON output may include a
+processes. The host indicator, host surface, signal readiness, audit, surface
+guard, lifecycle, and viewer-disconnect checks are metadata-only. Successful
+JSON output may include a
 fixed audit summary with host/viewer record counts, outcome counts, and coverage booleans
 for expected smoke evidence such as consent, frame, input, and revocation. The
 summary is read-only and does not print raw signal payloads, authorization ids,
 event ids, actor ids, target ids, audit paths, raw audit contents, raw audit
-actions, details, reasons, raw input commands, mutation tokens, or pairing
-codes. It is a local preflight only: it does not use Windows capture, apply OS
+actions, details, reasons, raw input commands, host or viewer local surface
+URLs, mutation tokens, or pairing codes. It is a local preflight only: it does
+not use Windows capture, apply OS
 input, launch a browser, install services, configure startup persistence, run
 unattended, elevate privileges, or bypass Windows prompts.
 
