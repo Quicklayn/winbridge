@@ -241,6 +241,16 @@ describe("MVP doctor", () => {
         }
       }))
     ).toMatchObject({ ok: false, reason: "script-misaligned" });
+    expect(
+      runMvpDoctorCheck(createDoctorOptions({
+        packageJson: {
+          scripts: {
+            ...scripts,
+            "mvp:trial": "node scripts/unsafe-wrapper.mjs"
+          }
+        }
+      }))
+    ).toMatchObject({ ok: false, reason: "script-misaligned" });
   });
 
   it("detects missing root helper script entrypoints without echoing paths", () => {

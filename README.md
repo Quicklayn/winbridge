@@ -333,7 +333,8 @@ host/viewer native control markers:
 viewer `screen:view,input:pointer,input:keyboard` request, and
 `--viewer-screen-frame-output frames\latest.jpg`. It also validates the bounded
 `mvp:commands -- --only preflight --json` plan, the bounded
-token-env preflight JSON plan, and explicit ephemeral browser-only output for
+token-env preflight JSON plan, the bounded `mvp:trial -- --json` full
+operator workflow plan, and explicit ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
 checked before a live trial. It then prints only bounded step status. The LAN
 validation uses a fixed safe `--relay-host` value plus the fixed
@@ -356,14 +357,17 @@ npm run mvp:ready -- --json
 ```
 
 For a machine-specific local gate, use an explicit role. Relay readiness checks
-the doctor, relay command block, and representative LAN relay-bind command
-block. Host readiness checks the doctor, native Windows preflight, and host
-command block in localhost, representative LAN relay, and shared-token
-environment-reference shapes. Viewer
-readiness checks the doctor, native Windows preflight, viewer command block in
-localhost, representative LAN relay, and shared-token environment-reference
-shapes, browser command block, and explicit ephemeral browser-only block. Role
-mode is local, never reads token values, and does not run smoke;
+the doctor, relay command block, representative LAN relay-bind command block,
+shared-token relay command block, and matching
+`mvp:trial -- --role relay --json` plan. Host readiness checks the doctor,
+native Windows preflight, host command block in localhost, representative LAN
+relay, and shared-token environment-reference shapes, plus the matching
+`mvp:trial -- --role host --json` plan. Viewer readiness checks the doctor,
+native Windows preflight, viewer command block in localhost, representative
+LAN relay, and shared-token environment-reference shapes, browser command
+block, explicit ephemeral browser-only block, and matching
+`mvp:trial -- --role viewer --json` plan. Role mode is local, never reads token
+values, and does not run smoke;
 `--include-smoke` is rejected with `--role`.
 
 ```powershell

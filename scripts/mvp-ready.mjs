@@ -98,6 +98,86 @@ const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
 const MVP_READY_ROLES = Object.freeze(["relay", "host", "viewer"]);
+const MVP_TRIAL_PLAN_ROLES = Object.freeze(["relay", "host", "viewer", "evidence"]);
+const MVP_TRIAL_PLAN_SAFETY = Object.freeze([
+  "host-consent-required",
+  "host-visible-session-required",
+  "host-can-pause-revoke-disconnect",
+  "strict-audit-evidence-required",
+  "plan-is-non-executing"
+]);
+const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
+  relay: Object.freeze({
+    title: "Relay PC",
+    steps: Object.freeze([
+      Object.freeze({ name: "readiness", command: "npm run mvp:ready -- --role relay" }),
+      Object.freeze({
+        name: "print-command",
+        command:
+          "npm run mvp:commands -- --only relay --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+      }),
+      Object.freeze({
+        name: "operator-check",
+        command: "Run the printed relay command in a visible PowerShell terminal."
+      })
+    ])
+  }),
+  host: Object.freeze({
+    title: "Host PC",
+    steps: Object.freeze([
+      Object.freeze({ name: "readiness", command: "npm run mvp:ready -- --role host" }),
+      Object.freeze({
+        name: "print-command",
+        command:
+          "npm run mvp:commands -- --only host --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+      }),
+      Object.freeze({
+        name: "operator-check",
+        command:
+          "Approve only the visible host consent prompt; keep pause, revoke, terminate, and disconnect controls available."
+      })
+    ])
+  }),
+  viewer: Object.freeze({
+    title: "Viewer PC",
+    steps: Object.freeze([
+      Object.freeze({ name: "readiness", command: "npm run mvp:ready -- --role viewer" }),
+      Object.freeze({
+        name: "print-viewer-command",
+        command:
+          "npm run mvp:commands -- --only viewer --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+      }),
+      Object.freeze({
+        name: "print-browser-command",
+        command:
+          "npm run mvp:commands -- --only browser --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+      }),
+      Object.freeze({
+        name: "operator-check",
+        command: "Open the loopback viewer surface only after the viewer command reports readiness."
+      })
+    ])
+  }),
+  evidence: Object.freeze({
+    title: "Post-run evidence",
+    steps: Object.freeze([
+      Object.freeze({
+        name: "strict-evidence",
+        command:
+          "npm run mvp:trial -- --evidence --host-audit <host-audit-jsonl> --viewer-audit <viewer-audit-jsonl>"
+      }),
+      Object.freeze({
+        name: "underlying-gate",
+        command:
+          "npm run mvp:audit-summary -- --host <host-audit-jsonl> --viewer <viewer-audit-jsonl> --require-mvp-evidence"
+      }),
+      Object.freeze({
+        name: "operator-check",
+        command: "Treat the two-PC MVP trial as unproven until strict role-bound evidence passes."
+      })
+    ])
+  })
+});
 const ROLE_FILTER_TARGETS = Object.freeze(["relay", "host", "viewer", "browser", "preflight"]);
 const ROLE_FILTER_STEP_TARGETS = new Map(
   ROLE_FILTER_TARGETS.map((target) => [`role-filter-${target}-command`, target])
@@ -329,6 +409,7 @@ export function createMvpReadyPlan(options = {}) {
         MVP_READY_TOKEN_ENV_NAME
       ])
     },
+    { name: "trial-plan", ...commandWithArgs("mvp:trial", ["--json"]) },
     {
       name: "token-role-filter-preflight-command",
       ...commandWithArgs("mvp:commands", ["--only", "preflight", "--token-env", MVP_READY_TOKEN_ENV_NAME])
@@ -569,6 +650,35 @@ export function runMvpReadyCheck(options = {}) {
         expectedTokenEnv: MVP_READY_TOKEN_ENV_NAME
       })
     ) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    if (step.name === "trial-plan" && !parseMvpTrialPlanReadiness(result.output)) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    const trialRole = trialRoleForStep(step.name);
+    if (trialRole !== undefined && !parseMvpTrialPlanReadiness(result.output, { expectedRole: trialRole })) {
       const failed = {
         name: step.name,
         ok: false,
@@ -1009,6 +1119,11 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
     });
   }
 
+  steps.push({
+    name: `trial-role-${role}-plan`,
+    ...commandWithArgs("mvp:trial", ["--role", role, "--json"])
+  });
+
   return steps;
 }
 
@@ -1290,8 +1405,118 @@ export function parseTokenEnvPreflightRoleFilteredCommandReadiness(output) {
   );
 }
 
+export function parseMvpTrialPlanReadiness(output, options = {}) {
+  if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
+    return false;
+  }
+
+  const parsed = parseLastJsonOutputLine(output);
+  if (
+    !parsed ||
+    !hasExactMvpTrialPlanShape(parsed) ||
+    parsed.ok !== true ||
+    parsed.mode !== "plan" ||
+    parsed.nonExecuting !== true ||
+    !Array.isArray(parsed.roles) ||
+    !Array.isArray(parsed.safety)
+  ) {
+    return false;
+  }
+
+  const expectedRoles =
+    typeof options.expectedRole === "string" ? [options.expectedRole] : [...MVP_TRIAL_PLAN_ROLES];
+  if (!expectedRoles.every((role) => MVP_TRIAL_PLAN_ROLES.includes(role))) {
+    return false;
+  }
+  if (parsed.roles.length !== expectedRoles.length) {
+    return false;
+  }
+
+  const seen = new Set();
+  for (const section of parsed.roles) {
+    if (!isReviewedMvpTrialPlanSection(section, expectedRoles) || seen.has(section.role)) {
+      return false;
+    }
+    seen.add(section.role);
+  }
+  if (!expectedRoles.every((role) => seen.has(role))) {
+    return false;
+  }
+
+  return hasReviewedMvpTrialPlanSafety(parsed.safety);
+}
+
 function hasRuntimeTokenArgument(output) {
   return /(^|\s)--token(?:\s|=|$)/.test(output);
+}
+
+function trialRoleForStep(stepName) {
+  const prefix = "trial-role-";
+  const suffix = "-plan";
+  if (!stepName.startsWith(prefix) || !stepName.endsWith(suffix)) {
+    return undefined;
+  }
+  const role = stepName.slice(prefix.length, -suffix.length);
+  return MVP_READY_ROLES.includes(role) ? role : undefined;
+}
+
+function hasExactMvpTrialPlanShape(parsed) {
+  const keys = Object.keys(parsed);
+  return (
+    keys.includes("ok") &&
+    keys.includes("mode") &&
+    keys.includes("nonExecuting") &&
+    keys.includes("roles") &&
+    keys.includes("safety") &&
+    keys.every((key) => key === "ok" || key === "mode" || key === "nonExecuting" || key === "roles" || key === "safety")
+  );
+}
+
+function isReviewedMvpTrialPlanSection(section, expectedRoles) {
+  if (!section || typeof section !== "object" || Array.isArray(section)) {
+    return false;
+  }
+  const keys = Object.keys(section);
+  if (
+    !keys.includes("role") ||
+    !keys.includes("title") ||
+    !keys.includes("steps") ||
+    !keys.every((key) => key === "role" || key === "title" || key === "steps") ||
+    !expectedRoles.includes(section.role) ||
+    !MVP_TRIAL_PLAN_ROLES.includes(section.role) ||
+    !Array.isArray(section.steps)
+  ) {
+    return false;
+  }
+
+  const reviewed = MVP_TRIAL_PLAN_ROLE_DETAILS[section.role];
+  return (
+    section.title === reviewed.title &&
+    section.steps.length === reviewed.steps.length &&
+    section.steps.every((step, index) => isReviewedMvpTrialPlanStep(step, reviewed.steps[index]))
+  );
+}
+
+function isReviewedMvpTrialPlanStep(step, reviewed) {
+  if (!step || typeof step !== "object" || Array.isArray(step)) {
+    return false;
+  }
+  const keys = Object.keys(step);
+  return (
+    keys.includes("name") &&
+    keys.includes("command") &&
+    keys.every((key) => key === "name" || key === "command") &&
+    step.name === reviewed.name &&
+    step.command === reviewed.command
+  );
+}
+
+function hasReviewedMvpTrialPlanSafety(safety) {
+  return (
+    safety.length === MVP_TRIAL_PLAN_SAFETY.length &&
+    MVP_TRIAL_PLAN_SAFETY.every((item) => safety.includes(item)) &&
+    safety.every((item) => MVP_TRIAL_PLAN_SAFETY.includes(item))
+  );
 }
 
 function roleFilterMarkersForTarget(target, options = {}) {

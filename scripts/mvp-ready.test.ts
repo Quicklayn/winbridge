@@ -13,6 +13,7 @@ import {
   parseLanAgentRoleFilteredCommandReadiness,
   parseLanRelayRoleFilteredCommandReadiness,
   parseMvpReadyArgs,
+  parseMvpTrialPlanReadiness,
   parseRoleFilteredCommandReadiness,
   parseSmokeReadiness,
   parseSmokeSubchecks,
@@ -336,6 +337,7 @@ describe("MVP ready helper", () => {
           "WINBRIDGE_RELAY_SHARED_TOKEN"
         ]
       },
+      { name: "trial-plan", command: "npm", args: ["run", "mvp:trial", "--", "--json"] },
       ...roleFilterPlanSteps()
     ]);
   });
@@ -402,6 +404,7 @@ describe("MVP ready helper", () => {
           "WINBRIDGE_RELAY_SHARED_TOKEN"
         ]
       },
+      { name: "trial-plan", command: "npm", args: ["run", "mvp:trial", "--", "--json"] },
       ...roleFilterPlanSteps(),
       { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] },
       {
@@ -769,6 +772,11 @@ describe("MVP ready helper", () => {
           "--token-env",
           "WINBRIDGE_RELAY_SHARED_TOKEN"
         ]
+      },
+      {
+        name: "trial-role-relay-plan",
+        command: "npm",
+        args: ["run", "mvp:trial", "--", "--role", "relay", "--json"]
       }
     ]);
     expect(createMvpReadyPlan({ npmCommand: "npm", role: "host" })).toEqual([
@@ -806,6 +814,11 @@ describe("MVP ready helper", () => {
           "--token-env",
           "WINBRIDGE_RELAY_SHARED_TOKEN"
         ]
+      },
+      {
+        name: "trial-role-host-plan",
+        command: "npm",
+        args: ["run", "mvp:trial", "--", "--role", "host", "--json"]
       }
     ]);
     expect(createMvpReadyPlan({ npmCommand: "npm", role: "viewer" })).toEqual([
@@ -874,6 +887,11 @@ describe("MVP ready helper", () => {
           "--viewer-control-surface-port",
           "0"
         ]
+      },
+      {
+        name: "trial-role-viewer-plan",
+        command: "npm",
+        args: ["run", "mvp:trial", "--", "--role", "viewer", "--json"]
       }
     ]);
     expect(() => createMvpReadyPlan({ npmCommand: "npm", role: "unsafe" })).toThrow(
@@ -942,6 +960,7 @@ describe("MVP ready helper", () => {
         "token-command-plan=ok",
         "preflight-json-command-plan=ok",
         "preflight-token-json-command-plan=ok",
+        "trial-plan=ok",
         "token-role-filter-preflight-command=ok",
         "role-filter-relay-command=ok",
         "role-filter-host-command=ok",
@@ -1130,6 +1149,7 @@ describe("MVP ready helper", () => {
         { name: "token-command-plan", ok: true },
         { name: "preflight-json-command-plan", ok: true },
         { name: "preflight-token-json-command-plan", ok: true },
+        { name: "trial-plan", ok: true },
         { name: "token-role-filter-preflight-command", ok: false, reason: "exit-nonzero" }
       ]
     });
@@ -1969,7 +1989,8 @@ describe("MVP ready helper", () => {
       "token-role-filter-viewer-command",
       "role-filter-browser-command",
       "token-role-filter-browser-command",
-      "ephemeral-role-filter-browser-command"
+      "ephemeral-role-filter-browser-command",
+      "trial-role-viewer-plan"
     ]);
     expect(result).toEqual({
       ok: true,
@@ -1981,7 +2002,8 @@ describe("MVP ready helper", () => {
         { name: "token-role-filter-viewer-command", ok: true },
         { name: "role-filter-browser-command", ok: true },
         { name: "token-role-filter-browser-command", ok: true },
-        { name: "ephemeral-role-filter-browser-command", ok: true }
+        { name: "ephemeral-role-filter-browser-command", ok: true },
+        { name: "trial-role-viewer-plan", ok: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toBe(
@@ -1994,7 +2016,8 @@ describe("MVP ready helper", () => {
         "token-role-filter-viewer-command=ok",
         "role-filter-browser-command=ok",
         "token-role-filter-browser-command=ok",
-        "ephemeral-role-filter-browser-command=ok"
+        "ephemeral-role-filter-browser-command=ok",
+        "trial-role-viewer-plan=ok"
       ].join("\n")
     );
     expect(formatMvpReadyResult(result)).not.toContain("smoke=skipped");
@@ -2020,7 +2043,8 @@ describe("MVP ready helper", () => {
       "doctor",
       "role-filter-relay-command",
       "lan-role-filter-relay-command",
-      "token-role-filter-relay-command"
+      "token-role-filter-relay-command",
+      "trial-role-relay-plan"
     ]);
     expect(result).toEqual({
       ok: true,
@@ -2028,7 +2052,8 @@ describe("MVP ready helper", () => {
         { name: "doctor", ok: true },
         { name: "role-filter-relay-command", ok: true },
         { name: "lan-role-filter-relay-command", ok: true },
-        { name: "token-role-filter-relay-command", ok: true }
+        { name: "token-role-filter-relay-command", ok: true },
+        { name: "trial-role-relay-plan", ok: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toBe(
@@ -2037,7 +2062,8 @@ describe("MVP ready helper", () => {
         "doctor=ok",
         "role-filter-relay-command=ok",
         "lan-role-filter-relay-command=ok",
-        "token-role-filter-relay-command=ok"
+        "token-role-filter-relay-command=ok",
+        "trial-role-relay-plan=ok"
       ].join("\n")
     );
     expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
@@ -2063,7 +2089,8 @@ describe("MVP ready helper", () => {
       "native-preflight",
       "role-filter-host-command",
       "lan-role-filter-host-command",
-      "token-role-filter-host-command"
+      "token-role-filter-host-command",
+      "trial-role-host-plan"
     ]);
     expect(result).toEqual({
       ok: true,
@@ -2072,7 +2099,8 @@ describe("MVP ready helper", () => {
         { name: "native-preflight", ok: true },
         { name: "role-filter-host-command", ok: true },
         { name: "lan-role-filter-host-command", ok: true },
-        { name: "token-role-filter-host-command", ok: true }
+        { name: "token-role-filter-host-command", ok: true },
+        { name: "trial-role-host-plan", ok: true }
       ]
     });
     expect(formatMvpReadyResult(result)).not.toContain("192.168.1.10");
@@ -2516,6 +2544,60 @@ describe("MVP ready helper", () => {
     expect(formatMvpReadyJsonResult(result)).not.toContain("123-456");
   });
 
+  it("fails closed when default trial-plan output is malformed or evidence-mode", () => {
+    const result = runMvpReadyCheck({
+      includeSmoke: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeSmoke: true }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "preflight-json-command-plan") {
+          return { ok: true, output: preflightCommandPlanOutput() };
+        }
+        if (step.name === "trial-plan") {
+          return {
+            ok: true,
+            output: `${trialPlanOutput(undefined, { mode: "evidence" })}\nraw-secret-token\nws://192.168.1.10:8787/`
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: [
+        { name: "doctor", ok: true },
+        { name: "native-preflight", ok: true },
+        { name: "command-plan", ok: true },
+        { name: "ephemeral-command-plan", ok: true },
+        { name: "lan-command-plan", ok: true },
+        { name: "token-command-plan", ok: true },
+        { name: "preflight-json-command-plan", ok: true },
+        { name: "preflight-token-json-command-plan", ok: true },
+        { name: "trial-plan", ok: false, reason: "exit-nonzero" }
+      ]
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("raw-secret-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("192.168.1.10");
+  });
+
   it("fails closed when role-filter command output is malformed or cross-target", () => {
     const result = runMvpReadyCheck({
       includeSmoke: true,
@@ -2562,6 +2644,7 @@ describe("MVP ready helper", () => {
         { name: "token-command-plan", ok: true },
         { name: "preflight-json-command-plan", ok: true },
         { name: "preflight-token-json-command-plan", ok: true },
+        { name: "trial-plan", ok: true },
         { name: "token-role-filter-preflight-command", ok: true },
         { name: "role-filter-relay-command", ok: true },
         { name: "role-filter-host-command", ok: false, reason: "exit-nonzero" }
@@ -2621,6 +2704,7 @@ describe("MVP ready helper", () => {
         { name: "token-command-plan", ok: true },
         { name: "preflight-json-command-plan", ok: true },
         { name: "preflight-token-json-command-plan", ok: true },
+        { name: "trial-plan", ok: true },
         { name: "token-role-filter-preflight-command", ok: true },
         ...roleFilterTargets().map((target) => ({
           name: `role-filter-${target}-command`,
@@ -3472,6 +3556,29 @@ describe("MVP ready helper", () => {
     ).toBe(false);
   });
 
+  it("parses only reviewed MVP trial plan output", () => {
+    expect(parseMvpTrialPlanReadiness(trialPlanOutput())).toBe(true);
+    expect(parseMvpTrialPlanReadiness(trialPlanOutput("host"), { expectedRole: "host" })).toBe(true);
+    expect(parseMvpTrialPlanReadiness(trialPlanOutput("host"), { expectedRole: "viewer" })).toBe(false);
+    expect(parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { mode: "evidence" }))).toBe(false);
+    expect(parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { nonExecuting: false }))).toBe(false);
+    expect(
+      parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { roles: [trialPlanRole("host"), trialPlanRole("host")] }))
+    ).toBe(false);
+    expect(
+      parseMvpTrialPlanReadiness(trialPlanOutput("host", { roles: [trialPlanRole("host"), trialPlanRole("viewer")] }), {
+        expectedRole: "host"
+      })
+    ).toBe(false);
+    expect(
+      parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { safety: trialPlanSafety().slice(1) }))
+    ).toBe(false);
+    expect(parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { extra: { stdout: "raw-secret-token" } }))).toBe(
+      false
+    );
+    expect(parseMvpTrialPlanReadiness("x".repeat(32769))).toBe(false);
+  });
+
   it("parses only bounded target-specific role-filter command output", () => {
     for (const target of roleFilterTargets()) {
       expect(parseRoleFilteredCommandReadiness(roleFilterOutput(target), target)).toBe(true);
@@ -4087,6 +4194,7 @@ function defaultReadyCheckNames() {
     "token-command-plan",
     "preflight-json-command-plan",
     "preflight-token-json-command-plan",
+    "trial-plan",
     "token-role-filter-preflight-command",
     ...roleFilterTargets().map((target) => `role-filter-${target}-command`),
     "lan-role-filter-relay-command",
@@ -4103,6 +4211,7 @@ function defaultReadyCheckNames() {
 function roleFilterCheckResults() {
   return [
     { name: "preflight-token-json-command-plan", ok: true },
+    { name: "trial-plan", ok: true },
     { name: "token-role-filter-preflight-command", ok: true },
     ...roleFilterTargets().map((target) => ({
       name: `role-filter-${target}-command`,
@@ -4122,6 +4231,18 @@ function roleFilterCheckResults() {
 function roleFilterOutputForStep(name: string) {
   if (name === "preflight-token-json-command-plan") {
     return preflightCommandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" });
+  }
+  if (name === "trial-plan") {
+    return trialPlanOutput();
+  }
+  if (name === "trial-role-relay-plan") {
+    return trialPlanOutput("relay");
+  }
+  if (name === "trial-role-host-plan") {
+    return trialPlanOutput("host");
+  }
+  if (name === "trial-role-viewer-plan") {
+    return trialPlanOutput("viewer");
   }
   if (name === "token-role-filter-preflight-command") {
     return tokenEnvPreflightRoleFilterOutput();
@@ -4300,6 +4421,119 @@ function tokenEnvPreflightRoleFilterOutput(options: { tokenEnv?: string } = {}) 
 function roleFilterReadyReminder(target: string) {
   const role = target === "browser" ? "viewer" : target;
   return `Preflight reminder: run npm run mvp:ready -- --role ${role} on this machine before a live trial.`;
+}
+
+type TrialPlanRole = "relay" | "host" | "viewer" | "evidence";
+
+function trialPlanOutput(
+  role?: TrialPlanRole,
+  overrides: {
+    mode?: string;
+    nonExecuting?: boolean;
+    roles?: unknown[];
+    safety?: string[];
+    extra?: Record<string, unknown>;
+  } = {}
+) {
+  const roles = overrides.roles ?? (role ? [trialPlanRole(role)] : ["relay", "host", "viewer", "evidence"].map((item) => trialPlanRole(item as TrialPlanRole)));
+  return JSON.stringify({
+    ok: true,
+    mode: overrides.mode ?? "plan",
+    nonExecuting: overrides.nonExecuting ?? true,
+    roles,
+    safety: overrides.safety ?? trialPlanSafety(),
+    ...(overrides.extra ?? {})
+  });
+}
+
+function trialPlanRole(role: TrialPlanRole) {
+  const sections = {
+    relay: {
+      role: "relay",
+      title: "Relay PC",
+      steps: [
+        { name: "readiness", command: "npm run mvp:ready -- --role relay" },
+        {
+          name: "print-command",
+          command:
+            "npm run mvp:commands -- --only relay --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+        },
+        {
+          name: "operator-check",
+          command: "Run the printed relay command in a visible PowerShell terminal."
+        }
+      ]
+    },
+    host: {
+      role: "host",
+      title: "Host PC",
+      steps: [
+        { name: "readiness", command: "npm run mvp:ready -- --role host" },
+        {
+          name: "print-command",
+          command:
+            "npm run mvp:commands -- --only host --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+        },
+        {
+          name: "operator-check",
+          command:
+            "Approve only the visible host consent prompt; keep pause, revoke, terminate, and disconnect controls available."
+        }
+      ]
+    },
+    viewer: {
+      role: "viewer",
+      title: "Viewer PC",
+      steps: [
+        { name: "readiness", command: "npm run mvp:ready -- --role viewer" },
+        {
+          name: "print-viewer-command",
+          command:
+            "npm run mvp:commands -- --only viewer --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+        },
+        {
+          name: "print-browser-command",
+          command:
+            "npm run mvp:commands -- --only browser --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+        },
+        {
+          name: "operator-check",
+          command: "Open the loopback viewer surface only after the viewer command reports readiness."
+        }
+      ]
+    },
+    evidence: {
+      role: "evidence",
+      title: "Post-run evidence",
+      steps: [
+        {
+          name: "strict-evidence",
+          command:
+            "npm run mvp:trial -- --evidence --host-audit <host-audit-jsonl> --viewer-audit <viewer-audit-jsonl>"
+        },
+        {
+          name: "underlying-gate",
+          command:
+            "npm run mvp:audit-summary -- --host <host-audit-jsonl> --viewer <viewer-audit-jsonl> --require-mvp-evidence"
+        },
+        {
+          name: "operator-check",
+          command: "Treat the two-PC MVP trial as unproven until strict role-bound evidence passes."
+        }
+      ]
+    }
+  };
+  return sections[role];
+}
+
+function trialPlanSafety() {
+  return [
+    "host-consent-required",
+    "host-visible-session-required",
+    "host-can-pause-revoke-disconnect",
+    "strict-audit-evidence-required",
+    "plan-is-non-executing"
+  ];
 }
 
 function smokeSubchecks() {

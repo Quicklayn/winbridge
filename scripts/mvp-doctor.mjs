@@ -75,7 +75,8 @@ const REQUIRED_ROOT_SCRIPT_ALIGNMENT = Object.freeze({
     "npm --workspace @winbridge/audit-log run build",
     "npm --workspace @winbridge/relay run dev"
   ]),
-  "mvp:smoke": Object.freeze(["npm run build", "node scripts/mvp-session-smoke.mjs"])
+  "mvp:smoke": Object.freeze(["npm run build", "node scripts/mvp-session-smoke.mjs"]),
+  "mvp:trial": Object.freeze(["node scripts/mvp-trial.mjs"])
 });
 
 export class MvpDoctorUsageError extends Error {
