@@ -122,6 +122,26 @@ WINBRIDGE_RELAY_SHARED_TOKEN` command references. It does not print generated
 session commands, relay URLs, pairing codes, token values, local URLs, audit
 records, frame bytes, screen contents, input contents, or secrets.
 
+Before running the full host/viewer assistance commands on two PCs, verify that
+the relay is reachable and that both operators are using the same session and
+pairing metadata. Run the relay command first, then run one probe from the host
+PC and one probe from the viewer PC before the bounded timeout expires:
+
+```powershell
+$env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
+npm run mvp:lan-probe -- --role host --relay ws://192.168.1.10:8787/ --session demo --pairing 123-456 --peer host-probe --device host-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN
+npm run mvp:lan-probe -- --role viewer --relay ws://192.168.1.10:8787/ --session demo --pairing 123-456 --peer viewer-probe --device viewer-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN
+```
+
+The LAN probe sends only a relay `join-session` message and waits for paired
+relay readiness. It does not request consent, grant permissions, activate host
+visibility, capture the screen, send input, write audit records, start local
+control surfaces, launch browsers, install services, configure startup
+persistence, elevate privileges, run unattended, change firewall settings, or
+bypass Windows prompts. Text and JSON output are bounded and omit relay URLs,
+pairing codes, token values, protocol payloads, screen contents, input
+contents, local paths, and secrets.
+
 After a visible, consented two-PC trial has produced local host and viewer
 audit logs, the same helper can run the strict evidence gate:
 
