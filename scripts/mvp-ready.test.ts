@@ -3559,6 +3559,18 @@ describe("MVP ready helper", () => {
   it("parses only reviewed MVP trial plan output", () => {
     expect(parseMvpTrialPlanReadiness(trialPlanOutput())).toBe(true);
     expect(parseMvpTrialPlanReadiness(trialPlanOutput("host"), { expectedRole: "host" })).toBe(true);
+    expect(
+      parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { relayHost: "192.168.1.10" }), {
+        expectedRelayHost: "192.168.1.10"
+      })
+    ).toBe(true);
+    expect(parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { relayHost: "192.168.1.10" }))).toBe(false);
+    expect(
+      parseMvpTrialPlanReadiness(trialPlanOutput("viewer", { relayHost: "support-relay.lan" }), {
+        expectedRole: "viewer",
+        expectedRelayHost: "support-relay.lan"
+      })
+    ).toBe(true);
     expect(parseMvpTrialPlanReadiness(trialPlanOutput("host"), { expectedRole: "viewer" })).toBe(false);
     expect(parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { mode: "evidence" }))).toBe(false);
     expect(parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { nonExecuting: false }))).toBe(false);
@@ -4430,12 +4442,17 @@ function trialPlanOutput(
   overrides: {
     mode?: string;
     nonExecuting?: boolean;
+    relayHost?: string;
     roles?: unknown[];
     safety?: string[];
     extra?: Record<string, unknown>;
   } = {}
 ) {
-  const roles = overrides.roles ?? (role ? [trialPlanRole(role)] : ["relay", "host", "viewer", "evidence"].map((item) => trialPlanRole(item as TrialPlanRole)));
+  const roles = overrides.roles ?? (role
+    ? [trialPlanRole(role, overrides.relayHost)]
+    : ["relay", "host", "viewer", "evidence"].map((item) =>
+        trialPlanRole(item as TrialPlanRole, overrides.relayHost)
+      ));
   return JSON.stringify({
     ok: true,
     mode: overrides.mode ?? "plan",
@@ -4446,7 +4463,8 @@ function trialPlanOutput(
   });
 }
 
-function trialPlanRole(role: TrialPlanRole) {
+function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
+  const relayHostValue = relayHost ?? "<relay-pc-lan-ip>";
   const sections = {
     relay: {
       role: "relay",
@@ -4456,7 +4474,7 @@ function trialPlanRole(role: TrialPlanRole) {
         {
           name: "print-command",
           command:
-            "npm run mvp:commands -- --only relay --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+            `npm run mvp:commands -- --only relay --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
         },
         {
           name: "operator-check",
@@ -4472,7 +4490,7 @@ function trialPlanRole(role: TrialPlanRole) {
         {
           name: "print-command",
           command:
-            "npm run mvp:commands -- --only host --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+            `npm run mvp:commands -- --only host --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
         },
         {
           name: "operator-check",
@@ -4489,12 +4507,12 @@ function trialPlanRole(role: TrialPlanRole) {
         {
           name: "print-viewer-command",
           command:
-            "npm run mvp:commands -- --only viewer --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+            `npm run mvp:commands -- --only viewer --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
         },
         {
           name: "print-browser-command",
           command:
-            "npm run mvp:commands -- --only browser --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+            `npm run mvp:commands -- --only browser --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
         },
         {
           name: "operator-check",

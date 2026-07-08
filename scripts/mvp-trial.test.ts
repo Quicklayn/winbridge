@@ -17,6 +17,7 @@ import {
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const scriptPath = join(scriptDirectory, "mvp-trial.mjs");
+const RELAY_HOST_PLACEHOLDER_FOR_TESTS = "<relay-pc-lan-ip>";
 
 describe("MVP two-PC trial helper", () => {
   it("parses plan, JSON, role, help, and evidence modes", () => {
@@ -35,6 +36,17 @@ describe("MVP two-PC trial helper", () => {
       help: false,
       mode: "plan",
       role: "host"
+    });
+    expect(parseMvpTrialArgs(["--relay-host", "192.168.1.10"])).toMatchObject({
+      help: false,
+      mode: "plan",
+      relayHost: "192.168.1.10"
+    });
+    expect(parseMvpTrialArgs(["--role", "viewer", "--relay-host", "support-relay.lan"])).toMatchObject({
+      help: false,
+      mode: "plan",
+      role: "viewer",
+      relayHost: "support-relay.lan"
     });
     expect(parseMvpTrialArgs(["--help"])).toEqual({ help: true });
     expect(
@@ -101,6 +113,33 @@ describe("MVP two-PC trial helper", () => {
     assertNoUnsafeOutput(output);
   });
 
+  it("prints bounded relay-host command references without generated runtime commands", () => {
+    const output = formatMvpTrialPlan(createMvpTrialPlan({ relayHost: "192.168.1.10" }));
+
+    expect(output).toContain("npm run mvp:commands -- --only relay --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(output).toContain("npm run mvp:commands -- --only host --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(output).toContain("npm run mvp:commands -- --only viewer --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(output).toContain("npm run mvp:commands -- --only browser --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(output).not.toContain(RELAY_HOST_PLACEHOLDER_FOR_TESTS);
+    expect(output).not.toContain("npm run dev:agent -- host");
+    expect(output).not.toContain("npm run dev:agent -- viewer");
+    assertNoUnsafeOutput(output);
+  });
+
+  it("prints role-filtered relay-host JSON plan metadata", () => {
+    const output = formatMvpTrialPlanJson(
+      createMvpTrialPlan({ role: "viewer", relayHost: "support-relay.lan" })
+    );
+    const parsed = JSON.parse(output);
+
+    expect(parsed.roles).toHaveLength(1);
+    expect(parsed.roles[0].role).toBe("viewer");
+    expect(JSON.stringify(parsed)).toContain("--relay-host support-relay.lan");
+    expect(JSON.stringify(parsed)).not.toContain("[relay]");
+    expect(JSON.stringify(parsed)).not.toContain("npm run dev:agent");
+    assertNoUnsafeOutput(output);
+  });
+
   it("filters a single role in plan mode", () => {
     const host = formatMvpTrialPlan(createMvpTrialPlan({ role: "host" }));
 
@@ -117,6 +156,14 @@ describe("MVP two-PC trial helper", () => {
       ["--role"],
       ["--role", "raw-secret-token"],
       ["--role", "host", "--role", "viewer"],
+      ["--relay-host"],
+      ["--relay-host", "localhost"],
+      ["--relay-host", "127.0.0.1"],
+      ["--relay-host", "0.0.0.0"],
+      ["--relay-host", "999.1.1.1"],
+      ["--relay-host", "raw-secret-token"],
+      ["--relay-host", "192.168.1.10", "--relay-host", "192.168.1.11"],
+      ["--evidence", "--relay-host", "192.168.1.10", "--host-audit", String.raw`logs\host-audit.jsonl`, "--viewer-audit", String.raw`logs\viewer-audit.jsonl`],
       ["--evidence", "--role", "evidence"],
       ["--evidence"],
       ["--host-audit", String.raw`logs\host-audit.jsonl`],
@@ -145,6 +192,7 @@ describe("MVP two-PC trial helper", () => {
 
       expect(thrown).toBeTruthy();
       expect(formatMvpTrialError(thrown)).not.toContain("raw-secret-token");
+      expect(formatMvpTrialError(thrown)).not.toContain("192.168.1.10");
       expect(formatMvpTrialError(thrown)).not.toContain("host-audit.jsonl:hidden");
       expect(formatMvpTrialError(thrown, { json: true })).toMatch(/^\{"ok":false,"reason":"[a-z-]+"\}$/);
     }

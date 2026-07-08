@@ -95,6 +95,14 @@ npm run mvp:trial
 npm run mvp:trial -- --json
 ```
 
+When the relay PC LAN host is already known, keep the helper non-executing but
+print role command references with that concrete host:
+
+```powershell
+npm run mvp:trial -- --relay-host 192.168.1.10
+npm run mvp:trial -- --role viewer --relay-host support-relay.lan --json
+```
+
 Use a role filter on the machine you are preparing:
 
 ```powershell
@@ -108,9 +116,11 @@ The trial helper is non-executing in plan mode. It references the existing
 role-scoped readiness gates, role-filtered command blocks, and strict post-run
 audit gate without starting relay, host, viewer, browser, capture, input,
 sockets, HTTP listeners, services, startup persistence, unattended access, or
-privilege elevation. It does not print generated session commands, relay URLs,
-pairing codes, token values, local URLs, audit records, frame bytes, screen
-contents, input contents, or secrets.
+privilege elevation. `--relay-host` only substitutes a validated host into the
+bounded `mvp:commands -- --only ... --relay-host ... --token-env
+WINBRIDGE_RELAY_SHARED_TOKEN` command references. It does not print generated
+session commands, relay URLs, pairing codes, token values, local URLs, audit
+records, frame bytes, screen contents, input contents, or secrets.
 
 After a visible, consented two-PC trial has produced local host and viewer
 audit logs, the same helper can run the strict evidence gate:

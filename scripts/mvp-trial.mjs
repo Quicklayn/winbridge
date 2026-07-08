@@ -6,7 +6,7 @@ import {
 } from "./mvp-audit-summary.mjs";
 
 export const MVP_TRIAL_USAGE = [
-  "Usage: npm run mvp:trial -- [--json] [--role relay|host|viewer|evidence]",
+  "Usage: npm run mvp:trial -- [--json] [--role relay|host|viewer|evidence] [--relay-host RELAY-PC-LAN-IP]",
   "       npm run mvp:trial -- --evidence --host-audit logs\\host-audit.jsonl --viewer-audit logs\\viewer-audit.jsonl [--json]",
   "",
   "Prints a bounded, non-executing two-PC MVP trial workflow, or verifies",
@@ -16,6 +16,12 @@ export const MVP_TRIAL_USAGE = [
 ].join("\n");
 
 const TRIAL_ROLES = Object.freeze(["relay", "host", "viewer", "evidence"]);
+const RELAY_HOST_PLACEHOLDER = "<relay-pc-lan-ip>";
+const RELAY_HOST_SHORTCUT_PATTERN =
+  /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+const IPV4_LITERAL_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;
+const SECRET_MARKER_PATTERN =
+  /(^|[._:\-/\\])(token|credential|credentials|password|passphrase|secret|api[-_:.]?key|access[-_:.]?key|cookie|private[-_:.]?key|ssh[-_:.]?key|authorization|auth[-_:.]?header|proxy[-_:.]?authorization)([=._:\-/\\]|$)/i;
 const FAILURE_REASONS = new Set([
   "usage",
   "unsafe-path",
@@ -48,8 +54,7 @@ const TRIAL_SECTIONS = Object.freeze({
       }),
       Object.freeze({
         name: "print-command",
-        command:
-          "npm run mvp:commands -- --only relay --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+        command: trialRelayHostCommandReference("relay")
       }),
       Object.freeze({
         name: "operator-check",
@@ -67,8 +72,7 @@ const TRIAL_SECTIONS = Object.freeze({
       }),
       Object.freeze({
         name: "print-command",
-        command:
-          "npm run mvp:commands -- --only host --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+        command: trialRelayHostCommandReference("host")
       }),
       Object.freeze({
         name: "operator-check",
@@ -87,13 +91,11 @@ const TRIAL_SECTIONS = Object.freeze({
       }),
       Object.freeze({
         name: "print-viewer-command",
-        command:
-          "npm run mvp:commands -- --only viewer --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+        command: trialRelayHostCommandReference("viewer")
       }),
       Object.freeze({
         name: "print-browser-command",
-        command:
-          "npm run mvp:commands -- --only browser --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+        command: trialRelayHostCommandReference("browser")
       }),
       Object.freeze({
         name: "operator-check",
@@ -145,6 +147,7 @@ export function parseMvpTrialArgs(rawArgs) {
   let evidence = false;
   let hostAudit;
   let viewerAudit;
+  let relayHost;
 
   for (let index = 0; index < rawArgs.length; index += 1) {
     const arg = rawArgs[index];
@@ -171,6 +174,15 @@ export function parseMvpTrialArgs(rawArgs) {
       index += 1;
       continue;
     }
+    if (arg === "--relay-host") {
+      const value = rawArgs[index + 1];
+      if (relayHost !== undefined || value === undefined || value.startsWith("--")) {
+        throw new MvpTrialUsageError();
+      }
+      relayHost = parseTrialRelayHost(value);
+      index += 1;
+      continue;
+    }
     if (arg === "--host-audit" || arg === "--viewer-audit") {
       const value = rawArgs[index + 1];
       if (value === undefined || value.startsWith("--")) {
@@ -194,7 +206,7 @@ export function parseMvpTrialArgs(rawArgs) {
   }
 
   if (evidence) {
-    if (role !== undefined || hostAudit === undefined || viewerAudit === undefined) {
+    if (role !== undefined || relayHost !== undefined || hostAudit === undefined || viewerAudit === undefined) {
       throw new MvpTrialUsageError();
     }
     const parsedAudit = parseMvpAuditSummaryArgs([
@@ -221,7 +233,8 @@ export function parseMvpTrialArgs(rawArgs) {
     help: false,
     mode: "plan",
     json,
-    role
+    role,
+    ...(relayHost ? { relayHost } : {})
   };
 }
 
@@ -231,7 +244,7 @@ export function createMvpTrialPlan(options = {}) {
     ok: true,
     mode: "plan",
     nonExecuting: true,
-    roles: roles.map((role) => TRIAL_SECTIONS[role]),
+    roles: roles.map((role) => createTrialSection(role, options.relayHost)),
     safety: [...PLAN_SAFETY]
   };
 }
@@ -317,6 +330,18 @@ function formatTrialSection(section) {
   ];
 }
 
+function createTrialSection(role, relayHost) {
+  const base = TRIAL_SECTIONS[role];
+  return {
+    role: base.role,
+    title: base.title,
+    steps: base.steps.map((step) => ({
+      name: step.name,
+      command: relayHost ? step.command.replaceAll(RELAY_HOST_PLACEHOLDER, relayHost) : step.command
+    }))
+  };
+}
+
 function sanitizeTrialPlan(plan) {
   if (
     !plan ||
@@ -360,16 +385,54 @@ function sanitizeSection(section) {
     typeof section !== "object" ||
     Array.isArray(section) ||
     !TRIAL_ROLES.includes(section.role) ||
-    section !== TRIAL_SECTIONS[section.role] ||
     !Array.isArray(section.steps)
   ) {
     return undefined;
+  }
+  const reviewed = TRIAL_SECTIONS[section.role];
+  if (section.title !== reviewed.title || section.steps.length !== reviewed.steps.length) {
+    return undefined;
+  }
+  for (let index = 0; index < section.steps.length; index += 1) {
+    if (!isReviewedTrialStep(section.steps[index], reviewed.steps[index])) {
+      return undefined;
+    }
   }
   return {
     role: section.role,
     title: section.title,
     steps: section.steps.map((step) => ({ name: step.name, command: step.command }))
   };
+}
+
+function isReviewedTrialStep(step, reviewed) {
+  if (
+    !step ||
+    typeof step !== "object" ||
+    Array.isArray(step) ||
+    step.name !== reviewed.name ||
+    typeof step.command !== "string"
+  ) {
+    return false;
+  }
+  return step.command === reviewed.command || isReviewedRelayHostCommandReference(step.command, reviewed.command);
+}
+
+function isReviewedRelayHostCommandReference(command, reviewedCommand) {
+  if (!reviewedCommand.includes(RELAY_HOST_PLACEHOLDER)) {
+    return false;
+  }
+  const [prefix, suffix] = reviewedCommand.split(RELAY_HOST_PLACEHOLDER);
+  if (!command.startsWith(prefix) || !command.endsWith(suffix)) {
+    return false;
+  }
+  const relayHost = command.slice(prefix.length, command.length - suffix.length);
+  try {
+    parseTrialRelayHost(relayHost);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sanitizeEvidenceResult(result) {
@@ -390,6 +453,91 @@ function sanitizeEvidenceResult(result) {
 
 function safeTrialReason(reason) {
   return FAILURE_REASONS.has(reason) ? reason : "malformed-record";
+}
+
+function trialRelayHostCommandReference(target) {
+  return `npm run mvp:commands -- --only ${target} --relay-host ${RELAY_HOST_PLACEHOLDER} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`;
+}
+
+function parseTrialRelayHost(raw) {
+  if (
+    isUnsafeScalar(raw) ||
+    !RELAY_HOST_SHORTCUT_PATTERN.test(raw) ||
+    hasSecretBearingMetadata(raw) ||
+    isLoopbackOrUnspecifiedRelayHost(raw)
+  ) {
+    throw new MvpTrialUsageError();
+  }
+
+  if (IPV4_LITERAL_PATTERN.test(raw)) {
+    const parts = raw.split(".").map((part) => Number.parseInt(part, 10));
+    if (parts.some((part) => part > 255)) {
+      throw new MvpTrialUsageError();
+    }
+  }
+
+  return raw;
+}
+
+function isUnsafeScalar(raw) {
+  return (
+    typeof raw !== "string" ||
+    raw.trim().length === 0 ||
+    raw !== raw.trim() ||
+    hasAsciiControlCharacter(raw) ||
+    hasUnsafeFormatCharacter(raw)
+  );
+}
+
+function hasAsciiControlCharacter(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasUnsafeFormatCharacter(value) {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (
+      codePoint === 0x061c ||
+      codePoint === 0x200b ||
+      codePoint === 0x200c ||
+      codePoint === 0x200d ||
+      codePoint === 0x200e ||
+      codePoint === 0x200f ||
+      codePoint === 0x2060 ||
+      codePoint === 0xfeff ||
+      (codePoint !== undefined && codePoint >= 0x202a && codePoint <= 0x202e) ||
+      (codePoint !== undefined && codePoint >= 0x2066 && codePoint <= 0x2069)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasSecretBearingMetadata(raw) {
+  return SECRET_MARKER_PATTERN.test(raw);
+}
+
+function isLoopbackOrUnspecifiedRelayHost(raw) {
+  const host = raw.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host === "0.0.0.0") {
+    return true;
+  }
+
+  if (IPV4_LITERAL_PATTERN.test(host)) {
+    const [first] = host.split(".");
+    return first === "127";
+  }
+
+  return false;
 }
 
 function runCli(rawArgs = process.argv.slice(2), streams = process) {

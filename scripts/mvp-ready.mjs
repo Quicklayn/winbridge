@@ -98,6 +98,7 @@ const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
 const MVP_READY_ROLES = Object.freeze(["relay", "host", "viewer"]);
+const MVP_TRIAL_RELAY_HOST_PLACEHOLDER = "<relay-pc-lan-ip>";
 const MVP_TRIAL_PLAN_ROLES = Object.freeze(["relay", "host", "viewer", "evidence"]);
 const MVP_TRIAL_PLAN_SAFETY = Object.freeze([
   "host-consent-required",
@@ -1434,7 +1435,7 @@ export function parseMvpTrialPlanReadiness(output, options = {}) {
 
   const seen = new Set();
   for (const section of parsed.roles) {
-    if (!isReviewedMvpTrialPlanSection(section, expectedRoles) || seen.has(section.role)) {
+    if (!isReviewedMvpTrialPlanSection(section, expectedRoles, options.expectedRelayHost) || seen.has(section.role)) {
       return false;
     }
     seen.add(section.role);
@@ -1472,7 +1473,7 @@ function hasExactMvpTrialPlanShape(parsed) {
   );
 }
 
-function isReviewedMvpTrialPlanSection(section, expectedRoles) {
+function isReviewedMvpTrialPlanSection(section, expectedRoles, expectedRelayHost) {
   if (!section || typeof section !== "object" || Array.isArray(section)) {
     return false;
   }
@@ -1493,11 +1494,13 @@ function isReviewedMvpTrialPlanSection(section, expectedRoles) {
   return (
     section.title === reviewed.title &&
     section.steps.length === reviewed.steps.length &&
-    section.steps.every((step, index) => isReviewedMvpTrialPlanStep(step, reviewed.steps[index]))
+    section.steps.every((step, index) =>
+      isReviewedMvpTrialPlanStep(step, reviewed.steps[index], expectedRelayHost)
+    )
   );
 }
 
-function isReviewedMvpTrialPlanStep(step, reviewed) {
+function isReviewedMvpTrialPlanStep(step, reviewed, expectedRelayHost) {
   if (!step || typeof step !== "object" || Array.isArray(step)) {
     return false;
   }
@@ -1507,8 +1510,15 @@ function isReviewedMvpTrialPlanStep(step, reviewed) {
     keys.includes("command") &&
     keys.every((key) => key === "name" || key === "command") &&
     step.name === reviewed.name &&
-    step.command === reviewed.command
+    step.command === reviewedMvpTrialPlanCommand(reviewed.command, expectedRelayHost)
   );
+}
+
+function reviewedMvpTrialPlanCommand(command, expectedRelayHost) {
+  if (typeof expectedRelayHost !== "string") {
+    return command;
+  }
+  return command.replaceAll(MVP_TRIAL_RELAY_HOST_PLACEHOLDER, expectedRelayHost);
 }
 
 function hasReviewedMvpTrialPlanSafety(safety) {
