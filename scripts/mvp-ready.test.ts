@@ -9,6 +9,7 @@ import {
   parseEphemeralBrowserRoleFilteredCommandReadiness,
   parseCommandPlanReadiness,
   parseEphemeralCommandPlanReadiness,
+  parseEvidenceFixtureReadiness,
   parsePreflightCommandPlanReadiness,
   parseLanAgentRoleFilteredCommandReadiness,
   parseLanRelayRoleFilteredCommandReadiness,
@@ -38,6 +39,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--json"])).toEqual({
@@ -49,6 +51,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-smoke", "--json"])).toEqual({
@@ -60,6 +63,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-token-smoke", "--json"])).toEqual({
@@ -71,6 +75,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-lan-token-smoke", "--json"])).toEqual({
@@ -82,6 +87,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-windows-capture-smoke", "--json"])).toEqual({
@@ -93,6 +99,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: true,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-windows-input-smoke", "--json"])).toEqual({
@@ -104,6 +111,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: true,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-windows-control-smoke", "--json"])).toEqual({
@@ -115,6 +123,19 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: true,
+      includeEvidenceFixture: false,
+      includeAllSmoke: false
+    });
+    expect(parseMvpReadyArgs(["--include-evidence-fixture", "--json"])).toEqual({
+      help: false,
+      json: true,
+      includeSmoke: false,
+      includeTokenSmoke: false,
+      includeLanTokenSmoke: false,
+      includeWindowsCaptureSmoke: false,
+      includeWindowsInputSmoke: false,
+      includeWindowsControlSmoke: false,
+      includeEvidenceFixture: true,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--include-all-smoke", "--json"])).toEqual({
@@ -126,6 +147,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: true
     });
     expect(
@@ -139,6 +161,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false
     });
     expect(parseMvpReadyArgs(["--role", "host"])).toEqual({
@@ -150,6 +173,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false,
       role: "host"
     });
@@ -162,6 +186,7 @@ describe("MVP ready helper", () => {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false,
       role: "viewer"
     });
@@ -174,9 +199,20 @@ describe("MVP ready helper", () => {
     expect(MVP_READY_USAGE).toContain("role-filter, LAN, token-env, and ephemeral browser outputs");
     expect(MVP_READY_USAGE).toContain("--include-windows-input-smoke");
     expect(MVP_READY_USAGE).toContain("--include-windows-control-smoke");
+    expect(MVP_READY_USAGE).toContain("--include-evidence-fixture");
     expect(MVP_READY_USAGE).toContain("Smoke checks are explicit through include flags.");
     expect(MVP_READY_USAGE).not.toContain("Default mode runs only");
     expect(MVP_READY_USAGE).not.toContain("only\nread-only doctor and native preflight");
+  });
+
+  it("parses reviewed evidence fixture readiness output only", () => {
+    expect(parseEvidenceFixtureReadiness(evidenceFixtureOutput())).toBe(true);
+    expect(parseEvidenceFixtureReadiness(`npm banner\n${evidenceFixtureOutput()}`)).toBe(true);
+    expect(parseEvidenceFixtureReadiness(evidenceFixtureOutput({ hostRecords: 4 }))).toBe(false);
+    expect(parseEvidenceFixtureReadiness(evidenceFixtureOutput({ viewerRecords: 4 }))).toBe(false);
+    expect(parseEvidenceFixtureReadiness(evidenceFixtureOutput({ verified: false }))).toBe(false);
+    expect(parseEvidenceFixtureReadiness(JSON.stringify({ ok: true, hostRecords: 5, viewerRecords: 3, verified: true, path: "logs\\host-audit.jsonl" }))).toBe(false);
+    expect(parseEvidenceFixtureReadiness("raw-secret-token")).toBe(false);
   });
 
   it("rejects malformed options without echoing raw values", () => {
@@ -209,6 +245,9 @@ describe("MVP ready helper", () => {
     ).toThrow(MvpReadyUsageError);
     expect(() =>
       parseMvpReadyArgs(["--include-windows-control-smoke", "--include-windows-control-smoke"])
+    ).toThrow(MvpReadyUsageError);
+    expect(() =>
+      parseMvpReadyArgs(["--include-evidence-fixture", "--include-evidence-fixture"])
     ).toThrow(MvpReadyUsageError);
     expect(() => parseMvpReadyArgs(["--include-all-smoke", "--include-all-smoke"])).toThrow(
       MvpReadyUsageError
@@ -266,6 +305,12 @@ describe("MVP ready helper", () => {
     );
     expect(() =>
       parseMvpReadyArgs(["--include-windows-control-smoke", "--role", "viewer"])
+    ).toThrow(MvpReadyUsageError);
+    expect(() => parseMvpReadyArgs(["--role", "host", "--include-evidence-fixture"])).toThrow(
+      MvpReadyUsageError
+    );
+    expect(() =>
+      parseMvpReadyArgs(["--include-evidence-fixture", "--role", "viewer"])
     ).toThrow(MvpReadyUsageError);
     expect(() => parseMvpReadyArgs(["--role", "host", "--include-all-smoke"])).toThrow(
       MvpReadyUsageError
@@ -695,6 +740,17 @@ describe("MVP ready helper", () => {
     ]);
   });
 
+  it("includes evidence fixture only when explicitly requested", () => {
+    expect(createMvpReadyPlan({ npmCommand: "npm", includeEvidenceFixture: true })).toEqual([
+      ...createMvpReadyPlan({ npmCommand: "npm" }),
+      {
+        name: "evidence-fixture",
+        command: "npm",
+        args: ["run", "mvp:evidence-fixture", "--", "--verify", "--json"]
+      }
+    ]);
+  });
+
   it("includes every default smoke variant when all smoke is explicitly requested", () => {
     expect(createMvpReadyPlan({ npmCommand: "npm", includeAllSmoke: true }).slice(-4)).toEqual([
       { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] },
@@ -984,6 +1040,93 @@ describe("MVP ready helper", () => {
         "windows-control-smoke=skipped"
       ].join("\n")
     );
+  });
+
+  it("runs evidence fixture only when explicitly included", () => {
+    const calls: string[] = [];
+    const result = runMvpReadyCheck({
+      includeEvidenceFixture: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeEvidenceFixture: true }),
+      runCommand: (step: { name: string }) => {
+        calls.push(step.name);
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "preflight-json-command-plan") {
+          return { ok: true, output: preflightCommandPlanOutput() };
+        }
+        if (step.name === "evidence-fixture") {
+          return { ok: true, output: evidenceFixtureOutput() };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(calls).toEqual([...defaultReadyCheckNames(), "evidence-fixture"]);
+    expect(result.ok).toBe(true);
+    expect(result.checks).toContainEqual({ name: "evidence-fixture", ok: true });
+    expect(formatMvpReadyResult(result)).toContain("evidence-fixture=ok");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("fixture-session");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("host-audit.jsonl");
+  });
+
+  it("fails closed when evidence fixture output drifts", () => {
+    const result = runMvpReadyCheck({
+      includeEvidenceFixture: true,
+      plan: createMvpReadyPlan({ npmCommand: "npm", includeEvidenceFixture: true }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "command-plan") {
+          return { ok: true, output: commandPlanOutput() };
+        }
+        if (step.name === "ephemeral-command-plan") {
+          return { ok: true, output: ephemeralCommandPlanOutput() };
+        }
+        if (step.name === "lan-command-plan") {
+          return { ok: true, output: commandPlanOutput({ relayUrl: "ws://192.168.1.10:8787/" }) };
+        }
+        if (step.name === "token-command-plan") {
+          return { ok: true, output: commandPlanOutput({ tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN" }) };
+        }
+        if (step.name === "preflight-json-command-plan") {
+          return { ok: true, output: preflightCommandPlanOutput() };
+        }
+        if (step.name === "evidence-fixture") {
+          return {
+            ok: true,
+            output: `${evidenceFixtureOutput({ verified: false })}\nraw-secret-token\nlogs\\host-audit.jsonl`
+          };
+        }
+        const stepRoleFilterOutput = roleFilterOutputForStep(step.name);
+        if (stepRoleFilterOutput !== undefined) {
+          return { ok: true, output: stepRoleFilterOutput };
+        }
+        return { ok: true };
+      }
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "exit-nonzero",
+      checks: expect.arrayContaining([
+        { name: "evidence-fixture", ok: false, reason: "exit-nonzero" }
+      ])
+    });
+    expect(formatMvpReadyResult(result)).toContain("evidence-fixture=failed reason=exit-nonzero");
+    expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("host-audit.jsonl");
   });
 
   it("fails closed when default token-env role-filter output drifts", () => {
@@ -4642,6 +4785,22 @@ function smokeAuditSummary() {
       disconnectObserved: true
     }
   };
+}
+
+function evidenceFixtureOutput(
+  options: {
+    ok?: boolean;
+    hostRecords?: number;
+    viewerRecords?: number;
+    verified?: boolean;
+  } = {}
+) {
+  return JSON.stringify({
+    ok: options.ok ?? true,
+    hostRecords: options.hostRecords ?? 5,
+    viewerRecords: options.viewerRecords ?? 3,
+    verified: options.verified ?? true
+  });
 }
 
 type CommandPlanFixtureOptions = {

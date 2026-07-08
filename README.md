@@ -393,6 +393,23 @@ output:
 npm run mvp:ready -- --json
 ```
 
+To also run the generated local evidence fixture dry run after the default
+readiness checks pass:
+
+```powershell
+npm run mvp:ready -- --include-evidence-fixture
+npm run mvp:ready -- --include-evidence-fixture --json
+```
+
+This explicit gate runs `mvp:evidence-fixture -- --verify --json` and accepts
+only bounded fixture metadata with the reviewed host/viewer record counts and
+`verified=true`. Default readiness does not run this helper or write fixture
+files. The readiness output reports only fixed `evidence-fixture` check status
+metadata; it does not echo generated fixture paths, audit JSONL, child output,
+tokens, pairing codes, frame bytes, input contents, or secrets. This is a
+local fixture dry run for the strict evidence gate, not proof of a live two-PC
+session, and it is rejected with role-scoped readiness.
+
 For a machine-specific local gate, use an explicit role. Relay readiness checks
 the doctor, relay command block, representative LAN relay-bind command block,
 shared-token relay command block, and matching

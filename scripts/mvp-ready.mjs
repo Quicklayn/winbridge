@@ -12,6 +12,7 @@ export const MVP_READY_USAGE = [
   "  --include-windows-capture-smoke",
   "  --include-windows-input-smoke",
   "  --include-windows-control-smoke",
+  "  --include-evidence-fixture",
   "  --include-all-smoke",
   "  --role relay|host|viewer",
   "",
@@ -94,6 +95,7 @@ const REVIEWED_VIEWER_FRAME_OUTPUT_ARG = "--viewer-screen-frame-output 'frames\\
 const REVIEWED_AUDIT_SUMMARY_COMMAND =
   "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence";
 const REVIEWED_WINDOWS_CONTROL_SMOKE_COMMAND = "npm run mvp:ready -- --include-windows-control-smoke";
+const REVIEWED_EVIDENCE_FIXTURE_RECORDS = Object.freeze({ host: 5, viewer: 3 });
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
@@ -229,6 +231,7 @@ export function parseMvpReadyArgs(rawArgs) {
       includeWindowsCaptureSmoke: false,
       includeWindowsInputSmoke: false,
       includeWindowsControlSmoke: false,
+      includeEvidenceFixture: false,
       includeAllSmoke: false
     };
   }
@@ -248,6 +251,7 @@ export function parseMvpReadyArgs(rawArgs) {
   let includeWindowsCaptureSmoke = false;
   let includeWindowsInputSmoke = false;
   let includeWindowsControlSmoke = false;
+  let includeEvidenceFixture = false;
   let includeAllSmoke = false;
   let role;
 
@@ -309,6 +313,14 @@ export function parseMvpReadyArgs(rawArgs) {
       continue;
     }
 
+    if (arg === "--include-evidence-fixture") {
+      if (includeEvidenceFixture) {
+        throw new MvpReadyUsageError();
+      }
+      includeEvidenceFixture = true;
+      continue;
+    }
+
     if (arg === "--include-all-smoke") {
       if (includeAllSmoke) {
         throw new MvpReadyUsageError();
@@ -346,6 +358,7 @@ export function parseMvpReadyArgs(rawArgs) {
       includeWindowsCaptureSmoke ||
       includeWindowsInputSmoke ||
       includeWindowsControlSmoke ||
+      includeEvidenceFixture ||
       includeAllSmoke
     )
   ) {
@@ -361,6 +374,7 @@ export function parseMvpReadyArgs(rawArgs) {
     includeWindowsCaptureSmoke,
     includeWindowsInputSmoke,
     includeWindowsControlSmoke,
+    includeEvidenceFixture,
     includeAllSmoke,
     ...(role ? { role } : {})
   };
@@ -538,6 +552,14 @@ export function createMvpReadyPlan(options = {}) {
               "--windows-capture",
               "--windows-input"
             ])
+          }
+        ]
+      : []),
+    ...(options.includeEvidenceFixture
+      ? [
+          {
+            name: "evidence-fixture",
+            ...commandWithArgs("mvp:evidence-fixture", ["--verify", "--json"])
           }
         ]
       : [])
@@ -894,6 +916,20 @@ export function runMvpReadyCheck(options = {}) {
       if (smokeResult.auditSummary) {
         check.auditSummary = smokeResult.auditSummary;
       }
+    }
+
+    if (step.name === "evidence-fixture" && !parseEvidenceFixtureReadiness(result.output)) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
     }
 
     checks.push(check);
@@ -1455,6 +1491,29 @@ export function parseMvpTrialPlanReadiness(output, options = {}) {
   }
 
   return hasReviewedMvpTrialPlanSafety(parsed.safety);
+}
+
+export function parseEvidenceFixtureReadiness(output) {
+  if (typeof output !== "string" || output.length === 0 || output.length > OUTPUT_LIMIT_BYTES) {
+    return false;
+  }
+
+  const parsed = parseLastJsonOutputLine(output);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return false;
+  }
+  const keys = Object.keys(parsed);
+  return (
+    keys.includes("ok") &&
+    keys.includes("hostRecords") &&
+    keys.includes("viewerRecords") &&
+    keys.includes("verified") &&
+    keys.every((key) => key === "ok" || key === "hostRecords" || key === "viewerRecords" || key === "verified") &&
+    parsed.ok === true &&
+    parsed.hostRecords === REVIEWED_EVIDENCE_FIXTURE_RECORDS.host &&
+    parsed.viewerRecords === REVIEWED_EVIDENCE_FIXTURE_RECORDS.viewer &&
+    parsed.verified === true
+  );
 }
 
 function hasRuntimeTokenArgument(output) {
@@ -2060,6 +2119,7 @@ function runCli(rawArgs = process.argv.slice(2), streams = process) {
       includeWindowsCaptureSmoke: parsed.includeWindowsCaptureSmoke,
       includeWindowsInputSmoke: parsed.includeWindowsInputSmoke,
       includeWindowsControlSmoke: parsed.includeWindowsControlSmoke,
+      includeEvidenceFixture: parsed.includeEvidenceFixture,
       includeAllSmoke: parsed.includeAllSmoke,
       role: parsed.role
     });
