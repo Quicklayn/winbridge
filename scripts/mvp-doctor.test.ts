@@ -65,6 +65,7 @@ describe("MVP doctor", () => {
         "apps/agent-shell/src/viewer-control-prompt.ts",
         "apps/agent-shell/src/viewer-local-control-surface.ts",
         "scripts/mvp-audit-summary.mjs",
+        "scripts/mvp-evidence-fixture.mjs",
         "scripts/mvp-trial.mjs"
       ])
     );
@@ -246,6 +247,16 @@ describe("MVP doctor", () => {
         packageJson: {
           scripts: {
             ...scripts,
+            "mvp:evidence-fixture": "node scripts/unsafe-evidence-wrapper.mjs",
+          }
+        }
+      }))
+    ).toMatchObject({ ok: false, reason: "script-misaligned" });
+    expect(
+      runMvpDoctorCheck(createDoctorOptions({
+        packageJson: {
+          scripts: {
+            ...scripts,
             "mvp:trial": "node scripts/unsafe-wrapper.mjs"
           }
         }
@@ -371,6 +382,7 @@ function alignedRootScripts() {
       "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/audit-log run build && npm --workspace @winbridge/windows-capture run build && npm --workspace @winbridge/windows-input run build && npm --workspace @winbridge/agent-shell run dev --",
     "mvp:audit-summary": "node scripts/mvp-audit-summary.mjs",
     "mvp:commands": "node scripts/mvp-session-commands.mjs",
+    "mvp:evidence-fixture": "node scripts/mvp-evidence-fixture.mjs",
     "mvp:lan-probe": "node scripts/mvp-lan-probe.mjs",
     "mvp:native-preflight": "node scripts/mvp-native-preflight.mjs",
     "mvp:ready": "node scripts/mvp-ready.mjs",

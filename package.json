@@ -20,6 +20,7 @@
     "mvp:commands": "node scripts/mvp-session-commands.mjs",
     "mvp:audit-summary": "node scripts/mvp-audit-summary.mjs",
     "mvp:doctor": "node scripts/mvp-doctor.mjs",
+    "mvp:evidence-fixture": "node scripts/mvp-evidence-fixture.mjs",
     "mvp:lan-probe": "node scripts/mvp-lan-probe.mjs",
     "mvp:native-preflight": "node scripts/mvp-native-preflight.mjs",
     "mvp:ready": "node scripts/mvp-ready.mjs",

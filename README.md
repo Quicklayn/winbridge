@@ -318,10 +318,11 @@ npm run mvp:doctor
 ```
 
 The doctor verifies Windows platform, supported Node.js version, required root
-npm scripts including `mvp:trial` and `mvp:lan-probe`, required root script
-alignment for the reviewed `dev:agent`, `dev:relay`, `mvp:smoke`,
-`mvp:trial`, and `mvp:lan-probe` workflows, required workspace package
-manifests, and required MVP source entrypoints. Script-alignment failures use only the
+npm scripts including `mvp:trial`, `mvp:lan-probe`, and
+`mvp:evidence-fixture`, required root script alignment for the reviewed
+`dev:agent`, `dev:relay`, `mvp:smoke`, `mvp:trial`, `mvp:lan-probe`, and
+`mvp:evidence-fixture` workflows, required workspace package manifests, and
+required MVP source entrypoints. Script-alignment failures use only the
 bounded `script-misaligned` reason and do not echo script bodies or package JSON
 content. It is read-only: it does not start relay, host, viewer, browser,
 capture, input, sockets, HTTP listeners, services, startup persistence,
@@ -538,11 +539,26 @@ After a development two-PC trial, summarize the explicit local host and viewer
 audit files:
 
 ```powershell
+npm run mvp:evidence-fixture -- --verify
+npm run mvp:evidence-fixture -- --verify --json
 npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl
 npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl --json
 npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence
 npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence --json
 ```
+
+`mvp:evidence-fixture` is a local dry-run helper for the strict evidence gate.
+It writes generated host/viewer audit JSONL fixtures to reviewed default paths
+or to explicit safe `--host` and `--viewer` paths, and `--verify` checks those
+generated files through the same strict audit-summary evidence gate in-process.
+Fixture output is bounded and labels the files as generated local fixtures; it
+does not prove that a live two-PC assistance session happened. It does not
+start relay, host, viewer, browser, capture, input, sockets, HTTP listeners,
+services, startup persistence, unattended access, privilege elevation, remote
+log retrieval, log upload, hidden sessions, AV/EDR evasion, or Windows prompt
+bypass, and it does not print raw audit records, identifiers, paths, stdout,
+stderr, frame bytes, screen contents, input contents, tokens, pairing codes,
+credentials, or secrets.
 
 `mvp:trial -- --evidence` is the shortest two-PC post-run gate and delegates to
 the strict audit summary check. `mvp:audit-summary` is the underlying read-only
