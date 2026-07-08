@@ -76,10 +76,12 @@ describe("MVP two-PC trial helper", () => {
     expect(output).toContain("npm run mvp:commands -- --only relay");
     expect(output).toContain("[host] Host PC");
     expect(output).toContain("npm run mvp:ready -- --role host");
+    expect(output).toContain("npm run mvp:lan-probe -- --role host");
     expect(output).toContain("Approve only the visible host consent prompt");
     expect(output).toContain("[viewer] Viewer PC");
     expect(output).toContain("npm run mvp:ready -- --role viewer");
     expect(output).toContain("npm run mvp:commands -- --only browser");
+    expect(output).toContain("npm run mvp:lan-probe -- --role viewer");
     expect(output).toContain("[evidence] Post-run evidence");
     expect(output).toContain("npm run mvp:audit-summary");
     expect(output).toContain("--require-mvp-evidence");
@@ -120,6 +122,8 @@ describe("MVP two-PC trial helper", () => {
     expect(output).toContain("npm run mvp:commands -- --only host --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
     expect(output).toContain("npm run mvp:commands -- --only viewer --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
     expect(output).toContain("npm run mvp:commands -- --only browser --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(output).toContain("npm run mvp:lan-probe -- --role host --relay-host 192.168.1.10 --session <session-id> --pairing <pairing-code> --peer host-probe --device host-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(output).toContain("npm run mvp:lan-probe -- --role viewer --relay-host 192.168.1.10 --session <session-id> --pairing <pairing-code> --peer viewer-probe --device viewer-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
     expect(output).not.toContain(RELAY_HOST_PLACEHOLDER_FOR_TESTS);
     expect(output).not.toContain("npm run dev:agent -- host");
     expect(output).not.toContain("npm run dev:agent -- viewer");

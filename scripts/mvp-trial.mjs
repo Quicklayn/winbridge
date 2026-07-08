@@ -75,6 +75,10 @@ const TRIAL_SECTIONS = Object.freeze({
         command: trialRelayHostCommandReference("host")
       }),
       Object.freeze({
+        name: "lan-probe",
+        command: trialLanProbeCommandReference("host")
+      }),
+      Object.freeze({
         name: "operator-check",
         command:
           "Approve only the visible host consent prompt; keep pause, revoke, terminate, and disconnect controls available."
@@ -96,6 +100,10 @@ const TRIAL_SECTIONS = Object.freeze({
       Object.freeze({
         name: "print-browser-command",
         command: trialRelayHostCommandReference("browser")
+      }),
+      Object.freeze({
+        name: "lan-probe",
+        command: trialLanProbeCommandReference("viewer")
       }),
       Object.freeze({
         name: "operator-check",
@@ -457,6 +465,10 @@ function safeTrialReason(reason) {
 
 function trialRelayHostCommandReference(target) {
   return `npm run mvp:commands -- --only ${target} --relay-host ${RELAY_HOST_PLACEHOLDER} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`;
+}
+
+function trialLanProbeCommandReference(role) {
+  return `npm run mvp:lan-probe -- --role ${role} --relay-host ${RELAY_HOST_PLACEHOLDER} --session <session-id> --pairing <pairing-code> --peer ${role}-probe --device ${role}-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN`;
 }
 
 function parseTrialRelayHost(raw) {

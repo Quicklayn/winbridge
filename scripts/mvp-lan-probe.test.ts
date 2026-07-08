@@ -52,6 +52,26 @@ describe("MVP LAN probe", () => {
       tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN",
       json: true
     });
+    expect(
+      parseMvpLanProbeArgs([
+        "--role",
+        "viewer",
+        "--relay-host",
+        "192.168.1.10",
+        "--session",
+        "probe-demo",
+        "--pairing",
+        "123-456",
+        "--peer",
+        "viewer-probe",
+        "--device",
+        "viewer-device"
+      ])
+    ).toMatchObject({
+      role: "viewer",
+      relay: "ws://192.168.1.10:8787/",
+      session: "probe-demo"
+    });
     expect(parseMvpLanProbeArgs(["--help"])).toEqual({ help: true });
   });
 
@@ -77,6 +97,78 @@ describe("MVP LAN probe", () => {
       [...baseArgs, "--relay", "ws://127.0.0.1:8787/?token=secret"],
       [...baseArgs, "--relay", "ws://0.0.0.0:8787/"],
       [...baseArgs, "--relay", "ws://999.1.1.1:8787/"],
+      [...baseArgs, "--relay-host", "192.168.1.10"],
+      baseArgs.filter((_, index) => index !== 2 && index !== 3),
+      [
+        "--role",
+        "host",
+        "--relay-host",
+        "localhost",
+        "--session",
+        "probe-demo",
+        "--pairing",
+        "123-456",
+        "--peer",
+        "host-probe",
+        "--device",
+        "host-device"
+      ],
+      [
+        "--role",
+        "host",
+        "--relay-host",
+        "127.0.0.1",
+        "--session",
+        "probe-demo",
+        "--pairing",
+        "123-456",
+        "--peer",
+        "host-probe",
+        "--device",
+        "host-device"
+      ],
+      [
+        "--role",
+        "host",
+        "--relay-host",
+        "0.0.0.0",
+        "--session",
+        "probe-demo",
+        "--pairing",
+        "123-456",
+        "--peer",
+        "host-probe",
+        "--device",
+        "host-device"
+      ],
+      [
+        "--role",
+        "host",
+        "--relay-host",
+        "999.1.1.1",
+        "--session",
+        "probe-demo",
+        "--pairing",
+        "123-456",
+        "--peer",
+        "host-probe",
+        "--device",
+        "host-device"
+      ],
+      [
+        "--role",
+        "host",
+        "--relay-host",
+        "raw-secret-token",
+        "--session",
+        "probe-demo",
+        "--pairing",
+        "123-456",
+        "--peer",
+        "host-probe",
+        "--device",
+        "host-device"
+      ],
       [...baseArgs, "--session", "token-secret"],
       [...baseArgs, "--pairing", "123456"],
       [...baseArgs, "--peer", "x"],

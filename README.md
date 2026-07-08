@@ -129,8 +129,8 @@ PC and one probe from the viewer PC before the bounded timeout expires:
 
 ```powershell
 $env:WINBRIDGE_RELAY_SHARED_TOKEN = "dev-shared-token"
-npm run mvp:lan-probe -- --role host --relay ws://192.168.1.10:8787/ --session demo --pairing 123-456 --peer host-probe --device host-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN
-npm run mvp:lan-probe -- --role viewer --relay ws://192.168.1.10:8787/ --session demo --pairing 123-456 --peer viewer-probe --device viewer-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN
+npm run mvp:lan-probe -- --role host --relay-host 192.168.1.10 --session demo --pairing 123-456 --peer host-probe --device host-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN
+npm run mvp:lan-probe -- --role viewer --relay-host 192.168.1.10 --session demo --pairing 123-456 --peer viewer-probe --device viewer-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN
 ```
 
 The LAN probe sends only a relay `join-session` message and waits for paired
@@ -141,6 +141,11 @@ persistence, elevate privileges, run unattended, change firewall settings, or
 bypass Windows prompts. Text and JSON output are bounded and omit relay URLs,
 pairing codes, token values, protocol payloads, screen contents, input
 contents, local paths, and secrets.
+
+The full `mvp:trial` plan also includes bounded host and viewer
+`mvp:lan-probe` command-reference steps. Those references keep session and
+pairing values as placeholders and use the reviewed `--relay-host` shortcut so
+the trial plan does not print generated relay URLs or concrete pairing codes.
 
 After a visible, consented two-PC trial has produced local host and viewer
 audit logs, the same helper can run the strict evidence gate:
@@ -313,9 +318,10 @@ npm run mvp:doctor
 ```
 
 The doctor verifies Windows platform, supported Node.js version, required root
-npm scripts including `mvp:trial`, required root script alignment for the reviewed `dev:agent`,
-`dev:relay`, and `mvp:smoke` workflows, required workspace package manifests,
-and required MVP source entrypoints. Script-alignment failures use only the
+npm scripts including `mvp:trial` and `mvp:lan-probe`, required root script
+alignment for the reviewed `dev:agent`, `dev:relay`, `mvp:smoke`,
+`mvp:trial`, and `mvp:lan-probe` workflows, required workspace package
+manifests, and required MVP source entrypoints. Script-alignment failures use only the
 bounded `script-misaligned` reason and do not echo script bodies or package JSON
 content. It is read-only: it does not start relay, host, viewer, browser,
 capture, input, sockets, HTTP listeners, services, startup persistence,

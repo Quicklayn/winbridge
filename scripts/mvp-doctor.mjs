@@ -14,6 +14,7 @@ export const REQUIRED_MVP_ROOT_SCRIPTS = Object.freeze([
   "dev:agent",
   "mvp:audit-summary",
   "mvp:commands",
+  "mvp:lan-probe",
   "mvp:native-preflight",
   "mvp:ready",
   "mvp:smoke",
@@ -44,6 +45,7 @@ export const REQUIRED_MVP_ENTRYPOINT_FILES = Object.freeze([
   "packages/windows-input/src/index.ts",
   "scripts/mvp-audit-summary.mjs",
   "scripts/mvp-doctor.mjs",
+  "scripts/mvp-lan-probe.mjs",
   "scripts/mvp-native-preflight.mjs",
   "scripts/mvp-ready.mjs",
   "scripts/mvp-session-commands.mjs",
@@ -76,6 +78,7 @@ const REQUIRED_ROOT_SCRIPT_ALIGNMENT = Object.freeze({
     "npm --workspace @winbridge/relay run dev"
   ]),
   "mvp:smoke": Object.freeze(["npm run build", "node scripts/mvp-session-smoke.mjs"]),
+  "mvp:lan-probe": Object.freeze(["node scripts/mvp-lan-probe.mjs"]),
   "mvp:trial": Object.freeze(["node scripts/mvp-trial.mjs"])
 });
 

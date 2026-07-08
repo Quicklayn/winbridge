@@ -133,6 +133,11 @@ const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
           "npm run mvp:commands -- --only host --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
       }),
       Object.freeze({
+        name: "lan-probe",
+        command:
+          "npm run mvp:lan-probe -- --role host --relay-host <relay-pc-lan-ip> --session <session-id> --pairing <pairing-code> --peer host-probe --device host-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+      }),
+      Object.freeze({
         name: "operator-check",
         command:
           "Approve only the visible host consent prompt; keep pause, revoke, terminate, and disconnect controls available."
@@ -152,6 +157,11 @@ const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
         name: "print-browser-command",
         command:
           "npm run mvp:commands -- --only browser --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+      }),
+      Object.freeze({
+        name: "lan-probe",
+        command:
+          "npm run mvp:lan-probe -- --role viewer --relay-host <relay-pc-lan-ip> --session <session-id> --pairing <pairing-code> --peer viewer-probe --device viewer-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
       }),
       Object.freeze({
         name: "operator-check",

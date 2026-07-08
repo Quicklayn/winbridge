@@ -7,11 +7,12 @@ export const DEFAULT_MVP_LAN_PROBE_OPTIONS = Object.freeze({
 });
 
 export const MVP_LAN_PROBE_USAGE = [
-  "Usage: npm run mvp:lan-probe -- --role host|viewer --relay ws://RELAY-PC:8787/ --session SESSION --pairing 123-456 --peer PEER --device DEVICE [options]",
+  "Usage: npm run mvp:lan-probe -- --role host|viewer (--relay ws://RELAY-PC:8787/ | --relay-host RELAY-PC-LAN-IP) --session SESSION --pairing 123-456 --peer PEER --device DEVICE [options]",
   "",
   "Options:",
   "  --role host|viewer",
   "  --relay ws://RELAY-PC:8787/",
+  "  --relay-host RELAY-PC-LAN-IP",
   "  --session demo",
   "  --pairing 123-456",
   "  --peer host-probe|viewer-probe",
@@ -34,6 +35,8 @@ const PROTOCOL_IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$/;
 const PAIRING_CODE_PATTERN = /^\d{3}-\d{3}$/;
 const SAFE_RELAY_HOST_PATTERN =
   /^(localhost|127\.0\.0\.1|[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*|\d{1,3}(?:\.\d{1,3}){3})$/;
+const RELAY_HOST_SHORTCUT_PATTERN =
+  /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 const SECRET_MARKER_PATTERN =
   /(^|[._:\-/\\])(token|credential|credentials|password|passphrase|secret|api[-_:.]?key|access[-_:.]?key|cookie|private[-_:.]?key|ssh[-_:.]?key|authorization|auth[-_:.]?header|proxy[-_:.]?authorization)([=._:\-/\\]|$)/i;
 const SAFE_FAILURE_REASONS = new Set([
@@ -73,7 +76,12 @@ export function parseMvpLanProbeArgs(rawArgs) {
 
   const options = parseOptionMap(rawArgs);
   const role = parseRole(requireOption(options, "role"));
-  const relay = parseRelayUrl(requireOption(options, "relay"));
+  if (options.has("relay") === options.has("relay-host")) {
+    throw new MvpLanProbeUsageError();
+  }
+  const relay = options.has("relay-host")
+    ? buildRelayUrlFromHostShortcut(parseRelayHostShortcut(requireOption(options, "relay-host")))
+    : parseRelayUrl(requireOption(options, "relay"));
   const session = parseProtocolIdentifier(requireOption(options, "session"));
   const pairing = parsePairingCode(requireOption(options, "pairing"));
   const peer = parseProtocolIdentifier(requireOption(options, "peer"));
@@ -240,6 +248,7 @@ function parseOptionMap(rawArgs) {
   const allowed = new Set([
     "role",
     "relay",
+    "relay-host",
     "session",
     "pairing",
     "peer",
@@ -328,6 +337,27 @@ function parseRelayUrl(value) {
   }
 
   return url.toString();
+}
+
+function parseRelayHostShortcut(value) {
+  if (
+    isUnsafeScalar(value) ||
+    hasSecretBearingMetadata(value) ||
+    !RELAY_HOST_SHORTCUT_PATTERN.test(value) ||
+    isLoopbackOrUnspecifiedRelayHost(value)
+  ) {
+    throw new MvpLanProbeUsageError();
+  }
+
+  if (isIpv4Literal(value) && !hasValidIpv4Octets(value)) {
+    throw new MvpLanProbeUsageError();
+  }
+
+  return value;
+}
+
+function buildRelayUrlFromHostShortcut(host) {
+  return `ws://${host}:8787/`;
 }
 
 function parseProtocolIdentifier(value) {
@@ -469,6 +499,20 @@ function hasValidIpv4Octets(value) {
 
 function isUnspecifiedRelayHost(value) {
   return value === "0.0.0.0";
+}
+
+function isLoopbackOrUnspecifiedRelayHost(value) {
+  const host = value.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host === "0.0.0.0") {
+    return true;
+  }
+
+  if (isIpv4Literal(host)) {
+    const [first] = host.split(".");
+    return first === "127";
+  }
+
+  return false;
 }
 
 function isUnsafeScalar(value) {

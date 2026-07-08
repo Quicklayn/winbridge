@@ -4493,6 +4493,11 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
             `npm run mvp:commands -- --only host --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
         },
         {
+          name: "lan-probe",
+          command:
+            `npm run mvp:lan-probe -- --role host --relay-host ${relayHostValue} --session <session-id> --pairing <pairing-code> --peer host-probe --device host-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
+        },
+        {
           name: "operator-check",
           command:
             "Approve only the visible host consent prompt; keep pause, revoke, terminate, and disconnect controls available."
@@ -4513,6 +4518,11 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
           name: "print-browser-command",
           command:
             `npm run mvp:commands -- --only browser --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
+        },
+        {
+          name: "lan-probe",
+          command:
+            `npm run mvp:lan-probe -- --role viewer --relay-host ${relayHostValue} --session <session-id> --pairing <pairing-code> --peer viewer-probe --device viewer-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
         },
         {
           name: "operator-check",

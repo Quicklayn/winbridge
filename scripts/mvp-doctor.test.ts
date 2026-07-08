@@ -371,6 +371,7 @@ function alignedRootScripts() {
       "npm --workspace @winbridge/protocol run build && npm --workspace @winbridge/audit-log run build && npm --workspace @winbridge/windows-capture run build && npm --workspace @winbridge/windows-input run build && npm --workspace @winbridge/agent-shell run dev --",
     "mvp:audit-summary": "node scripts/mvp-audit-summary.mjs",
     "mvp:commands": "node scripts/mvp-session-commands.mjs",
+    "mvp:lan-probe": "node scripts/mvp-lan-probe.mjs",
     "mvp:native-preflight": "node scripts/mvp-native-preflight.mjs",
     "mvp:ready": "node scripts/mvp-ready.mjs",
     "mvp:smoke": "npm run build && node scripts/mvp-session-smoke.mjs",
