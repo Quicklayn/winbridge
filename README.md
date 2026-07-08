@@ -87,6 +87,44 @@ native runner request, and sanitizes runner failures. The host agent shell can
 opt into this adapter with `--host-apply-input true`, but only when a local
 agent audit sink is configured.
 
+Print a bounded two-PC MVP trial workflow before coordinating the relay, host,
+and viewer machines:
+
+```powershell
+npm run mvp:trial
+npm run mvp:trial -- --json
+```
+
+Use a role filter on the machine you are preparing:
+
+```powershell
+npm run mvp:trial -- --role relay
+npm run mvp:trial -- --role host
+npm run mvp:trial -- --role viewer
+npm run mvp:trial -- --role evidence
+```
+
+The trial helper is non-executing in plan mode. It references the existing
+role-scoped readiness gates, role-filtered command blocks, and strict post-run
+audit gate without starting relay, host, viewer, browser, capture, input,
+sockets, HTTP listeners, services, startup persistence, unattended access, or
+privilege elevation. It does not print generated session commands, relay URLs,
+pairing codes, token values, local URLs, audit records, frame bytes, screen
+contents, input contents, or secrets.
+
+After a visible, consented two-PC trial has produced local host and viewer
+audit logs, the same helper can run the strict evidence gate:
+
+```powershell
+npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl
+npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl --json
+```
+
+Evidence mode delegates to the existing
+`mvp:audit-summary -- --require-mvp-evidence` checks, reads only the explicit
+local audit paths, and fails closed unless role-bound consent, visible active
+authorization, frame, input, revocation, and disconnect evidence is present.
+
 Generate a reviewed visible-session MVP command sequence:
 
 ```powershell
@@ -245,7 +283,7 @@ npm run mvp:doctor
 ```
 
 The doctor verifies Windows platform, supported Node.js version, required root
-npm scripts, required root script alignment for the reviewed `dev:agent`,
+npm scripts including `mvp:trial`, required root script alignment for the reviewed `dev:agent`,
 `dev:relay`, and `mvp:smoke` workflows, required workspace package manifests,
 and required MVP source entrypoints. Script-alignment failures use only the
 bounded `script-misaligned` reason and do not echo script bodies or package JSON
@@ -460,11 +498,15 @@ After a development two-PC trial, summarize the explicit local host and viewer
 audit files:
 
 ```powershell
+npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl
+npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl --json
 npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence
 npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence --json
 ```
 
-`mvp:audit-summary` is a read-only post-run evidence check. It reads only the
+`mvp:trial -- --evidence` is the shortest two-PC post-run gate and delegates to
+the strict audit summary check. `mvp:audit-summary` is the underlying read-only
+post-run evidence check. It reads only the
 two paths passed with `--host` and `--viewer`, rejects unsafe paths or malformed
 JSONL, and prints fixed host/viewer outcome counts plus coverage flags for MVP
 evidence such as approval, visible active authorization, frame send/output,

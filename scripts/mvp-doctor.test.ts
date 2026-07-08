@@ -64,7 +64,8 @@ describe("MVP doctor", () => {
         "apps/agent-shell/src/screen-frame-output.ts",
         "apps/agent-shell/src/viewer-control-prompt.ts",
         "apps/agent-shell/src/viewer-local-control-surface.ts",
-        "scripts/mvp-audit-summary.mjs"
+        "scripts/mvp-audit-summary.mjs",
+        "scripts/mvp-trial.mjs"
       ])
     );
   });
@@ -362,6 +363,7 @@ function alignedRootScripts() {
     "mvp:commands": "node scripts/mvp-session-commands.mjs",
     "mvp:native-preflight": "node scripts/mvp-native-preflight.mjs",
     "mvp:ready": "node scripts/mvp-ready.mjs",
-    "mvp:smoke": "npm run build && node scripts/mvp-session-smoke.mjs"
+    "mvp:smoke": "npm run build && node scripts/mvp-session-smoke.mjs",
+    "mvp:trial": "node scripts/mvp-trial.mjs"
   };
 }

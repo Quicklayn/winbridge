@@ -16,7 +16,8 @@ export const REQUIRED_MVP_ROOT_SCRIPTS = Object.freeze([
   "mvp:commands",
   "mvp:native-preflight",
   "mvp:ready",
-  "mvp:smoke"
+  "mvp:smoke",
+  "mvp:trial"
 ]);
 
 export const REQUIRED_MVP_WORKSPACE_PACKAGES = Object.freeze([
@@ -46,7 +47,8 @@ export const REQUIRED_MVP_ENTRYPOINT_FILES = Object.freeze([
   "scripts/mvp-native-preflight.mjs",
   "scripts/mvp-ready.mjs",
   "scripts/mvp-session-commands.mjs",
-  "scripts/mvp-session-smoke.mjs"
+  "scripts/mvp-session-smoke.mjs",
+  "scripts/mvp-trial.mjs"
 ]);
 
 const MINIMUM_NODE_VERSION = Object.freeze({ major: 20, minor: 19, patch: 0 });
