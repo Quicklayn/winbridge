@@ -993,11 +993,13 @@ initial missing frames keep input controls disabled. The frame also suppresses
 browser-native context menu and image drag defaults only on that frame.
 Command-box input and browser pointer input use the same `sendInputEvent()`
 path as the terminal viewer prompt. It also provides
-explicit buttons for common keys such as Enter, Escape, Tab, Backspace, and
-arrow navigation. Visible Shift, Ctrl, Alt, and Meta toggles can be applied to
-one explicit key button press and are cleared after that attempted key press;
-each click still sends one bounded key-down/key-up pair through the same
-consent-bound input path. The surface is viewer-only, binds only to
+explicit buttons for A-Z, 0-9, Space, Enter, Escape, Tab, Backspace, and arrow
+navigation. Visible Shift, Ctrl, Alt, and Meta toggles can be applied to one
+explicit key button press and are cleared after that attempted key press; each
+click still sends one bounded key-down/key-up pair through the same
+consent-bound input path. The page does not capture physical keyboard input,
+buffer typed text, record macros, or read clipboard data. The surface is
+viewer-only, binds only to
 `127.0.0.1`,
 requires `--viewer-screen-frame-output`, clears any pre-existing latest-frame
 file on startup, ignores same-directory temporary frame output files, and

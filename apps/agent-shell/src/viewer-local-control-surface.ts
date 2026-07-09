@@ -472,8 +472,8 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     button { padding: 6px 10px; border: 1px solid #52606d; background: #323f4b; color: #eef2f6; border-radius: 4px; }
     button:disabled { opacity: 0.55; }
     input { min-width: min(520px, 55vw); padding: 6px 8px; border: 1px solid #52606d; border-radius: 4px; }
-    .keys { display: flex; flex-wrap: wrap; gap: 6px; }
-    .keys button { min-width: 44px; }
+    .keys { display: flex; flex-wrap: wrap; gap: 6px; max-width: min(760px, 62vw); }
+    .keys button { min-width: 38px; }
     .modifier[aria-pressed="true"] { background: #6d28d9; border-color: #a78bfa; }
     .muted { color: #bcccdc; }
     #pointerArm[aria-pressed="true"] { background: #0f766e; border-color: #2dd4bf; }
@@ -497,6 +497,43 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
         <button class="modifier" type="button" data-key-modifier="control" aria-pressed="false">Ctrl</button>
         <button class="modifier" type="button" data-key-modifier="alt" aria-pressed="false">Alt</button>
         <button class="modifier" type="button" data-key-modifier="meta" aria-pressed="false">Meta</button>
+        <button type="button" data-key-command="KeyA">A</button>
+        <button type="button" data-key-command="KeyB">B</button>
+        <button type="button" data-key-command="KeyC">C</button>
+        <button type="button" data-key-command="KeyD">D</button>
+        <button type="button" data-key-command="KeyE">E</button>
+        <button type="button" data-key-command="KeyF">F</button>
+        <button type="button" data-key-command="KeyG">G</button>
+        <button type="button" data-key-command="KeyH">H</button>
+        <button type="button" data-key-command="KeyI">I</button>
+        <button type="button" data-key-command="KeyJ">J</button>
+        <button type="button" data-key-command="KeyK">K</button>
+        <button type="button" data-key-command="KeyL">L</button>
+        <button type="button" data-key-command="KeyM">M</button>
+        <button type="button" data-key-command="KeyN">N</button>
+        <button type="button" data-key-command="KeyO">O</button>
+        <button type="button" data-key-command="KeyP">P</button>
+        <button type="button" data-key-command="KeyQ">Q</button>
+        <button type="button" data-key-command="KeyR">R</button>
+        <button type="button" data-key-command="KeyS">S</button>
+        <button type="button" data-key-command="KeyT">T</button>
+        <button type="button" data-key-command="KeyU">U</button>
+        <button type="button" data-key-command="KeyV">V</button>
+        <button type="button" data-key-command="KeyW">W</button>
+        <button type="button" data-key-command="KeyX">X</button>
+        <button type="button" data-key-command="KeyY">Y</button>
+        <button type="button" data-key-command="KeyZ">Z</button>
+        <button type="button" data-key-command="Digit0">0</button>
+        <button type="button" data-key-command="Digit1">1</button>
+        <button type="button" data-key-command="Digit2">2</button>
+        <button type="button" data-key-command="Digit3">3</button>
+        <button type="button" data-key-command="Digit4">4</button>
+        <button type="button" data-key-command="Digit5">5</button>
+        <button type="button" data-key-command="Digit6">6</button>
+        <button type="button" data-key-command="Digit7">7</button>
+        <button type="button" data-key-command="Digit8">8</button>
+        <button type="button" data-key-command="Digit9">9</button>
+        <button type="button" data-key-command="Space">Space</button>
         <button type="button" data-key-command="Enter">Enter</button>
         <button type="button" data-key-command="Escape">Esc</button>
         <button type="button" data-key-command="Tab">Tab</button>

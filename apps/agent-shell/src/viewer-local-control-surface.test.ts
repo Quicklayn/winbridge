@@ -231,6 +231,16 @@ describe("viewer local control surface", () => {
     expect(html).toContain('data-key-modifier="control"');
     expect(html).toContain('data-key-modifier="alt"');
     expect(html).toContain('data-key-modifier="meta"');
+    for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+      expect(html).toContain(`data-key-command="Key${letter}"`);
+      expect(html).toContain(`>${letter}</button>`);
+    }
+    for (let digit = 0; digit <= 9; digit += 1) {
+      expect(html).toContain(`data-key-command="Digit${digit}"`);
+      expect(html).toContain(`>${digit}</button>`);
+    }
+    expect(html).toContain('data-key-command="Space"');
+    expect(html).toContain(">Space</button>");
     expect(html).toContain('data-key-command="Enter"');
     expect(html).toContain('data-key-command="Escape"');
     expect(html).toContain('data-key-command="Tab"');
@@ -246,6 +256,7 @@ describe("viewer local control surface", () => {
     expect(html).not.toContain("document.addEventListener(\"keypress\"");
     expect(html).not.toContain("window.addEventListener(\"keypress\"");
     expect(html).not.toContain("textarea");
+    expect(html).not.toContain("contenteditable");
   });
 
   it("renders one-shot modifier toggles gated on input readiness", async () => {
@@ -627,6 +638,88 @@ describe("viewer local control surface", () => {
       eventId: "viewer_control_input_1",
       sequence: 1,
       event: { kind: "key-up", key: "Enter", modifiers: [] }
+    });
+  });
+
+  it("routes alphanumeric and space key palette commands without exposing key values", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+
+    const aDown = await postJson(handle, "input", {
+      command: "key-down KeyA shift"
+    });
+    const aUp = await postJson(handle, "input", {
+      command: "key-up KeyA shift"
+    });
+    const digitDown = await postJson(handle, "input", {
+      command: "key-down Digit7"
+    });
+    const digitUp = await postJson(handle, "input", {
+      command: "key-up Digit7"
+    });
+    const spaceDown = await postJson(handle, "input", {
+      command: "key-down Space"
+    });
+    const spaceUp = await postJson(handle, "input", {
+      command: "key-up Space"
+    });
+    const combinedBody = [
+      await aDown.text(),
+      await aUp.text(),
+      await digitDown.text(),
+      await digitUp.text(),
+      await spaceDown.text(),
+      await spaceUp.text()
+    ].join("\n");
+
+    expect(aDown.status).toBe(202);
+    expect(aUp.status).toBe(202);
+    expect(digitDown.status).toBe(202);
+    expect(digitUp.status).toBe(202);
+    expect(spaceDown.status).toBe(202);
+    expect(spaceUp.status).toBe(202);
+    expect(combinedBody).toContain("\"kind\":\"key-down\"");
+    expect(combinedBody).toContain("\"kind\":\"key-up\"");
+    expect(combinedBody).not.toContain("KeyA");
+    expect(combinedBody).not.toContain("Digit7");
+    expect(combinedBody).not.toContain("Space");
+    expect(combinedBody).not.toContain("shift");
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(1, {
+      authorizationId: "authz_surface_1",
+      eventId: "viewer_control_input_0",
+      sequence: 0,
+      event: { kind: "key-down", key: "KeyA", modifiers: ["shift"] }
+    });
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(2, {
+      authorizationId: "authz_surface_1",
+      eventId: "viewer_control_input_1",
+      sequence: 1,
+      event: { kind: "key-up", key: "KeyA", modifiers: ["shift"] }
+    });
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(3, {
+      authorizationId: "authz_surface_1",
+      eventId: "viewer_control_input_2",
+      sequence: 2,
+      event: { kind: "key-down", key: "Digit7", modifiers: [] }
+    });
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(4, {
+      authorizationId: "authz_surface_1",
+      eventId: "viewer_control_input_3",
+      sequence: 3,
+      event: { kind: "key-up", key: "Digit7", modifiers: [] }
+    });
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(5, {
+      authorizationId: "authz_surface_1",
+      eventId: "viewer_control_input_4",
+      sequence: 4,
+      event: { kind: "key-down", key: "Space", modifiers: [] }
+    });
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(6, {
+      authorizationId: "authz_surface_1",
+      eventId: "viewer_control_input_5",
+      sequence: 5,
+      event: { kind: "key-up", key: "Space", modifiers: [] }
     });
   });
 
