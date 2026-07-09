@@ -50,6 +50,10 @@ const TRIAL_SECTIONS = Object.freeze({
     title: "Preflight dry run",
     steps: Object.freeze([
       Object.freeze({
+        name: "session-bootstrap",
+        command: trialSessionBootstrapCommandReference()
+      }),
+      Object.freeze({
         name: "evidence-fixture",
         command: "npm run mvp:ready -- --include-evidence-fixture"
       }),
@@ -522,6 +526,10 @@ function formatMissingEvidenceJson(reason, missingEvidence) {
 
 function trialRelayHostCommandReference(target) {
   return `npm run mvp:commands -- --only ${target} --relay-host ${RELAY_HOST_PLACEHOLDER} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`;
+}
+
+function trialSessionBootstrapCommandReference() {
+  return `npm run mvp:commands -- --generate-session --generate-pairing --relay-host ${RELAY_HOST_PLACEHOLDER} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`;
 }
 
 function trialLanProbeCommandReference(role) {

@@ -3732,6 +3732,16 @@ describe("MVP ready helper", () => {
 
   it("parses only reviewed MVP trial plan output", () => {
     expect(parseMvpTrialPlanReadiness(trialPlanOutput())).toBe(true);
+    const planWithoutSessionBootstrap = JSON.parse(trialPlanOutput());
+    planWithoutSessionBootstrap.roles = planWithoutSessionBootstrap.roles.map((section: { role: string; steps: unknown[] }) =>
+      section.role === "preflight"
+        ? {
+            ...section,
+            steps: section.steps.slice(1)
+          }
+        : section
+    );
+    expect(parseMvpTrialPlanReadiness(JSON.stringify(planWithoutSessionBootstrap))).toBe(false);
     expect(parseMvpTrialPlanReadiness(trialPlanOutput("host"), { expectedRole: "host" })).toBe(true);
     expect(
       parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { relayHost: "192.168.1.10" }), {
@@ -4659,6 +4669,10 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
       role: "preflight",
       title: "Preflight dry run",
       steps: [
+        {
+          name: "session-bootstrap",
+          command: `npm run mvp:commands -- --generate-session --generate-pairing --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
+        },
         { name: "evidence-fixture", command: "npm run mvp:ready -- --include-evidence-fixture" },
         {
           name: "operator-check",

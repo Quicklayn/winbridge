@@ -72,6 +72,9 @@ describe("MVP two-PC trial helper", () => {
     expect(output).toContain("WinBridge two-PC MVP trial workflow.");
     expect(output).toContain("mode=plan nonExecuting=true");
     expect(output).toContain("[preflight] Preflight dry run");
+    expect(output).toContain(
+      "npm run mvp:commands -- --generate-session --generate-pairing --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+    );
     expect(output).toContain("npm run mvp:ready -- --include-evidence-fixture");
     expect(output).toContain("live trial proof still requires post-run role-bound evidence");
     expect(output).toContain("[relay] Relay PC");
@@ -91,7 +94,7 @@ describe("MVP two-PC trial helper", () => {
     assertNoUnsafeOutput(output);
   });
 
-  it("prints bounded JSON plan metadata without generated session commands", () => {
+  it("prints bounded JSON plan metadata with the fixed bootstrap reference", () => {
     const output = formatMvpTrialPlanJson(createMvpTrialPlan());
     const parsed = JSON.parse(output);
 
@@ -114,6 +117,9 @@ describe("MVP two-PC trial helper", () => {
         "plan-is-non-executing"
       ]
     });
+    expect(JSON.stringify(parsed)).toContain(
+      "npm run mvp:commands -- --generate-session --generate-pairing --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+    );
     expect(output).toContain("<relay-pc-lan-ip>");
     expect(output).toContain("<host-audit-jsonl>");
     assertNoUnsafeOutput(output);
@@ -123,6 +129,7 @@ describe("MVP two-PC trial helper", () => {
     const output = formatMvpTrialPlan(createMvpTrialPlan({ relayHost: "192.168.1.10" }));
 
     expect(output).toContain("npm run mvp:commands -- --only relay --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(output).toContain("npm run mvp:commands -- --generate-session --generate-pairing --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
     expect(output).toContain("npm run mvp:commands -- --only host --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
     expect(output).toContain("npm run mvp:commands -- --only viewer --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
     expect(output).toContain("npm run mvp:commands -- --only browser --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
@@ -154,6 +161,8 @@ describe("MVP two-PC trial helper", () => {
     expect(host).toContain("[host] Host PC");
     expect(host).toContain("npm run mvp:ready -- --role host");
     expect(host).not.toContain("[preflight] Preflight dry run");
+    expect(host).not.toContain("--generate-session");
+    expect(host).not.toContain("--generate-pairing");
     expect(host).not.toContain("npm run mvp:ready -- --include-evidence-fixture");
     expect(host).not.toContain("[relay] Relay PC");
     expect(host).not.toContain("[viewer] Viewer PC");

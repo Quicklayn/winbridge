@@ -99,6 +99,8 @@ const REVIEWED_AUDIT_SUMMARY_COMMAND =
 const REVIEWED_WINDOWS_CONTROL_SMOKE_COMMAND = "npm run mvp:ready -- --include-windows-control-smoke";
 const REVIEWED_EVIDENCE_FIXTURE_READY_COMMAND = "npm run mvp:ready -- --include-evidence-fixture";
 const REVIEWED_EVIDENCE_FIXTURE_RECORDS = Object.freeze({ host: 5, viewer: 3 });
+const REVIEWED_MVP_TRIAL_SESSION_BOOTSTRAP_COMMAND =
+  "npm run mvp:commands -- --generate-session --generate-pairing --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN";
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
@@ -116,6 +118,10 @@ const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
   preflight: Object.freeze({
     title: "Preflight dry run",
     steps: Object.freeze([
+      Object.freeze({
+        name: "session-bootstrap",
+        command: REVIEWED_MVP_TRIAL_SESSION_BOOTSTRAP_COMMAND
+      }),
       Object.freeze({
         name: "evidence-fixture",
         command: "npm run mvp:ready -- --include-evidence-fixture"

@@ -264,6 +264,8 @@ describe("MVP session command kit", () => {
       ["--preflight-only", "--only", "preflight"],
       ["--only", "preflight", "--relay-host", "192.168.1.10"],
       ["--only", "preflight", "--token", "raw-secret-token"],
+      ["--only", "preflight", "--generate-session"],
+      ["--generate-session", "--only", "preflight"],
       ["--only", "preflight", "--generate-pairing"],
       ["--generate-pairing", "--only", "preflight"]
     ];
@@ -283,18 +285,25 @@ describe("MVP session command kit", () => {
     }
   });
 
-  it("rejects generated pairing with role filters before generating a code", () => {
+  it("rejects generated metadata with role filters before generating values", () => {
     const targets = ["relay", "host", "viewer", "browser", "preflight"];
 
     for (const target of targets) {
       for (const invalidInput of [
         ["--only", target, "--generate-pairing"],
-        ["--generate-pairing", "--only", target]
+        ["--generate-pairing", "--only", target],
+        ["--only", target, "--generate-session"],
+        ["--generate-session", "--only", target],
+        ["--only", target, "--generate-session", "--generate-pairing"],
+        ["--generate-session", "--generate-pairing", "--only", target]
       ]) {
         let thrown: unknown;
 
         try {
           parseMvpSessionCommandArgs(invalidInput, {
+            generateSessionId: () => {
+              throw new Error("session generation should not run");
+            },
             generatePairingCode: () => {
               throw new Error("pairing generation should not run");
             }
@@ -304,6 +313,7 @@ describe("MVP session command kit", () => {
         }
 
         expect(thrown).toBeInstanceOf(MvpSessionCommandKitUsageError);
+        expect(formatMvpSessionCommandKitError(thrown)).not.toContain("mvp-234567-890123");
         expect(formatMvpSessionCommandKitError(thrown)).not.toContain("234-567");
         expect(formatMvpSessionCommandKitError(thrown)).not.toContain("raw-secret-token");
       }
@@ -452,6 +462,23 @@ describe("MVP session command kit", () => {
     expect(output).toContain("This helper printed commands only");
   });
 
+  it("uses deterministic generated session and pairing metadata consistently in text output", () => {
+    const output = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--generate-session", "--generate-pairing"], {
+        generateSessionId: () => "mvp-234567-890123",
+        generatePairingCode: () => "234-567"
+      })
+    );
+
+    expect(output).toContain("--session 'mvp-234567-890123'");
+    expect(output.match(/--session 'mvp-234567-890123'/g)).toHaveLength(2);
+    expect(output).toContain("--pairing '234-567'");
+    expect(output.match(/--pairing '234-567'/g)).toHaveLength(2);
+    expect(output).not.toContain("--session 'demo'");
+    expect(output).not.toContain("--pairing '123-456'");
+    expect(output).toContain("This helper printed commands only");
+  });
+
   it("uses a deterministic generated pairing code consistently in JSON output", () => {
     const output = renderMvpSessionCommands(
       parseMvpSessionCommandArgs(["--generate-pairing", "--json"], {
@@ -470,6 +497,29 @@ describe("MVP session command kit", () => {
     expect(viewerCommand).toContain("--pairing '345-678'");
     expect(output).not.toContain("--pairing '123-456'");
     expect(output).not.toContain("raw-secret-token");
+  });
+
+  it("uses deterministic generated session and pairing metadata consistently in JSON output", () => {
+    const output = renderMvpSessionCommands(
+      parseMvpSessionCommandArgs(["--generate-session", "--generate-pairing", "--json"], {
+        generateSessionId: () => "mvp-345678-901234",
+        generatePairingCode: () => "345-678"
+      })
+    );
+    const parsed = JSON.parse(output);
+
+    const hostCommand = parsed.commands.find((command: { name: string }) => command.name === "host")
+      ?.command;
+    const viewerCommand = parsed.commands.find(
+      (command: { name: string }) => command.name === "viewer"
+    )?.command;
+
+    expect(hostCommand).toContain("--session 'mvp-345678-901234'");
+    expect(viewerCommand).toContain("--session 'mvp-345678-901234'");
+    expect(hostCommand).toContain("--pairing '345-678'");
+    expect(viewerCommand).toContain("--pairing '345-678'");
+    expect(output).not.toContain("--session 'demo'");
+    expect(output).not.toContain("--pairing '123-456'");
   });
 
   it("prints bounded JSON for preflight-only mode without live session commands", () => {
@@ -679,6 +729,45 @@ describe("MVP session command kit", () => {
       expect(formatMvpSessionCommandKitError(thrown)).not.toContain("raw-secret-token");
       expect(formatMvpSessionCommandKitError(thrown)).not.toContain("999-999");
     }
+  });
+
+  it("rejects malformed generated session usage without echoing raw values", () => {
+    const invalidInputs = [
+      ["--generate-session", "--session", "raw-secret-token"],
+      ["--generate-session", "raw-secret-token"],
+      ["--generate-session", "--generate-session"],
+      ["--generate-session=raw-secret-token"],
+      ["--preflight-only", "--generate-session"],
+      ["--generate-session", "--preflight-only"]
+    ];
+
+    for (const invalidInput of invalidInputs) {
+      let thrown: unknown;
+
+      try {
+        parseMvpSessionCommandArgs(invalidInput);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(MvpSessionCommandKitUsageError);
+      expect(formatMvpSessionCommandKitError(thrown)).not.toContain("raw-secret-token");
+    }
+  });
+
+  it("rejects unsafe generated session values without echoing them", () => {
+    let thrown: unknown;
+
+    try {
+      parseMvpSessionCommandArgs(["--generate-session"], {
+        generateSessionId: () => "token-secret-session"
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(MvpSessionCommandKitUsageError);
+    expect(formatMvpSessionCommandKitError(thrown)).not.toContain("token-secret-session");
   });
 
   it("prints the validated custom relay URL for two-PC command output", () => {

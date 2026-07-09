@@ -113,18 +113,25 @@ npm run mvp:trial -- --role evidence
 ```
 
 The trial helper is non-executing in plan mode. It references the existing
-role-scoped readiness gates, a full-plan generated local evidence fixture dry
-run, role-filtered command blocks, and strict post-run audit gate without
+role-scoped readiness gates, a fixed full-plan session bootstrap command, a
+full-plan generated local evidence fixture dry run, role-filtered command
+blocks, and strict post-run audit gate without
 starting relay, host, viewer, browser, capture, input, sockets, HTTP listeners,
 services, startup persistence, unattended access, or privilege elevation. The
+session bootstrap step is
+`npm run mvp:commands -- --generate-session --generate-pairing --relay-host
+<relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN`; run it once to
+print one coordinated full command plan before distributing role-specific
+commands. Generated session ids and pairing codes are coordination metadata
+only, not authentication, authorization, relay tokens, or host consent. The
 fixture preflight step is `npm run mvp:ready -- --include-evidence-fixture`;
 it proves strict evidence gate wiring only, not that a live two-PC session
 happened. `--relay-host` only substitutes a validated host into the bounded
-`mvp:commands -- --only ... --relay-host ... --token-env
-WINBRIDGE_RELAY_SHARED_TOKEN` command references. It does not print generated
-session commands, relay URLs, pairing codes, token values, local URLs, audit
-records, generated fixture paths, frame bytes, screen contents, input contents,
-or secrets.
+bootstrap and `mvp:commands -- --only ... --relay-host ... --token-env
+WINBRIDGE_RELAY_SHARED_TOKEN` command references. It does not execute those
+commands or print generated session ids, concrete pairing codes, relay URLs,
+token values, local URLs, audit records, generated fixture paths, frame bytes,
+screen contents, input contents, or secrets.
 
 Before running the full host/viewer assistance commands on two PCs, verify that
 the relay is reachable and that both operators are using the same session and
@@ -180,6 +187,13 @@ Print the same non-executing command plan as bounded JSON for local automation:
 npm run mvp:commands -- --json
 ```
 
+For a live two-PC trial, print one coordinated full plan with fresh session and
+pairing metadata before preparing individual machines:
+
+```powershell
+npm run mvp:commands -- --generate-session --generate-pairing --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN
+```
+
 Print only the bounded preflight command plan as JSON:
 
 ```powershell
@@ -210,9 +224,10 @@ targets remain text-only; `--only preflight --json` is the bounded JSON alias
 for `--preflight-only --json`. The filtered relay, host, viewer, and browser
 blocks remind the local operator to run the matching `mvp:ready -- --role ...`
 gate first; the browser block uses the viewer role because the browser surface
-runs on the viewer PC. Do not combine `--only` with `--generate-pairing`; print
-the full generated plan once or pass the same explicit `--pairing` value to
-every role-filtered command. The
+runs on the viewer PC. Do not combine `--only` or preflight-only output with
+`--generate-session` or `--generate-pairing`; print the full generated plan
+once or pass the same explicit `--session` and `--pairing` values to every
+role-filtered command. The
 generated full and preflight-only plans also print the full local all-smoke
 readiness gate, `npm run mvp:ready -- --include-all-smoke`, for one local
 development machine before a two-PC trial. When printed with `--token-env`, the

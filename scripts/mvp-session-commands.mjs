@@ -44,6 +44,7 @@ export const MVP_SESSION_COMMAND_KIT_USAGE = [
   "  --capture-count 100",
   "  --capture-interval-ms 1000",
   "  --token-env WINBRIDGE_RELAY_SHARED_TOKEN",
+  "  --generate-session",
   "  --generate-pairing",
   "  --only relay|host|viewer|browser|preflight",
   "  --preflight-only",
@@ -122,10 +123,10 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
   ) {
     throw new MvpSessionCommandKitUsageError();
   }
-  if (parsedFlags.onlyTarget && parsedFlags.generatePairing) {
+  if (parsedFlags.onlyTarget && (parsedFlags.generateSession || parsedFlags.generatePairing)) {
     throw new MvpSessionCommandKitUsageError();
   }
-  if (parsedFlags.preflightOnly && parsedFlags.generatePairing) {
+  if (parsedFlags.preflightOnly && (parsedFlags.generateSession || parsedFlags.generatePairing)) {
     throw new MvpSessionCommandKitUsageError();
   }
 
@@ -140,7 +141,7 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
   }
 
   if (parsedFlags.onlyTarget === "preflight") {
-    if (parsedFlags.generatePairing) {
+    if (parsedFlags.generateSession || parsedFlags.generatePairing) {
       throw new MvpSessionCommandKitUsageError();
     }
     const tokenEnv = parsePreflightSelectorTokenEnv(parsedFlags.remaining);
@@ -162,6 +163,9 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
   }
 
   const options = parseOptionMap(parsedFlags.remaining);
+  if (parsedFlags.generateSession && options.has("session")) {
+    throw new MvpSessionCommandKitUsageError();
+  }
   if (parsedFlags.generatePairing && options.has("pairing")) {
     throw new MvpSessionCommandKitUsageError();
   }
@@ -173,6 +177,9 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
   }
 
   const tokenEnv = parseOptionalTokenEnv(options.get("token-env"));
+  const session = parsedFlags.generateSession
+    ? parseProtocolIdentifier((dependencies.generateSessionId ?? generateSessionId)())
+    : parseProtocolIdentifier(options.get("session") ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.session);
   const pairing = parsedFlags.generatePairing
     ? parsePairingCode((dependencies.generatePairingCode ?? generatePairingCode)())
     : parsePairingCode(options.get("pairing") ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.pairing);
@@ -200,7 +207,7 @@ export function parseMvpSessionCommandArgs(rawArgs, dependencies = {}) {
     json: parsedFlags.json,
     preflightOnly: false,
     ...(parsedFlags.onlyTarget ? { onlyTarget: parsedFlags.onlyTarget } : {}),
-    session: parseProtocolIdentifier(options.get("session") ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.session),
+    session,
     pairing,
     relay,
     hostName: parseDisplayName(options.get("host-name") ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.hostName),
@@ -550,6 +557,7 @@ export function formatMvpSessionCommandKitError(error) {
 function parseCommandKitFlags(rawArgs) {
   let json = false;
   let preflightOnly = false;
+  let generateSession = false;
   let generatePairing = false;
   let onlyTarget;
   const remaining = [];
@@ -569,6 +577,14 @@ function parseCommandKitFlags(rawArgs) {
         throw new MvpSessionCommandKitUsageError();
       }
       preflightOnly = true;
+      continue;
+    }
+
+    if (arg === "--generate-session") {
+      if (generateSession) {
+        throw new MvpSessionCommandKitUsageError();
+      }
+      generateSession = true;
       continue;
     }
 
@@ -596,7 +612,15 @@ function parseCommandKitFlags(rawArgs) {
     remaining.push(arg);
   }
 
-  return { json, preflightOnly, generatePairing, onlyTarget, remaining };
+  return { json, preflightOnly, generateSession, generatePairing, onlyTarget, remaining };
+}
+
+function generateSessionId() {
+  return `mvp-${formatSessionPart(randomInt(0, 1_000_000))}-${formatSessionPart(randomInt(0, 1_000_000))}`;
+}
+
+function formatSessionPart(value) {
+  return String(value).padStart(6, "0");
 }
 
 function generatePairingCode() {
