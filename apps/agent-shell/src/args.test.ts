@@ -1783,6 +1783,69 @@ describe("agent shell arguments", () => {
     );
   });
 
+  it("parses relay tokens from bounded environment variable names", () => {
+    expect(
+      parseArgs(
+        ["host", "--token-env", "WINBRIDGE_RELAY_SHARED_TOKEN"],
+        { WINBRIDGE_RELAY_SHARED_TOKEN: "dev-token" },
+        42
+      ).token
+    ).toBe("dev-token");
+    expect(
+      parseArgs(
+        ["viewer", "--token-env", "WINBRIDGE_RELAY_SHARED_TOKEN"],
+        { WINBRIDGE_RELAY_SHARED_TOKEN: "x".repeat(1024) },
+        42
+      ).token
+    ).toBe("x".repeat(1024));
+  });
+
+  it("rejects malformed or ambiguous relay token-env input", () => {
+    for (const rawTokenEnv of [
+      "",
+      "   ",
+      "WINBRIDGE_RELAY_SHARED_TOKEN ",
+      "winbridge_relay_shared_token",
+      "WINBRIDGE-RELAY-SHARED-TOKEN",
+      "WINBRIDGE_RELAY_SHARED_TOKEN\n",
+      "WINBRIDGE_RELAY_SHARED_TOKEN\u202e",
+      "A".repeat(129)
+    ]) {
+      expect(() => parseArgs(["host", "--token-env", rawTokenEnv], {}, 42)).toThrow(
+        AgentShellUsageError
+      );
+    }
+
+    expect(() =>
+      parseArgs(
+        ["host", "--token", "dev-token", "--token-env", "WINBRIDGE_RELAY_SHARED_TOKEN"],
+        { WINBRIDGE_RELAY_SHARED_TOKEN: "dev-token" },
+        42
+      )
+    ).toThrow(AgentShellUsageError);
+  });
+
+  it("rejects missing or unsafe token-env values without exposing token text", () => {
+    for (const env of [
+      {},
+      { WINBRIDGE_RELAY_SHARED_TOKEN: "" },
+      { WINBRIDGE_RELAY_SHARED_TOKEN: " agent-token-private-marker" },
+      { WINBRIDGE_RELAY_SHARED_TOKEN: "agent-token-private-marker\n" },
+      { WINBRIDGE_RELAY_SHARED_TOKEN: "agent-token\u202eprivate-marker" },
+      { WINBRIDGE_RELAY_SHARED_TOKEN: "x".repeat(1025) }
+    ]) {
+      try {
+        parseArgs(["host", "--token-env", "WINBRIDGE_RELAY_SHARED_TOKEN"], env, 42);
+        throw new Error("Expected relay token env to be rejected");
+      } catch (error) {
+        expect(error).toBeInstanceOf(AgentShellUsageError);
+        expect((error as Error).message).not.toContain("agent-token");
+        expect((error as Error).message).not.toContain("private-marker");
+        expect((error as Error).message).not.toContain("WINBRIDGE_RELAY_SHARED_TOKEN");
+      }
+    }
+  });
+
   it("rejects malformed relay tokens", () => {
     for (const token of [
       "",

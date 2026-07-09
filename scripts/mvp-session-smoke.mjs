@@ -315,7 +315,8 @@ export function createMvpSmokePlan(options) {
   const hostAuditPath = join(options.workDir, "logs", "host-audit.jsonl");
   const viewerAuditPath = join(options.workDir, "logs", "viewer-audit.jsonl");
   const sharedToken = parseOptionalSmokeSharedToken(options.sharedToken);
-  const tokenArgs = sharedToken ? ["--token", sharedToken] : [];
+  const tokenArgs = sharedToken ? ["--token-env", "WINBRIDGE_RELAY_SHARED_TOKEN"] : [];
+  const agentTokenEnv = sharedToken ? { WINBRIDGE_RELAY_SHARED_TOKEN: sharedToken } : {};
   const frameSource = options.windowsCapture ? "windows-capture" : "static";
 
   return {
@@ -376,7 +377,7 @@ export function createMvpSmokePlan(options) {
         String(DEFAULT_MVP_SMOKE_OPTIONS.captureIntervalMs),
         ...tokenArgs
       ],
-      env: {}
+      env: agentTokenEnv
     },
     viewer: {
       label: "viewer",
@@ -409,7 +410,7 @@ export function createMvpSmokePlan(options) {
         String(options.surfacePort),
         ...tokenArgs
       ],
-      env: {}
+      env: agentTokenEnv
     },
     surfaceUrl:
       options.surfacePort === 0 ? undefined : `http://127.0.0.1:${options.surfacePort}/`

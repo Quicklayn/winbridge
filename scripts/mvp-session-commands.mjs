@@ -716,7 +716,7 @@ function renderAgentCommand(role, optionPairs, tokenEnv) {
   }
 
   if (tokenEnv) {
-    tokens.push("--token", `$env:${tokenEnv}`);
+    tokens.push("--token-env", quotePowerShellArgument(tokenEnv));
   }
 
   return tokens.join(" ");

@@ -677,8 +677,16 @@ describe("MVP session smoke check", () => {
       WINBRIDGE_RELAY_PORT: "18787",
       WINBRIDGE_RELAY_SHARED_TOKEN: "dev-shared-token"
     });
-    expect(plan.host.args).toEqual(expect.arrayContaining(["--token", "dev-shared-token"]));
-    expect(plan.viewer.args).toEqual(expect.arrayContaining(["--token", "dev-shared-token"]));
+    expect(plan.host.args).toEqual(
+      expect.arrayContaining(["--token-env", "WINBRIDGE_RELAY_SHARED_TOKEN"])
+    );
+    expect(plan.viewer.args).toEqual(
+      expect.arrayContaining(["--token-env", "WINBRIDGE_RELAY_SHARED_TOKEN"])
+    );
+    expect(plan.host.args).not.toContain("dev-shared-token");
+    expect(plan.viewer.args).not.toContain("dev-shared-token");
+    expect(plan.host.env.WINBRIDGE_RELAY_SHARED_TOKEN).toBe("dev-shared-token");
+    expect(plan.viewer.env.WINBRIDGE_RELAY_SHARED_TOKEN).toBe("dev-shared-token");
     expect(plan.host.args).toContain("ws://localhost:18787/");
     expect(plan.viewer.args).toContain("ws://localhost:18787/");
     expect(serialized).not.toContain("windows-capture");

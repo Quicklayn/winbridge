@@ -1480,7 +1480,8 @@ export function parseLanAgentRoleFilteredCommandReadiness(output, target) {
     (target === "host" || target === "viewer") &&
     parseRoleFilteredCommandReadiness(output, target) &&
     output.includes(MVP_READY_LAN_RELAY_URL) &&
-    output.includes(`--token $env:${MVP_READY_TOKEN_ENV_NAME}`) &&
+    output.includes(`--token-env '${MVP_READY_TOKEN_ENV_NAME}'`) &&
+    !hasRuntimeTokenArgument(output) &&
     !output.includes("ws://localhost:8787/")
   );
 }
@@ -1489,8 +1490,8 @@ export function parseTokenEnvAgentRoleFilteredCommandReadiness(output, target) {
   return (
     (target === "host" || target === "viewer") &&
     parseRoleFilteredCommandReadiness(output, target) &&
-    output.includes(`--token $env:${MVP_READY_TOKEN_ENV_NAME}`) &&
-    !output.includes("--token '") &&
+    output.includes(`--token-env '${MVP_READY_TOKEN_ENV_NAME}'`) &&
+    !hasRuntimeTokenArgument(output) &&
     !output.includes("--token raw-secret-token")
   );
 }
@@ -1719,8 +1720,8 @@ function reviewedRoleRunnerAgentArgs(args, role) {
           "true",
           "--dev-screen-frame-source",
           "windows-capture",
-          "--token",
-          "<relay-token>"
+          "--token-env",
+          "<token-env>"
         ]
       : [
           "run",
@@ -1743,8 +1744,8 @@ function reviewedRoleRunnerAgentArgs(args, role) {
           "<frame-output>",
           "--viewer-control-surface-port",
           "35987",
-          "--token",
-          "<relay-token>"
+          "--token-env",
+          "<token-env>"
         ];
 
   return requiredMarkers.every((marker) => args.includes(marker));
@@ -1965,14 +1966,16 @@ function commandPlanUsesTokenEnv(commandsByName, expectedTokenEnv) {
   const hostCommand = commandsByName.get("host")?.command;
   const viewerCommand = commandsByName.get("viewer")?.command;
   const allSmokeCommand = commandsByName.get("preflight.ready-all-smoke")?.command;
-  const tokenReference = `$env:${expectedTokenEnv}`;
+  const tokenReference = `--token-env '${expectedTokenEnv}'`;
 
   return (
     typeof hostCommand === "string" &&
     typeof viewerCommand === "string" &&
     typeof allSmokeCommand === "string" &&
-    hostCommand.includes(`--token ${tokenReference}`) &&
-    viewerCommand.includes(`--token ${tokenReference}`) &&
+    hostCommand.includes(tokenReference) &&
+    viewerCommand.includes(tokenReference) &&
+    !hasRuntimeTokenArgument(hostCommand) &&
+    !hasRuntimeTokenArgument(viewerCommand) &&
     allSmokeCommandUsesExpectedTokenEnv(allSmokeCommand, expectedTokenEnv)
   );
 }

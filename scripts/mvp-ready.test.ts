@@ -3947,7 +3947,7 @@ describe("MVP ready helper", () => {
       parseLanAgentRoleFilteredCommandReadiness(
         roleFilterOutput("host", {
           relayUrl: "ws://192.168.1.10:8787/",
-          tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN",
+          tokenArgument: "--token-env 'WINBRIDGE_RELAY_SHARED_TOKEN'",
           hostApplyInputArg: null
         }),
         "host"
@@ -3957,7 +3957,7 @@ describe("MVP ready helper", () => {
       parseLanAgentRoleFilteredCommandReadiness(
         roleFilterOutput("viewer", {
           relayUrl: "ws://192.168.1.10:8787/",
-          tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN",
+          tokenArgument: "--token-env 'WINBRIDGE_RELAY_SHARED_TOKEN'",
           viewerFrameOutputArg: null
         }),
         "viewer"
@@ -4013,7 +4013,7 @@ describe("MVP ready helper", () => {
       parseTokenEnvAgentRoleFilteredCommandReadiness(
         roleFilterOutput("host", {
           tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN",
-          tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN",
+          tokenArgument: "--token-env 'WINBRIDGE_RELAY_SHARED_TOKEN'",
           hostWindowsCaptureArg: "--dev-screen-frame-source 'static'"
         }),
         "host"
@@ -4023,7 +4023,7 @@ describe("MVP ready helper", () => {
       parseTokenEnvAgentRoleFilteredCommandReadiness(
         roleFilterOutput("viewer", {
           tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN",
-          tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN",
+          tokenArgument: "--token-env 'WINBRIDGE_RELAY_SHARED_TOKEN'",
           viewerRequestArg: "--request 'screen:view'"
         }),
         "viewer"
@@ -4618,8 +4618,8 @@ function roleRunnerDryRunOutput(
             "600",
             "--dev-screen-frame-interval-ms",
             "1000",
-            "--token",
-            "<relay-token>"
+            "--token-env",
+            "<token-env>"
           ]
         : [
             "run",
@@ -4646,8 +4646,8 @@ function roleRunnerDryRunOutput(
             "<frame-output>",
             "--viewer-control-surface-port",
             "35987",
-            "--token",
-            "<relay-token>"
+            "--token-env",
+            "<token-env>"
           ]);
 
   return JSON.stringify({
@@ -4802,14 +4802,14 @@ function lanRelayRoleFilterOutput(options: { relayCommand?: string; tokenEnv?: s
 function lanAgentRoleFilterOutput(target: "host" | "viewer") {
   return roleFilterOutput(target, {
     relayUrl: "ws://192.168.1.10:8787/",
-    tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN"
+    tokenArgument: "--token-env 'WINBRIDGE_RELAY_SHARED_TOKEN'"
   });
 }
 
 function tokenEnvAgentRoleFilterOutput(target: "host" | "viewer") {
   return roleFilterOutput(target, {
     tokenEnv: "WINBRIDGE_RELAY_SHARED_TOKEN",
-    tokenArgument: "--token $env:WINBRIDGE_RELAY_SHARED_TOKEN"
+    tokenArgument: "--token-env 'WINBRIDGE_RELAY_SHARED_TOKEN'"
   });
 }
 
@@ -5138,7 +5138,7 @@ function ephemeralCommandPlanOutput(options: CommandPlanFixtureOptions = {}) {
 function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
   const relayUrl = options.relayUrl ?? "ws://localhost:8787/";
   const tokenEnv = effectiveCommandPlanTokenEnv(relayUrl, options.tokenEnv);
-  const tokenArg = tokenEnv ? ` --token $env:${tokenEnv}` : "";
+  const tokenArg = tokenEnv ? ` --token-env '${tokenEnv}'` : "";
   const hostConsentTimeoutArg = Object.hasOwn(options, "hostConsentTimeoutArg")
     ? options.hostConsentTimeoutArg
     : "--host-consent-timeout-ms '60000'";

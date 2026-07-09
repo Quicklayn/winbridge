@@ -1201,7 +1201,7 @@ Windows prompt bypass, or hidden-session behavior.
 
 ### Requirement: Host and viewer role ready validate token-env agent-only output
 
-The role-scoped host and viewer MVP ready helpers SHALL validate token-env agent-only command output in addition to the fixed localhost and representative LAN role-filter output. `npm run mvp:ready -- --role host` SHALL run the non-executing command kit as `mvp:commands -- --only host --token-env WINBRIDGE_RELAY_SHARED_TOKEN` and internally require the reviewed `$env:WINBRIDGE_RELAY_SHARED_TOKEN` token reference while preserving host-only output validation. `npm run mvp:ready -- --role viewer` SHALL do the same for `mvp:commands -- --only viewer --token-env WINBRIDGE_RELAY_SHARED_TOKEN` while preserving viewer-only output validation. Relay role-scoped readiness MUST NOT add host or viewer token-env agent-only checks.
+The role-scoped host and viewer MVP ready helpers SHALL validate token-env agent-only command output in addition to the fixed localhost and representative LAN role-filter output. `npm run mvp:ready -- --role host` SHALL run the non-executing command kit as `mvp:commands -- --only host --token-env WINBRIDGE_RELAY_SHARED_TOKEN` and internally require the reviewed `--token-env 'WINBRIDGE_RELAY_SHARED_TOKEN'` agent marker while preserving host-only output validation. `npm run mvp:ready -- --role viewer` SHALL do the same for `mvp:commands -- --only viewer --token-env WINBRIDGE_RELAY_SHARED_TOKEN` while preserving viewer-only output validation. Relay role-scoped readiness MUST NOT add host or viewer token-env agent-only checks.
 
 The validation MUST fail closed with only fixed check metadata when the output drifts. It MUST NOT echo generated command strings, relay URLs, local URLs, ports, pairing codes, token references, local paths, stdout, stderr, child output, credentials, screen contents, input contents, or full secrets. It MUST remain non-executing and MUST NOT start relay, host, viewer, browser, capture, input, sockets, HTTP listeners, services, startup persistence, unattended access, privilege elevation, LAN discovery, firewall changes, AV/EDR evasion, Windows prompt bypass, or hidden-session behavior.
 
@@ -1219,7 +1219,7 @@ The validation MUST fail closed with only fixed check metadata when the output d
 
 #### Scenario: Token-env role output drift fails closed
 
-- **WHEN** the token-env role-filter output omits the expected bounded environment-variable reference, includes a raw token value instead, includes another role's runtime command block, or contains malformed role-filter metadata
+- **WHEN** the token-env role-filter output omits the expected bounded agent token-env marker, includes a raw token value instead, includes another role's runtime command block, or contains malformed role-filter metadata
 - **THEN** `mvp:ready -- --role host` or `mvp:ready -- --role viewer` treats the matching token-env role-filter check as failed
 - **AND** diagnostics do not echo the unsafe command string, token reference, token value, relay URL, pairing code, path, stdout, stderr, child output, credential, screen content, input content, or full secret
 
@@ -1231,7 +1231,7 @@ The validation MUST fail closed with only fixed check metadata when the output d
 
 ### Requirement: Default ready validates token-env role-filter output
 
-The default aggregate MVP ready helper SHALL validate host and viewer token-env role-filtered command output in addition to the full shared-token command-plan validation and fixed localhost role-filter command validation. `npm run mvp:ready` SHALL run the non-executing command kit as `mvp:commands -- --only host --token-env WINBRIDGE_RELAY_SHARED_TOKEN` and `mvp:commands -- --only viewer --token-env WINBRIDGE_RELAY_SHARED_TOKEN`, internally require the reviewed `$env:WINBRIDGE_RELAY_SHARED_TOKEN` token reference, and preserve host-only or viewer-only output validation for the selected target.
+The default aggregate MVP ready helper SHALL validate host and viewer token-env role-filtered command output in addition to the full shared-token command-plan validation and fixed localhost role-filter command validation. `npm run mvp:ready` SHALL run the non-executing command kit as `mvp:commands -- --only host --token-env WINBRIDGE_RELAY_SHARED_TOKEN` and `mvp:commands -- --only viewer --token-env WINBRIDGE_RELAY_SHARED_TOKEN`, internally require the reviewed `--token-env 'WINBRIDGE_RELAY_SHARED_TOKEN'` agent marker, and preserve host-only or viewer-only output validation for the selected target.
 
 The validation MUST fail closed with only fixed check metadata when the output drifts. It MUST NOT echo generated command strings, relay URLs, local URLs, ports, pairing codes, token references, local paths, stdout, stderr, child output, credentials, screen contents, input contents, or full secrets. It MUST remain non-executing and MUST NOT start relay, host, viewer, browser, capture, input, sockets, HTTP listeners, services, startup persistence, unattended access, privilege elevation, LAN discovery, firewall changes, AV/EDR evasion, Windows prompt bypass, or hidden-session behavior.
 
@@ -1245,7 +1245,7 @@ The validation MUST fail closed with only fixed check metadata when the output d
 
 #### Scenario: Default token-env role-filter drift fails closed
 
-- **WHEN** the default token-env host or viewer role-filter output omits the expected bounded environment-variable reference, includes a raw token value instead, includes another role's runtime command block, or contains malformed role-filter metadata
+- **WHEN** the default token-env host or viewer role-filter output omits the expected bounded agent token-env marker, includes a raw token value instead, includes another role's runtime command block, or contains malformed role-filter metadata
 - **THEN** `mvp:ready` treats the matching token-env role-filter check as failed
 - **AND** diagnostics do not echo the unsafe command string, token reference, token value, relay URL, pairing code, path, stdout, stderr, child output, credential, screen content, input content, or full secret
 
@@ -1474,8 +1474,9 @@ ambient `WINBRIDGE_RELAY_SHARED_TOKEN` value from the parent process unless the
 smoke invocation explicitly includes `--token-env`. Default smoke and LAN-style
 smoke MUST remain tokenless even when the parent shell has
 `WINBRIDGE_RELAY_SHARED_TOKEN` set for other checks. Token-protected smoke MUST
-continue to pass the resolved bounded token only when `--token-env` is
-provided. Human and JSON smoke output MUST NOT expose raw token values, token
+continue to configure the resolved bounded relay token only when `--token-env`
+is provided, while host and viewer children use reviewed `--token-env` argv
+markers instead of raw token argv. Human and JSON smoke output MUST NOT expose raw token values, token
 environment values, child command strings, child environment maps, relay URLs,
 pairing codes, stdout, stderr, child output, credentials, screen contents,
 input contents, clipboard contents, or full secrets.
@@ -1496,8 +1497,8 @@ input contents, clipboard contents, or full secrets.
   `npm run mvp:smoke -- --json --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
 - **THEN** the smoke helper starts its local relay with the resolved bounded
   shared-token value
-- **AND** it passes the same token to host and viewer through their existing
-  token option
+- **AND** it passes the token environment name to host and viewer through their
+  existing token-env option without raw token child argv
 - **AND** diagnostics remain bounded and secret-safe
 
 ### Requirement: Command kit prints all-smoke preflight gate
@@ -3058,6 +3059,58 @@ clipboard contents, credentials, diagnostics dumps, or full secrets.
   viewer runner roles
 - **AND** it fails closed if the metadata omits or changes reviewed role,
   consent, capture, input, audit, frame-output, or surface markers
+
+### Requirement: MVP agent token-env surfaces avoid raw child token argv
+
+The reviewed MVP command and runner surfaces SHALL prefer agent
+`--token-env <ENV_NAME>` for host and viewer token-protected relay access. When
+the command kit is invoked with `--token-env <ENV_NAME>`, generated host and
+viewer command text MUST include `--token-env` references instead of raw
+`--token` runtime values. When `mvp:run` starts a live host or viewer role with
+`--token-env <ENV_NAME>`, the child argv MUST include the bounded environment
+variable name and MUST NOT include the resolved token value. Relay role runs
+MAY continue to pass relay bind, port, and shared-token values through child
+environment variables.
+
+The MVP readiness helper MUST validate sanitized runner dry-run metadata and
+token-env role-filter command output so regressions to raw host/viewer
+`--token` argv fail closed before live use. Human and JSON diagnostics MUST NOT
+echo generated command strings, raw relay URLs, local URLs, local paths, token
+values, token environment values, pairing codes, child stdout, child stderr,
+frame bytes, screen contents, input contents, clipboard contents, credentials,
+diagnostics dumps, or full secrets.
+
+This requirement MUST NOT add hidden sessions, unattended access, service
+install, startup persistence, browser launch, privilege elevation, firewall
+changes, LAN discovery, credential access, keylogging, AV/EDR evasion, Windows
+prompt bypass, hidden capture, or hidden input.
+
+#### Scenario: Command kit prints agent token-env references
+
+- **WHEN** a developer runs `npm run mvp:commands -- --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
+- **THEN** the generated host and viewer commands include
+  `--token-env 'WINBRIDGE_RELAY_SHARED_TOKEN'` or the reviewed platform
+  equivalent
+- **AND** the generated host and viewer commands do not include raw token
+  values
+
+#### Scenario: Role runner live host and viewer avoid token argv
+
+- **WHEN** a developer runs `npm run mvp:run -- --role host` or
+  `npm run mvp:run -- --role viewer` with valid explicit session, pairing,
+  relay target, token-env, and foreground acknowledgement
+- **THEN** the spawned child argv includes `--token-env <ENV_NAME>`
+- **AND** the spawned child argv does not include the resolved relay token
+  value
+
+#### Scenario: Ready rejects raw token regressions
+
+- **WHEN** runner dry-run metadata or command-kit token-env role-filter output
+  includes raw host/viewer `--token` argv instead of reviewed `--token-env`
+  markers
+- **THEN** `mvp:ready` treats the matching check as failed
+- **AND** diagnostics do not echo token values, token environment values,
+  generated commands, pairing codes, stdout, stderr, child output, or secrets
 
 ### Requirement: MVP doctor validates role runner script alignment
 

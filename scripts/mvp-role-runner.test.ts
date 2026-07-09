@@ -103,8 +103,8 @@ describe("MVP role runner", () => {
         "true",
         "--dev-screen-frame-source",
         "windows-capture",
-        "--token",
-        "<relay-token>"
+        "--token-env",
+        "<token-env>"
       ]),
       env: []
     });
@@ -175,8 +175,8 @@ describe("MVP role runner", () => {
         "true",
         "--dev-screen-frame-source",
         "windows-capture",
-        "--token",
-        "dev-token"
+        "--token-env",
+        "WINBRIDGE_RELAY_SHARED_TOKEN"
       ]),
       options: expect.objectContaining({
         cwd: "C:\\repo\\winbridge",

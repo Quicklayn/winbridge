@@ -90,7 +90,8 @@ describe("MVP session command kit", () => {
     expect(output).toContain(
       "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run mvp:ready -- --include-all-smoke"
     );
-    expect(output).toContain("--token $env:WINBRIDGE_TEST_RELAY_TOKEN");
+    expect(output).toContain("--token-env 'WINBRIDGE_TEST_RELAY_TOKEN'");
+    expect(output).not.toContain("--token $env:WINBRIDGE_TEST_RELAY_TOKEN");
     expect(output).not.toContain("dev-shared-token");
   });
 
@@ -394,7 +395,7 @@ describe("MVP session command kit", () => {
     expect(allSmokeCommand).toBe(
       "$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:WINBRIDGE_TEST_RELAY_TOKEN; npm run mvp:ready -- --include-all-smoke"
     );
-    expect(output).toContain("--token $env:WINBRIDGE_TEST_RELAY_TOKEN");
+    expect(output).toContain("--token-env 'WINBRIDGE_TEST_RELAY_TOKEN'");
     expect(output).not.toContain("dev-shared-token");
     expect(output).not.toContain("--token '");
   });
@@ -931,7 +932,7 @@ describe("MVP session command kit", () => {
         })
       ])
     );
-    expect(output).toContain("--token $env:WINBRIDGE_TEST_RELAY_TOKEN");
+    expect(output).toContain("--token-env 'WINBRIDGE_TEST_RELAY_TOKEN'");
     expect(output).not.toContain("raw-secret-token");
   });
 

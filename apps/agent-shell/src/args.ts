@@ -86,7 +86,7 @@ export type AgentShellArgs = {
 };
 
 export const AGENT_SHELL_USAGE =
-  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-control-surface-port 35986] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-apply-input true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-screen-frame-output latest-frame.png] [--viewer-control-surface-port 35987] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000] [--dev-screen-frame-after-ms 1000] [--dev-screen-frame-source static|windows-capture] [--dev-screen-frame-id frame_cli_1] [--dev-screen-frame-format image/png] [--dev-screen-frame-width 1] [--dev-screen-frame-height 1] [--dev-screen-frame-data-base64 base64] [--dev-screen-frame-count 3] [--dev-screen-frame-interval-ms 1000] [--dev-input-after-ms 1000] [--dev-input-kind pointer-move|pointer-down|pointer-up|pointer-wheel|key-down|key-up] [--dev-input-event-id input_cli_1] [--dev-pointer-x 0.5] [--dev-pointer-y 0.5] [--dev-pointer-button primary] [--dev-pointer-buttons 1] [--dev-pointer-delta-x 0] [--dev-pointer-delta-y 1] [--dev-key KeyA] [--dev-code KeyA] [--dev-modifiers shift,control]";
+  "Usage: npm run dev:agent -- <host|viewer> [--relay ws://localhost:8787] [--session demo] [--pairing 123-456] [--peer peer-id] [--device device-id] [--name display-name] [--token token | --token-env ENV_NAME] [--audit-log logs\\agent-audit.jsonl] [--request screen:view,input:pointer] [--request-reason reason] [--grant screen:view,input:pointer] [--host-decision none|approve|deny] [--host-consent-prompt true|false] [--host-control-prompt true|false] [--host-control-surface-port 35986] [--host-status-after-ms 1000] [--viewer-control-prompt true|false] [--host-signal-probe-ack true|false] [--host-apply-input true|false] [--host-consent-timeout-ms 60000] [--visible-session true|false] [--authorization-ttl-ms 600000] [--revoke-after-ms 1000] [--revoke-permission screen:view] [--revoke-reason reason] [--pause-after-ms 1000] [--pause-reason reason] [--resume-after-ms 1000] [--resume-reason reason] [--terminate-after-ms 1000] [--terminate-reason reason] [--disconnect-after-ms 1000] [--disconnect-reason reason] [--viewer-signal-probe-after-ms 1000] [--viewer-screen-frame-output latest-frame.png] [--viewer-control-surface-port 35987] [--viewer-status-after-ms 1000] [--viewer-disconnect-after-ms 1000] [--dev-screen-frame-after-ms 1000] [--dev-screen-frame-source static|windows-capture] [--dev-screen-frame-id frame_cli_1] [--dev-screen-frame-format image/png] [--dev-screen-frame-width 1] [--dev-screen-frame-height 1] [--dev-screen-frame-data-base64 base64] [--dev-screen-frame-count 3] [--dev-screen-frame-interval-ms 1000] [--dev-input-after-ms 1000] [--dev-input-kind pointer-move|pointer-down|pointer-up|pointer-wheel|key-down|key-up] [--dev-input-event-id input_cli_1] [--dev-pointer-x 0.5] [--dev-pointer-y 0.5] [--dev-pointer-button primary] [--dev-pointer-buttons 1] [--dev-pointer-delta-x 0] [--dev-pointer-delta-y 1] [--dev-key KeyA] [--dev-code KeyA] [--dev-modifiers shift,control]";
 
 const DEFAULT_DEV_SCREEN_FRAME_DATA_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
@@ -95,6 +95,7 @@ const MAX_DEV_SCREEN_FRAME_STREAM_COUNT = 1000;
 const DEFAULT_DEV_INPUT_EVENT_ID = "input_cli_1";
 const DEV_CLI_VALIDATION_AUTHORIZATION_ID = "authz_cli_validation";
 const DEV_CLI_VALIDATION_FROM_PEER_ID = "peer-cli-validation";
+const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]{0,127}$/;
 const REMOTE_INPUT_MODIFIERS = ["alt", "control", "meta", "shift"] as const;
 type RemoteInputModifier = (typeof REMOTE_INPUT_MODIFIERS)[number];
 type RemoteInputKind = Extract<ProtocolEnvelope, { type: "input-event" }>["event"]["kind"];
@@ -111,6 +112,7 @@ const knownOptions = new Set([
   "device",
   "name",
   "token",
+  "token-env",
   "audit-log",
   "request",
   "request-reason",
@@ -356,7 +358,7 @@ export function parseArgs(
     pairingCode,
     peerId,
     displayName: parseDisplayName(options.get("name") ?? `${role} ${processId}`),
-    token: parseOptionalToken(options.get("token")),
+    token: parseOptionalTokenOption(options, env),
     deviceId: parseDeviceId(options.get("device") ?? `dev_${role}_${processId}`),
     auditLogPath,
     requestedPermissions,
@@ -1304,6 +1306,42 @@ function parseOptionalAuditLogPath(raw: string | undefined): string | undefined 
   try {
     assertAuditLogPath(raw);
   } catch {
+    throw new AgentShellUsageError();
+  }
+
+  return raw;
+}
+
+function parseOptionalTokenOption(
+  options: Map<string, string>,
+  env: NodeJS.ProcessEnv
+): string | undefined {
+  const rawToken = options.get("token");
+  const tokenEnv = parseOptionalTokenEnv(options.get("token-env"));
+
+  if (rawToken !== undefined && tokenEnv !== undefined) {
+    throw new AgentShellUsageError();
+  }
+
+  if (tokenEnv !== undefined) {
+    const envToken = env[tokenEnv];
+
+    if (envToken === undefined) {
+      throw new AgentShellUsageError();
+    }
+
+    return parseOptionalToken(envToken);
+  }
+
+  return parseOptionalToken(rawToken);
+}
+
+function parseOptionalTokenEnv(raw: string | undefined): string | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (isUnsafeCliScalar(raw) || !ENV_NAME_PATTERN.test(raw)) {
     throw new AgentShellUsageError();
   }
 

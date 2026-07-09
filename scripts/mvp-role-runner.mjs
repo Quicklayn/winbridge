@@ -140,7 +140,13 @@ export function createMvpRoleRunnerPlan(parsed, dependencies = {}) {
   if (parsed.role === "relay") {
     return createRelayRunnerPlan(npmCommand, parsed.commandOptions, token, env);
   }
-  return createAgentRunnerPlan(npmCommand, parsed.role, parsed.commandOptions, token, env);
+  return createAgentRunnerPlan(
+    npmCommand,
+    parsed.role,
+    parsed.commandOptions,
+    parsed.commandOptions.tokenEnv,
+    env
+  );
 }
 
 export function formatMvpRoleRunnerDryRun(plan, options = {}) {
@@ -236,7 +242,7 @@ function createRelayRunnerPlan(npmCommand, options, token, baseEnv) {
   };
 }
 
-function createAgentRunnerPlan(npmCommand, role, options, token, baseEnv) {
+function createAgentRunnerPlan(npmCommand, role, options, tokenEnv, baseEnv) {
   const optionPairs =
     role === "host"
       ? hostAgentOptionPairs(options)
@@ -248,9 +254,9 @@ function createAgentRunnerPlan(npmCommand, role, options, token, baseEnv) {
     args.push(`--${name}`, value);
     sanitizedArgs.push(`--${name}`, safeValue);
   }
-  if (token !== undefined) {
-    args.push("--token", token);
-    sanitizedArgs.push("--token", "<relay-token>");
+  if (tokenEnv !== undefined) {
+    args.push("--token-env", tokenEnv);
+    sanitizedArgs.push("--token-env", "<token-env>");
   }
 
   return {
