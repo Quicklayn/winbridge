@@ -66,6 +66,7 @@ describe("MVP doctor", () => {
         "apps/agent-shell/src/viewer-local-control-surface.ts",
         "scripts/mvp-audit-summary.mjs",
         "scripts/mvp-evidence-fixture.mjs",
+        "scripts/mvp-role-runner.mjs",
         "scripts/mvp-trial.mjs"
       ])
     );
@@ -386,6 +387,7 @@ function alignedRootScripts() {
     "mvp:lan-probe": "node scripts/mvp-lan-probe.mjs",
     "mvp:native-preflight": "node scripts/mvp-native-preflight.mjs",
     "mvp:ready": "node scripts/mvp-ready.mjs",
+    "mvp:run": "node scripts/mvp-role-runner.mjs",
     "mvp:smoke": "npm run build && node scripts/mvp-session-smoke.mjs",
     "mvp:trial": "node scripts/mvp-trial.mjs"
   };

@@ -2,7 +2,7 @@
 
 WinBridge is a consent-first Windows-to-Windows remote assistance project.
 
-The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, a non-native agent shell, a Windows screen capture adapter wired into an explicit consent-bound host development frame source, an explicit viewer output-file path for authorized frames, loopback-only local viewer and host control surfaces for development MVP checks, an MVP command kit for printing a visible relay/host/viewer launch sequence, an interactive viewer control prompt for authorized development input commands, and explicit host opt-in Windows input application for authorized development input events. It does **not** implement a production desktop viewer UI, production remote-control UX, unattended access, or production deployment yet.
+The current repository state is a bootstrap foundation: OpenSpec workflow, security boundaries, protocol schemas, a development relay, a non-native agent shell, a Windows screen capture adapter wired into an explicit consent-bound host development frame source, an explicit viewer output-file path for authorized frames, loopback-only local viewer and host control surfaces for development MVP checks, an MVP command kit for printing a visible relay/host/viewer launch sequence, a foreground-only MVP role runner for one reviewed relay/host/viewer role, an interactive viewer control prompt for authorized development input commands, and explicit host opt-in Windows input application for authorized development input events. It does **not** implement a production desktop viewer UI, production remote-control UX, unattended access, or production deployment yet.
 
 ## Safety Scope
 
@@ -319,6 +319,36 @@ actions can send input.
 It opens a browser only when the developer explicitly runs that printed command
 on the viewer PC.
 
+Run one reviewed MVP role in the current visible foreground terminal after the
+same session, pairing, relay, and token-env metadata has been coordinated:
+
+```powershell
+npm run mvp:run -- --role relay --session mvp-123456-654321 --pairing 234-567 --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground
+npm run mvp:run -- --role host --session mvp-123456-654321 --pairing 234-567 --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground
+npm run mvp:run -- --role viewer --session mvp-123456-654321 --pairing 234-567 --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground
+```
+
+The runner starts exactly one role and inherits the current terminal stdio. It
+requires `--i-understand-foreground` for live runs, accepts shared relay tokens
+only through `--token-env <NAME>`, and rejects raw `--token` values. It builds
+fixed npm argv arrays instead of executing rendered shell command strings, and
+preserves the reviewed host consent, visible session, host control, audit,
+finite Windows capture, viewer frame-output, viewer surface, and input request
+flags from the command kit. It does not launch browsers, detach processes,
+install services, configure startup persistence, run unattended, elevate
+privileges, probe LAN addresses, change firewall state, or bypass Windows
+prompts.
+
+Use dry-run JSON when checking runner drift without starting child processes:
+
+```powershell
+npm run mvp:run -- --role host --session mvp-123456-654321 --pairing 234-567 --relay-host 192.168.1.10 --token-env WINBRIDGE_RELAY_SHARED_TOKEN --dry-run --json
+```
+
+Dry-run output contains sanitized placeholders only; it does not print the
+pairing code, token value, token environment value, raw relay URL, local URLs,
+local paths, child output, frame bytes, screen contents, or input contents.
+
 For a two-PC trial, do not use the default `ws://localhost:8787/` relay URL for
 both machines. Rerun the command kit with the relay PC LAN IP or DNS name, for
 example:
@@ -346,10 +376,11 @@ npm run mvp:doctor
 ```
 
 The doctor verifies Windows platform, supported Node.js version, required root
-npm scripts including `mvp:trial`, `mvp:lan-probe`, and
+npm scripts including `mvp:run`, `mvp:trial`, `mvp:lan-probe`, and
 `mvp:evidence-fixture`, required root script alignment for the reviewed
-`dev:agent`, `dev:relay`, `mvp:smoke`, `mvp:trial`, `mvp:lan-probe`, and
-`mvp:evidence-fixture` workflows, required workspace package manifests, and
+`dev:agent`, `dev:relay`, `mvp:smoke`, `mvp:run`, `mvp:trial`,
+`mvp:lan-probe`, and `mvp:evidence-fixture` workflows, required workspace
+package manifests, and
 required MVP source entrypoints. Script-alignment failures use only the
 bounded `script-misaligned` reason and do not echo script bodies or package JSON
 content. It is read-only: it does not start relay, host, viewer, browser,
@@ -401,7 +432,11 @@ viewer `screen:view,input:pointer,input:keyboard` request, and
 token-env preflight JSON plan, the bounded `mvp:trial -- --json` full
 operator workflow plan, and explicit ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
-checked before a live trial. It then prints only bounded step status. The LAN
+checked before a live trial. It also validates non-executing sanitized
+`mvp:run -- --dry-run --json` metadata for relay, host, and viewer, including
+the reviewed foreground role markers and host/viewer consent, capture, input,
+audit, frame-output, and surface flags. It then prints only bounded step
+status. The LAN
 validation uses a fixed safe `--relay-host` value plus the fixed
 `WINBRIDGE_RELAY_SHARED_TOKEN` token-env name only to exercise the two-PC
 command generator path; token validation also uses the fixed

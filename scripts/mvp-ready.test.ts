@@ -14,6 +14,7 @@ import {
   parseLanAgentRoleFilteredCommandReadiness,
   parseLanRelayRoleFilteredCommandReadiness,
   parseMvpReadyArgs,
+  parseMvpRoleRunnerDryRunReadiness,
   parseMvpTrialPlanReadiness,
   parseRoleFilteredCommandReadiness,
   parseSmokeReadiness,
@@ -383,6 +384,7 @@ describe("MVP ready helper", () => {
         ]
       },
       { name: "trial-plan", command: "npm", args: ["run", "mvp:trial", "--", "--json"] },
+      ...roleRunnerDryRunPlanSteps(),
       ...roleFilterPlanSteps()
     ]);
   });
@@ -450,6 +452,7 @@ describe("MVP ready helper", () => {
         ]
       },
       { name: "trial-plan", command: "npm", args: ["run", "mvp:trial", "--", "--json"] },
+      ...roleRunnerDryRunPlanSteps(),
       ...roleFilterPlanSteps(),
       { name: "smoke", command: "npm", args: ["run", "mvp:smoke", "--", "--json"] },
       {
@@ -1017,6 +1020,9 @@ describe("MVP ready helper", () => {
         "preflight-json-command-plan=ok",
         "preflight-token-json-command-plan=ok",
         "trial-plan=ok",
+        "role-runner-relay-dry-run=ok",
+        "role-runner-host-dry-run=ok",
+        "role-runner-viewer-dry-run=ok",
         "token-role-filter-preflight-command=ok",
         "role-filter-relay-command=ok",
         "role-filter-host-command=ok",
@@ -1293,6 +1299,10 @@ describe("MVP ready helper", () => {
         { name: "preflight-json-command-plan", ok: true },
         { name: "preflight-token-json-command-plan", ok: true },
         { name: "trial-plan", ok: true },
+        ...roleRunnerTargets().map((role) => ({
+          name: `role-runner-${role}-dry-run`,
+          ok: true
+        })),
         { name: "token-role-filter-preflight-command", ok: false, reason: "exit-nonzero" }
       ]
     });
@@ -2788,6 +2798,10 @@ describe("MVP ready helper", () => {
         { name: "preflight-json-command-plan", ok: true },
         { name: "preflight-token-json-command-plan", ok: true },
         { name: "trial-plan", ok: true },
+        ...roleRunnerTargets().map((role) => ({
+          name: `role-runner-${role}-dry-run`,
+          ok: true
+        })),
         { name: "token-role-filter-preflight-command", ok: true },
         { name: "role-filter-relay-command", ok: true },
         { name: "role-filter-host-command", ok: false, reason: "exit-nonzero" }
@@ -2848,6 +2862,10 @@ describe("MVP ready helper", () => {
         { name: "preflight-json-command-plan", ok: true },
         { name: "preflight-token-json-command-plan", ok: true },
         { name: "trial-plan", ok: true },
+        ...roleRunnerTargets().map((role) => ({
+          name: `role-runner-${role}-dry-run`,
+          ok: true
+        })),
         { name: "token-role-filter-preflight-command", ok: true },
         ...roleFilterTargets().map((target) => ({
           name: `role-filter-${target}-command`,
@@ -3775,6 +3793,40 @@ describe("MVP ready helper", () => {
     expect(parseMvpTrialPlanReadiness("x".repeat(32769))).toBe(false);
   });
 
+  it("parses only reviewed sanitized MVP role runner dry-run output", () => {
+    for (const role of roleRunnerTargets() as Array<"relay" | "host" | "viewer">) {
+      expect(parseMvpRoleRunnerDryRunReadiness(roleRunnerDryRunOutput(role), role)).toBe(true);
+    }
+
+    expect(parseMvpRoleRunnerDryRunReadiness(roleRunnerDryRunOutput("host"), "viewer")).toBe(false);
+    expect(
+      parseMvpRoleRunnerDryRunReadiness(
+        roleRunnerDryRunOutput("host", {
+          args: roleRunnerDryRunArgsWithout("host", "--host-apply-input", "true")
+        }),
+        "host"
+      )
+    ).toBe(false);
+    expect(parseMvpRoleRunnerDryRunReadiness(roleRunnerDryRunOutput("relay", { env: [] }), "relay")).toBe(false);
+    expect(
+      parseMvpRoleRunnerDryRunReadiness(
+        roleRunnerDryRunOutput("viewer", {
+          args: [...roleRunnerDryRunArgs("viewer"), "234-567"]
+        }),
+        "viewer"
+      )
+    ).toBe(false);
+    expect(
+      parseMvpRoleRunnerDryRunReadiness(
+        roleRunnerDryRunOutput("host", {
+          extra: { stdout: "raw-secret-token" }
+        }),
+        "host"
+      )
+    ).toBe(false);
+    expect(parseMvpRoleRunnerDryRunReadiness("x".repeat(32769), "host")).toBe(false);
+  });
+
   it("parses only bounded target-specific role-filter command output", () => {
     for (const target of roleFilterTargets()) {
       expect(parseRoleFilteredCommandReadiness(roleFilterOutput(target), target)).toBe(true);
@@ -4247,6 +4299,34 @@ function roleFilterTargets() {
   return ["relay", "host", "viewer", "browser", "preflight"];
 }
 
+function roleRunnerTargets() {
+  return ["relay", "host", "viewer"];
+}
+
+function roleRunnerDryRunPlanSteps() {
+  return roleRunnerTargets().map((role) => ({
+    name: `role-runner-${role}-dry-run`,
+    command: "npm",
+    args: [
+      "run",
+      "mvp:run",
+      "--",
+      "--role",
+      role,
+      "--session",
+      "mvp-ready-runner",
+      "--pairing",
+      "234-567",
+      "--relay-host",
+      "192.168.1.10",
+      "--token-env",
+      "WINBRIDGE_RELAY_SHARED_TOKEN",
+      "--dry-run",
+      "--json"
+    ]
+  }));
+}
+
 function roleFilterPlanSteps() {
   return [
     {
@@ -4391,6 +4471,7 @@ function defaultReadyCheckNames() {
     "preflight-json-command-plan",
     "preflight-token-json-command-plan",
     "trial-plan",
+    ...roleRunnerTargets().map((role) => `role-runner-${role}-dry-run`),
     "token-role-filter-preflight-command",
     ...roleFilterTargets().map((target) => `role-filter-${target}-command`),
     "lan-role-filter-relay-command",
@@ -4408,6 +4489,10 @@ function roleFilterCheckResults() {
   return [
     { name: "preflight-token-json-command-plan", ok: true },
     { name: "trial-plan", ok: true },
+    ...roleRunnerTargets().map((role) => ({
+      name: `role-runner-${role}-dry-run`,
+      ok: true
+    })),
     { name: "token-role-filter-preflight-command", ok: true },
     ...roleFilterTargets().map((target) => ({
       name: `role-filter-${target}-command`,
@@ -4430,6 +4515,15 @@ function roleFilterOutputForStep(name: string) {
   }
   if (name === "trial-plan") {
     return trialPlanOutput();
+  }
+  if (name === "role-runner-relay-dry-run") {
+    return roleRunnerDryRunOutput("relay");
+  }
+  if (name === "role-runner-host-dry-run") {
+    return roleRunnerDryRunOutput("host");
+  }
+  if (name === "role-runner-viewer-dry-run") {
+    return roleRunnerDryRunOutput("viewer");
   }
   if (name === "trial-role-relay-plan") {
     return trialPlanOutput("relay");
@@ -4476,6 +4570,116 @@ function roleFilterOutputForStep(name: string) {
 
   const target = name.slice(prefix.length, -suffix.length);
   return roleFilterTargets().includes(target) ? roleFilterOutput(target) : undefined;
+}
+
+function roleRunnerDryRunOutput(
+  role: "relay" | "host" | "viewer",
+  options: { args?: string[]; env?: string[]; extra?: Record<string, unknown> } = {}
+) {
+  const args =
+    options.args ??
+    (role === "relay"
+      ? ["run", "dev:relay"]
+      : role === "host"
+        ? [
+            "run",
+            "dev:agent",
+            "--",
+            "host",
+            "--relay",
+            "<relay-url>",
+            "--session",
+            "<session-id>",
+            "--pairing",
+            "<pairing-code>",
+            "--name",
+            "<display-name>",
+            "--host-consent-prompt",
+            "true",
+            "--host-consent-timeout-ms",
+            "60000",
+            "--visible-session",
+            "true",
+            "--host-control-prompt",
+            "true",
+            "--host-control-surface-port",
+            "0",
+            "--host-signal-probe-ack",
+            "true",
+            "--audit-log",
+            "<audit-log>",
+            "--host-apply-input",
+            "true",
+            "--dev-screen-frame-after-ms",
+            "1000",
+            "--dev-screen-frame-source",
+            "windows-capture",
+            "--dev-screen-frame-count",
+            "600",
+            "--dev-screen-frame-interval-ms",
+            "1000",
+            "--token",
+            "<relay-token>"
+          ]
+        : [
+            "run",
+            "dev:agent",
+            "--",
+            "viewer",
+            "--relay",
+            "<relay-url>",
+            "--session",
+            "<session-id>",
+            "--pairing",
+            "<pairing-code>",
+            "--name",
+            "<display-name>",
+            "--request",
+            "screen:view,input:pointer,input:keyboard",
+            "--request-reason",
+            "<request-reason>",
+            "--viewer-signal-probe-after-ms",
+            "1000",
+            "--audit-log",
+            "<audit-log>",
+            "--viewer-screen-frame-output",
+            "<frame-output>",
+            "--viewer-control-surface-port",
+            "35987",
+            "--token",
+            "<relay-token>"
+          ]);
+
+  return JSON.stringify({
+    ok: true,
+    mode: "role-runner",
+    role,
+    foreground: true,
+    nonExecuting: true,
+    command: "npm",
+    args,
+    env:
+      options.env ??
+      (role === "relay" ? ["WINBRIDGE_RELAY_BIND_HOST", "WINBRIDGE_RELAY_SHARED_TOKEN"] : []),
+    ...(options.extra ?? {})
+  });
+}
+
+function roleRunnerDryRunArgs(role: "relay" | "host" | "viewer") {
+  return JSON.parse(roleRunnerDryRunOutput(role)).args as string[];
+}
+
+function roleRunnerDryRunArgsWithout(
+  role: "relay" | "host" | "viewer",
+  option: string,
+  value: string
+) {
+  return roleRunnerDryRunArgs(role).filter((arg, index, args) => {
+    if (arg === option && args[index + 1] === value) {
+      return false;
+    }
+    return !(arg === value && args[index - 1] === option);
+  });
 }
 
 function roleFilterOutput(

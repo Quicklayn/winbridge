@@ -105,6 +105,9 @@ const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
 const MVP_READY_ROLES = Object.freeze(["relay", "host", "viewer"]);
+const MVP_READY_RUNNER_ROLES = Object.freeze(["relay", "host", "viewer"]);
+const MVP_READY_RUNNER_SESSION = "mvp-ready-runner";
+const MVP_READY_RUNNER_PAIRING = "234-567";
 const MVP_TRIAL_RELAY_HOST_PLACEHOLDER = "<relay-pc-lan-ip>";
 const MVP_TRIAL_PLAN_ROLES = Object.freeze(["preflight", "relay", "host", "viewer", "evidence"]);
 const MVP_TRIAL_PLAN_SAFETY = Object.freeze([
@@ -458,6 +461,23 @@ export function createMvpReadyPlan(options = {}) {
       ])
     },
     { name: "trial-plan", ...commandWithArgs("mvp:trial", ["--json"]) },
+    ...MVP_READY_RUNNER_ROLES.map((target) => ({
+      name: `role-runner-${target}-dry-run`,
+      ...commandWithArgs("mvp:run", [
+        "--role",
+        target,
+        "--session",
+        MVP_READY_RUNNER_SESSION,
+        "--pairing",
+        MVP_READY_RUNNER_PAIRING,
+        "--relay-host",
+        MVP_READY_LAN_RELAY_HOST,
+        "--token-env",
+        MVP_READY_TOKEN_ENV_NAME,
+        "--dry-run",
+        "--json"
+      ])
+    })),
     {
       name: "token-role-filter-preflight-command",
       ...commandWithArgs("mvp:commands", ["--only", "preflight", "--token-env", MVP_READY_TOKEN_ENV_NAME])
@@ -720,6 +740,24 @@ export function runMvpReadyCheck(options = {}) {
     }
 
     if (step.name === "trial-plan" && !parseMvpTrialPlanReadiness(result.output)) {
+      const failed = {
+        name: step.name,
+        ok: false,
+        reason: "exit-nonzero"
+      };
+      checks.push(failed);
+      return {
+        ok: false,
+        reason: failed.reason,
+        checks
+      };
+    }
+
+    const runnerRole = roleRunnerRoleForStep(step.name);
+    if (
+      runnerRole !== undefined &&
+      !parseMvpRoleRunnerDryRunReadiness(result.output, runnerRole)
+    ) {
       const failed = {
         name: step.name,
         ok: false,
@@ -1542,6 +1580,55 @@ export function parseEvidenceFixtureReadiness(output) {
   );
 }
 
+export function parseMvpRoleRunnerDryRunReadiness(output, expectedRole) {
+  if (
+    typeof output !== "string" ||
+    output.length === 0 ||
+    output.length > OUTPUT_LIMIT_BYTES ||
+    !MVP_READY_RUNNER_ROLES.includes(expectedRole) ||
+    output.includes(MVP_READY_RUNNER_SESSION) ||
+    output.includes(MVP_READY_RUNNER_PAIRING) ||
+    output.includes(MVP_READY_LAN_RELAY_URL) ||
+    output.includes(MVP_READY_LAN_RELAY_HOST) ||
+    output.includes("raw-secret-token") ||
+    output.includes("logs\\") ||
+    output.includes("frames\\") ||
+    output.includes("http://127.0.0.1")
+  ) {
+    return false;
+  }
+
+  const parsed = parseLastJsonOutputLine(output);
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    !hasExactMvpRoleRunnerDryRunShape(parsed) ||
+    parsed.ok !== true ||
+    parsed.mode !== "role-runner" ||
+    parsed.role !== expectedRole ||
+    parsed.foreground !== true ||
+    parsed.nonExecuting !== true ||
+    parsed.command !== "npm" ||
+    !Array.isArray(parsed.args) ||
+    !parsed.args.every((arg) => typeof arg === "string") ||
+    !Array.isArray(parsed.env) ||
+    !parsed.env.every((name) => typeof name === "string")
+  ) {
+    return false;
+  }
+
+  if (expectedRole === "relay") {
+    return (
+      sameStringArray(parsed.args, ["run", "dev:relay"]) &&
+      parsed.env.includes("WINBRIDGE_RELAY_BIND_HOST") &&
+      parsed.env.includes("WINBRIDGE_RELAY_SHARED_TOKEN")
+    );
+  }
+
+  return reviewedRoleRunnerAgentArgs(parsed.args, expectedRole);
+}
+
 function hasRuntimeTokenArgument(output) {
   return /(^|\s)--token(?:\s|=|$)/.test(output);
 }
@@ -1556,6 +1643,16 @@ function trialRoleForStep(stepName) {
   return MVP_READY_ROLES.includes(role) ? role : undefined;
 }
 
+function roleRunnerRoleForStep(stepName) {
+  const prefix = "role-runner-";
+  const suffix = "-dry-run";
+  if (!stepName.startsWith(prefix) || !stepName.endsWith(suffix)) {
+    return undefined;
+  }
+  const role = stepName.slice(prefix.length, -suffix.length);
+  return MVP_READY_RUNNER_ROLES.includes(role) ? role : undefined;
+}
+
 function hasExactMvpTrialPlanShape(parsed) {
   const keys = Object.keys(parsed);
   return (
@@ -1566,6 +1663,95 @@ function hasExactMvpTrialPlanShape(parsed) {
     keys.includes("safety") &&
     keys.every((key) => key === "ok" || key === "mode" || key === "nonExecuting" || key === "roles" || key === "safety")
   );
+}
+
+function hasExactMvpRoleRunnerDryRunShape(parsed) {
+  const keys = Object.keys(parsed);
+  return (
+    keys.includes("ok") &&
+    keys.includes("mode") &&
+    keys.includes("role") &&
+    keys.includes("foreground") &&
+    keys.includes("nonExecuting") &&
+    keys.includes("command") &&
+    keys.includes("args") &&
+    keys.includes("env") &&
+    keys.every((key) =>
+      key === "ok" ||
+      key === "mode" ||
+      key === "role" ||
+      key === "foreground" ||
+      key === "nonExecuting" ||
+      key === "command" ||
+      key === "args" ||
+      key === "env"
+    )
+  );
+}
+
+function reviewedRoleRunnerAgentArgs(args, role) {
+  const requiredMarkers =
+    role === "host"
+      ? [
+          "run",
+          "dev:agent",
+          "--",
+          "host",
+          "--relay",
+          "<relay-url>",
+          "--session",
+          "<session-id>",
+          "--pairing",
+          "<pairing-code>",
+          "--host-consent-prompt",
+          "true",
+          "--visible-session",
+          "true",
+          "--host-control-prompt",
+          "true",
+          "--host-control-surface-port",
+          "0",
+          "--host-signal-probe-ack",
+          "true",
+          "--audit-log",
+          "<audit-log>",
+          "--host-apply-input",
+          "true",
+          "--dev-screen-frame-source",
+          "windows-capture",
+          "--token",
+          "<relay-token>"
+        ]
+      : [
+          "run",
+          "dev:agent",
+          "--",
+          "viewer",
+          "--relay",
+          "<relay-url>",
+          "--session",
+          "<session-id>",
+          "--pairing",
+          "<pairing-code>",
+          "--request",
+          "screen:view,input:pointer,input:keyboard",
+          "--request-reason",
+          "<request-reason>",
+          "--audit-log",
+          "<audit-log>",
+          "--viewer-screen-frame-output",
+          "<frame-output>",
+          "--viewer-control-surface-port",
+          "35987",
+          "--token",
+          "<relay-token>"
+        ];
+
+  return requiredMarkers.every((marker) => args.includes(marker));
+}
+
+function sameStringArray(actual, expected) {
+  return actual.length === expected.length && actual.every((item, index) => item === expected[index]);
 }
 
 function isReviewedMvpTrialPlanSection(section, expectedRoles, expectedRelayHost) {

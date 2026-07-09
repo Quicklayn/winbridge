@@ -18,6 +18,7 @@ export const REQUIRED_MVP_ROOT_SCRIPTS = Object.freeze([
   "mvp:lan-probe",
   "mvp:native-preflight",
   "mvp:ready",
+  "mvp:run",
   "mvp:smoke",
   "mvp:trial"
 ]);
@@ -50,6 +51,7 @@ export const REQUIRED_MVP_ENTRYPOINT_FILES = Object.freeze([
   "scripts/mvp-lan-probe.mjs",
   "scripts/mvp-native-preflight.mjs",
   "scripts/mvp-ready.mjs",
+  "scripts/mvp-role-runner.mjs",
   "scripts/mvp-session-commands.mjs",
   "scripts/mvp-session-smoke.mjs",
   "scripts/mvp-trial.mjs"
@@ -82,6 +84,7 @@ const REQUIRED_ROOT_SCRIPT_ALIGNMENT = Object.freeze({
   "mvp:smoke": Object.freeze(["npm run build", "node scripts/mvp-session-smoke.mjs"]),
   "mvp:evidence-fixture": Object.freeze(["node scripts/mvp-evidence-fixture.mjs"]),
   "mvp:lan-probe": Object.freeze(["node scripts/mvp-lan-probe.mjs"]),
+  "mvp:run": Object.freeze(["node scripts/mvp-role-runner.mjs"]),
   "mvp:trial": Object.freeze(["node scripts/mvp-trial.mjs"])
 });
 
