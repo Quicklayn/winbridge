@@ -109,13 +109,15 @@ Use a role filter on the machine you are preparing:
 npm run mvp:trial -- --role relay
 npm run mvp:trial -- --role host
 npm run mvp:trial -- --role viewer
+npm run mvp:trial -- --role browser
 npm run mvp:trial -- --role evidence
 ```
 
 The trial helper is non-executing in plan mode. It references the existing
 role-scoped readiness gates, a fixed full-plan session bootstrap command, a
 full-plan generated local evidence fixture dry run, role-filtered command
-blocks, reviewed foreground `mvp:run` role templates, and strict post-run audit gate without
+blocks including a browser-only viewer-surface command reference, reviewed
+foreground `mvp:run` role templates, and strict post-run audit gate without
 starting relay, host, viewer, browser, capture, input, sockets, HTTP listeners,
 services, startup persistence, unattended access, or privilege elevation. The
 session bootstrap step is

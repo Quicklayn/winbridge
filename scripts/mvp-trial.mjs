@@ -6,7 +6,7 @@ import {
 } from "./mvp-audit-summary.mjs";
 
 export const MVP_TRIAL_USAGE = [
-  "Usage: npm run mvp:trial -- [--json] [--role relay|host|viewer|evidence] [--relay-host RELAY-PC-LAN-IP]",
+  "Usage: npm run mvp:trial -- [--json] [--role relay|host|viewer|browser|evidence] [--relay-host RELAY-PC-LAN-IP]",
   "       npm run mvp:trial -- --evidence --host-audit logs\\host-audit.jsonl --viewer-audit logs\\viewer-audit.jsonl [--json]",
   "",
   "Prints a bounded, non-executing two-PC MVP trial workflow, or verifies",
@@ -15,7 +15,7 @@ export const MVP_TRIAL_USAGE = [
   "startup persistence, network listeners, or unattended access."
 ].join("\n");
 
-const TRIAL_SCOPED_ROLES = Object.freeze(["relay", "host", "viewer", "evidence"]);
+const TRIAL_SCOPED_ROLES = Object.freeze(["relay", "host", "viewer", "browser", "evidence"]);
 const TRIAL_FULL_ROLES = Object.freeze(["preflight", ...TRIAL_SCOPED_ROLES]);
 const RELAY_HOST_PLACEHOLDER = "<relay-pc-lan-ip>";
 const SESSION_ID_PLACEHOLDER = "<session-id>";
@@ -144,6 +144,25 @@ const TRIAL_SECTIONS = Object.freeze({
         name: "operator-check",
         command:
           "Replace the session and pairing placeholders from preflight, then open the loopback viewer surface only after the viewer command reports readiness."
+      })
+    ])
+  }),
+  browser: Object.freeze({
+    role: "browser",
+    title: "Viewer browser",
+    steps: Object.freeze([
+      Object.freeze({
+        name: "readiness",
+        command: "npm run mvp:ready -- --role viewer"
+      }),
+      Object.freeze({
+        name: "print-browser-command",
+        command: trialRelayHostCommandReference("browser")
+      }),
+      Object.freeze({
+        name: "operator-check",
+        command:
+          "Open the loopback viewer surface only after the viewer command reports readiness and prints the bounded local surface URL."
       })
     ])
   }),

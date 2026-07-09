@@ -2674,8 +2674,8 @@ input contents, clipboard contents, or full secrets.
 
 The project SHALL provide a root `npm run mvp:trial` helper that prints a
 bounded, non-executing two-PC development MVP operator workflow. The helper
-MUST include fixed relay, host, viewer, and post-run evidence sections that
-reference the existing role-scoped `mvp:ready` gates, the existing
+MUST include fixed relay, host, viewer, browser, and post-run evidence sections
+that reference the existing role-scoped `mvp:ready` gates, the existing
 role-filtered `mvp:commands` outputs, reviewed relay/host/viewer `mvp:run`
 command-reference templates, reviewed host/viewer `mvp:lan-probe`
 command-reference steps, and the strict
@@ -2686,27 +2686,30 @@ the explicit `--i-understand-foreground` acknowledgement, and MUST use the
 bounded relay-host shortcut rather than printing generated relay URLs. Host
 and viewer probe references MUST use placeholders for session and pairing
 metadata and MUST use the bounded relay-host shortcut rather than printing
-generated relay URLs. The helper MUST support text output by default and
-bounded JSON output with `--json`. It MUST support `--role relay`, `--role
-host`, `--role viewer`, and `--role evidence` filters without changing the
-default full workflow. Plan output MUST remain bounded and MUST NOT echo raw
-relay URLs, pairing codes, token values, token environment values, generated
-command strings, local URLs, local paths, stdout, stderr, audit records, frame
-bytes, screen contents, input contents, clipboard contents, credentials,
-diagnostics dumps, or full secrets. The helper MUST NOT start relay, host,
-viewer, browser, capture, input, sockets, HTTP listeners, services, startup
-persistence, unattended access, privilege elevation, remote discovery,
-firewall changes, AV/EDR evasion, Windows prompt bypass, or hidden-session
-behavior.
+generated relay URLs. The browser section MUST reference the existing
+`mvp:commands -- --only browser` command plan and MUST instruct the viewer
+operator to open the loopback viewer surface only after the viewer runtime
+reports readiness. The helper MUST support text output by default and bounded
+JSON output with `--json`. It MUST support `--role relay`, `--role host`,
+`--role viewer`, `--role browser`, and `--role evidence` filters without
+changing the default full workflow. Plan output MUST remain bounded and MUST
+NOT echo raw relay URLs, pairing codes, token values, token environment values,
+generated command strings, local URLs, local paths, stdout, stderr, audit
+records, frame bytes, screen contents, input contents, clipboard contents,
+credentials, diagnostics dumps, or full secrets. The helper MUST NOT start
+relay, host, viewer, browser, capture, input, sockets, HTTP listeners,
+services, startup persistence, unattended access, privilege elevation, remote
+discovery, firewall changes, AV/EDR evasion, Windows prompt bypass, or
+hidden-session behavior.
 
 #### Scenario: Default trial plan prints every role
 
 - **WHEN** a developer runs `npm run mvp:trial`
-- **THEN** the helper prints bounded relay, host, viewer, and evidence
-  workflow sections
+- **THEN** the helper prints bounded relay, host, viewer, browser, and
+  evidence workflow sections
 - **AND** the output references the existing readiness, command-plan,
-  reviewed role-runner template, LAN probe, and strict audit-summary gates
-  without executing them
+  reviewed role-runner template, LAN probe, browser command-reference, and
+  strict audit-summary gates without executing them
 
 #### Scenario: Trial plan JSON remains bounded
 
@@ -2725,6 +2728,15 @@ behavior.
 - **THEN** the helper prints only the bounded host workflow section
 - **AND** it does not print relay, viewer, browser, or evidence runtime command
   blocks
+
+#### Scenario: Trial plan filters browser role
+
+- **WHEN** a developer runs `npm run mvp:trial -- --role browser`
+- **THEN** the helper prints only the bounded browser workflow section
+- **AND** the section references viewer readiness and the existing
+  `mvp:commands -- --only browser` command plan
+- **AND** it does not print relay, host, viewer, evidence, capture, input, or
+  runtime command blocks
 
 #### Scenario: Trial plan includes role-runner templates
 

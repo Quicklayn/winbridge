@@ -37,6 +37,11 @@ describe("MVP two-PC trial helper", () => {
       mode: "plan",
       role: "host"
     });
+    expect(parseMvpTrialArgs(["--role", "browser"])).toMatchObject({
+      help: false,
+      mode: "plan",
+      role: "browser"
+    });
     expect(parseMvpTrialArgs(["--relay-host", "192.168.1.10"])).toMatchObject({
       help: false,
       mode: "plan",
@@ -97,6 +102,8 @@ describe("MVP two-PC trial helper", () => {
     expect(output).toContain(
       "npm run mvp:run -- --role viewer --session <session-id> --pairing <pairing-code> --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground"
     );
+    expect(output).toContain("[browser] Viewer browser");
+    expect(output).toContain("Open the loopback viewer surface only after the viewer command reports readiness");
     expect(output).toContain("[evidence] Post-run evidence");
     expect(output).toContain("npm run mvp:audit-summary");
     expect(output).toContain("--require-mvp-evidence");
@@ -115,6 +122,7 @@ describe("MVP two-PC trial helper", () => {
         expect.objectContaining({ role: "relay", title: "Relay PC" }),
         expect.objectContaining({ role: "host", title: "Host PC" }),
         expect.objectContaining({ role: "viewer", title: "Viewer PC" }),
+        expect.objectContaining({ role: "browser", title: "Viewer browser" }),
         expect.objectContaining({ role: "preflight", title: "Preflight dry run" }),
         expect.objectContaining({ role: "evidence", title: "Post-run evidence" })
       ]),
@@ -153,6 +161,24 @@ describe("MVP two-PC trial helper", () => {
     assertNoUnsafeOutput(output);
   });
 
+  it("prints role-filtered browser plan metadata", () => {
+    const output = formatMvpTrialPlanJson(
+      createMvpTrialPlan({ role: "browser", relayHost: "support-relay.lan" })
+    );
+    const parsed = JSON.parse(output);
+
+    expect(parsed.roles).toHaveLength(1);
+    expect(parsed.roles[0].role).toBe("browser");
+    expect(parsed.roles[0].title).toBe("Viewer browser");
+    expect(JSON.stringify(parsed)).toContain("npm run mvp:ready -- --role viewer");
+    expect(JSON.stringify(parsed)).toContain("npm run mvp:commands -- --only browser --relay-host support-relay.lan --token-env WINBRIDGE_RELAY_SHARED_TOKEN");
+    expect(JSON.stringify(parsed)).not.toContain("npm run mvp:run");
+    expect(JSON.stringify(parsed)).not.toContain("npm run mvp:lan-probe");
+    expect(JSON.stringify(parsed)).not.toContain("[relay]");
+    expect(JSON.stringify(parsed)).not.toContain("npm run dev:agent");
+    assertNoUnsafeOutput(output);
+  });
+
   it("prints role-filtered relay-host JSON plan metadata", () => {
     const output = formatMvpTrialPlanJson(
       createMvpTrialPlan({ role: "viewer", relayHost: "support-relay.lan" })
@@ -178,7 +204,22 @@ describe("MVP two-PC trial helper", () => {
     expect(host).not.toContain("npm run mvp:ready -- --include-evidence-fixture");
     expect(host).not.toContain("[relay] Relay PC");
     expect(host).not.toContain("[viewer] Viewer PC");
+    expect(host).not.toContain("[browser] Viewer browser");
     expect(host).not.toContain("[evidence] Post-run evidence");
+
+    const browser = formatMvpTrialPlan(createMvpTrialPlan({ role: "browser" }));
+    expect(browser).toContain("[browser] Viewer browser");
+    expect(browser).toContain("npm run mvp:ready -- --role viewer");
+    expect(browser).toContain("npm run mvp:commands -- --only browser");
+    expect(browser).toContain("Open the loopback viewer surface only after the viewer command reports readiness");
+    expect(browser).not.toContain("[preflight] Preflight dry run");
+    expect(browser).not.toContain("[relay] Relay PC");
+    expect(browser).not.toContain("[host] Host PC");
+    expect(browser).not.toContain("[viewer] Viewer PC");
+    expect(browser).not.toContain("[evidence] Post-run evidence");
+    expect(browser).not.toContain("npm run mvp:run");
+    expect(browser).not.toContain("npm run mvp:lan-probe");
+    assertNoUnsafeOutput(browser);
   });
 
   it("rejects malformed options without echoing raw values", () => {
@@ -196,6 +237,7 @@ describe("MVP two-PC trial helper", () => {
       ["--relay-host", "raw-secret-token"],
       ["--relay-host", "192.168.1.10", "--relay-host", "192.168.1.11"],
       ["--evidence", "--relay-host", "192.168.1.10", "--host-audit", String.raw`logs\host-audit.jsonl`, "--viewer-audit", String.raw`logs\viewer-audit.jsonl`],
+      ["--evidence", "--role", "browser"],
       ["--evidence", "--role", "evidence"],
       ["--evidence"],
       ["--host-audit", String.raw`logs\host-audit.jsonl`],
