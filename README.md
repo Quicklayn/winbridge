@@ -115,7 +115,7 @@ npm run mvp:trial -- --role evidence
 The trial helper is non-executing in plan mode. It references the existing
 role-scoped readiness gates, a fixed full-plan session bootstrap command, a
 full-plan generated local evidence fixture dry run, role-filtered command
-blocks, and strict post-run audit gate without
+blocks, reviewed foreground `mvp:run` role templates, and strict post-run audit gate without
 starting relay, host, viewer, browser, capture, input, sockets, HTTP listeners,
 services, startup persistence, unattended access, or privilege elevation. The
 session bootstrap step is
@@ -128,10 +128,13 @@ fixture preflight step is `npm run mvp:ready -- --include-evidence-fixture`;
 it proves strict evidence gate wiring only, not that a live two-PC session
 happened. `--relay-host` only substitutes a validated host into the bounded
 bootstrap and `mvp:commands -- --only ... --relay-host ... --token-env
-WINBRIDGE_RELAY_SHARED_TOKEN` command references. It does not execute those
-commands or print generated session ids, concrete pairing codes, relay URLs,
-token values, local URLs, audit records, generated fixture paths, frame bytes,
-screen contents, input contents, or secrets.
+WINBRIDGE_RELAY_SHARED_TOKEN` command references, plus the reviewed
+`mvp:run -- --role ... --session <session-id> --pairing <pairing-code>
+--relay-host ... --token-env WINBRIDGE_RELAY_SHARED_TOKEN
+--i-understand-foreground` templates. It does not execute those commands or
+print generated session ids, concrete pairing codes, relay URLs, token values,
+local URLs, audit records, generated fixture paths, frame bytes, screen
+contents, input contents, or secrets.
 
 Before running the full host/viewer assistance commands on two PCs, verify that
 the relay is reachable and that both operators are using the same session and
@@ -153,10 +156,12 @@ bypass Windows prompts. Text and JSON output are bounded and omit relay URLs,
 pairing codes, token values, protocol payloads, screen contents, input
 contents, local paths, and secrets.
 
-The full `mvp:trial` plan also includes bounded host and viewer
-`mvp:lan-probe` command-reference steps. Those references keep session and
-pairing values as placeholders and use the reviewed `--relay-host` shortcut so
-the trial plan does not print generated relay URLs or concrete pairing codes.
+The full `mvp:trial` plan also includes bounded relay, host, and viewer
+`mvp:run` command-reference templates plus host and viewer `mvp:lan-probe`
+steps. Those references keep session and pairing values as placeholders, use
+the reviewed `--relay-host` shortcut, reference the shared relay token only by
+environment variable name, and require the foreground acknowledgement so the
+trial plan does not print generated relay URLs or concrete pairing codes.
 
 After a visible, consented two-PC trial has produced local host and viewer
 audit logs, the same helper can run the strict evidence gate:

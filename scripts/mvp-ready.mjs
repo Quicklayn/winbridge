@@ -101,6 +101,8 @@ const REVIEWED_EVIDENCE_FIXTURE_READY_COMMAND = "npm run mvp:ready -- --include-
 const REVIEWED_EVIDENCE_FIXTURE_RECORDS = Object.freeze({ host: 5, viewer: 3 });
 const REVIEWED_MVP_TRIAL_SESSION_BOOTSTRAP_COMMAND =
   "npm run mvp:commands -- --generate-session --generate-pairing --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN";
+const REVIEWED_MVP_TRIAL_SESSION_PLACEHOLDER = "<session-id>";
+const REVIEWED_MVP_TRIAL_PAIRING_PLACEHOLDER = "<pairing-code>";
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
@@ -146,8 +148,14 @@ const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
           "npm run mvp:commands -- --only relay --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
       }),
       Object.freeze({
+        name: "run-role",
+        command:
+          "npm run mvp:run -- --role relay --session <session-id> --pairing <pairing-code> --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground"
+      }),
+      Object.freeze({
         name: "operator-check",
-        command: "Run the printed relay command in a visible PowerShell terminal."
+        command:
+          "Replace the session and pairing placeholders from preflight, then run the relay role in a visible PowerShell terminal."
       })
     ])
   }),
@@ -166,9 +174,14 @@ const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
           "npm run mvp:lan-probe -- --role host --relay-host <relay-pc-lan-ip> --session <session-id> --pairing <pairing-code> --peer host-probe --device host-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
       }),
       Object.freeze({
+        name: "run-role",
+        command:
+          "npm run mvp:run -- --role host --session <session-id> --pairing <pairing-code> --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground"
+      }),
+      Object.freeze({
         name: "operator-check",
         command:
-          "Approve only the visible host consent prompt; keep pause, revoke, terminate, and disconnect controls available."
+          "Replace the session and pairing placeholders from preflight, approve only the visible host consent prompt, and keep pause, revoke, terminate, and disconnect controls available."
       })
     ])
   }),
@@ -192,8 +205,14 @@ const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
           "npm run mvp:lan-probe -- --role viewer --relay-host <relay-pc-lan-ip> --session <session-id> --pairing <pairing-code> --peer viewer-probe --device viewer-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
       }),
       Object.freeze({
+        name: "run-role",
+        command:
+          "npm run mvp:run -- --role viewer --session <session-id> --pairing <pairing-code> --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground"
+      }),
+      Object.freeze({
         name: "operator-check",
-        command: "Open the loopback viewer surface only after the viewer command reports readiness."
+        command:
+          "Replace the session and pairing placeholders from preflight, then open the loopback viewer surface only after the viewer command reports readiness."
       })
     ])
   }),
@@ -1792,8 +1811,25 @@ function isReviewedMvpTrialPlanStep(step, reviewed, expectedRelayHost) {
     keys.includes("command") &&
     keys.every((key) => key === "name" || key === "command") &&
     step.name === reviewed.name &&
-    step.command === reviewedMvpTrialPlanCommand(reviewed.command, expectedRelayHost)
+    step.command === reviewedMvpTrialPlanCommand(reviewed.command, expectedRelayHost) &&
+    isSafeReviewedMvpTrialPlanCommand(step.command, reviewed.command)
   );
+}
+
+function isSafeReviewedMvpTrialPlanCommand(command, reviewedCommand) {
+  if (command.includes("ws://") || command.includes("wss://") || hasRuntimeTokenArgument(command)) {
+    return false;
+  }
+  if (
+    reviewedCommand.includes("npm run mvp:run") &&
+    (!command.includes(`--session ${REVIEWED_MVP_TRIAL_SESSION_PLACEHOLDER}`) ||
+      !command.includes(`--pairing ${REVIEWED_MVP_TRIAL_PAIRING_PLACEHOLDER}`) ||
+      !command.includes(`--token-env ${MVP_READY_TOKEN_ENV_NAME}`) ||
+      !command.includes("--i-understand-foreground"))
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function reviewedMvpTrialPlanCommand(command, expectedRelayHost) {

@@ -3790,6 +3790,38 @@ describe("MVP ready helper", () => {
     expect(parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { extra: { stdout: "raw-secret-token" } }))).toBe(
       false
     );
+    expect(
+      parseMvpTrialPlanReadiness(
+        trialPlanOutput("host", {
+          roles: [trialPlanRoleWithMutatedStep("host", "run-role", "--token-env WINBRIDGE_RELAY_SHARED_TOKEN", "--token raw-secret-token")]
+        }),
+        { expectedRole: "host" }
+      )
+    ).toBe(false);
+    expect(
+      parseMvpTrialPlanReadiness(
+        trialPlanOutput("host", {
+          roles: [trialPlanRoleWithMutatedStep("host", "run-role", "--relay-host <relay-pc-lan-ip>", "--relay ws://192.168.1.10:8787/")]
+        }),
+        { expectedRole: "host" }
+      )
+    ).toBe(false);
+    expect(
+      parseMvpTrialPlanReadiness(
+        trialPlanOutput("host", {
+          roles: [trialPlanRoleWithMutatedStep("host", "run-role", "--pairing <pairing-code>", "--pairing 123-456")]
+        }),
+        { expectedRole: "host" }
+      )
+    ).toBe(false);
+    expect(
+      parseMvpTrialPlanReadiness(
+        trialPlanOutput("viewer", {
+          roles: [trialPlanRoleWithMutatedStep("viewer", "run-role", " --i-understand-foreground", "")]
+        }),
+        { expectedRole: "viewer" }
+      )
+    ).toBe(false);
     expect(parseMvpTrialPlanReadiness("x".repeat(32769))).toBe(false);
   });
 
@@ -4896,8 +4928,14 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
             `npm run mvp:commands -- --only relay --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
         },
         {
+          name: "run-role",
+          command:
+            `npm run mvp:run -- --role relay --session <session-id> --pairing <pairing-code> --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground`
+        },
+        {
           name: "operator-check",
-          command: "Run the printed relay command in a visible PowerShell terminal."
+          command:
+            "Replace the session and pairing placeholders from preflight, then run the relay role in a visible PowerShell terminal."
         }
       ]
     },
@@ -4917,9 +4955,14 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
             `npm run mvp:lan-probe -- --role host --relay-host ${relayHostValue} --session <session-id> --pairing <pairing-code> --peer host-probe --device host-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
         },
         {
+          name: "run-role",
+          command:
+            `npm run mvp:run -- --role host --session <session-id> --pairing <pairing-code> --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground`
+        },
+        {
           name: "operator-check",
           command:
-            "Approve only the visible host consent prompt; keep pause, revoke, terminate, and disconnect controls available."
+            "Replace the session and pairing placeholders from preflight, approve only the visible host consent prompt, and keep pause, revoke, terminate, and disconnect controls available."
         }
       ]
     },
@@ -4944,8 +4987,14 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
             `npm run mvp:lan-probe -- --role viewer --relay-host ${relayHostValue} --session <session-id> --pairing <pairing-code> --peer viewer-probe --device viewer-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
         },
         {
+          name: "run-role",
+          command:
+            `npm run mvp:run -- --role viewer --session <session-id> --pairing <pairing-code> --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground`
+        },
+        {
           name: "operator-check",
-          command: "Open the loopback viewer surface only after the viewer command reports readiness."
+          command:
+            "Replace the session and pairing placeholders from preflight, then open the loopback viewer surface only after the viewer command reports readiness."
         }
       ]
     },
@@ -4971,6 +5020,21 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
     }
   };
   return sections[role];
+}
+
+function trialPlanRoleWithMutatedStep(
+  role: Exclude<TrialPlanRole, "preflight" | "evidence">,
+  stepName: string,
+  search: string,
+  replacement: string
+) {
+  const section = trialPlanRole(role);
+  return {
+    ...section,
+    steps: section.steps.map((step) =>
+      step.name === stepName ? { ...step, command: step.command.replace(search, replacement) } : step
+    )
+  };
 }
 
 function trialPlanSafety() {

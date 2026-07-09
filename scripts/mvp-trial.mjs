@@ -18,6 +18,8 @@ export const MVP_TRIAL_USAGE = [
 const TRIAL_SCOPED_ROLES = Object.freeze(["relay", "host", "viewer", "evidence"]);
 const TRIAL_FULL_ROLES = Object.freeze(["preflight", ...TRIAL_SCOPED_ROLES]);
 const RELAY_HOST_PLACEHOLDER = "<relay-pc-lan-ip>";
+const SESSION_ID_PLACEHOLDER = "<session-id>";
+const PAIRING_CODE_PLACEHOLDER = "<pairing-code>";
 const RELAY_HOST_SHORTCUT_PATTERN =
   /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 const IPV4_LITERAL_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/;
@@ -77,8 +79,13 @@ const TRIAL_SECTIONS = Object.freeze({
         command: trialRelayHostCommandReference("relay")
       }),
       Object.freeze({
+        name: "run-role",
+        command: trialRoleRunnerCommandReference("relay")
+      }),
+      Object.freeze({
         name: "operator-check",
-        command: "Run the printed relay command in a visible PowerShell terminal."
+        command:
+          "Replace the session and pairing placeholders from preflight, then run the relay role in a visible PowerShell terminal."
       })
     ])
   }),
@@ -99,9 +106,13 @@ const TRIAL_SECTIONS = Object.freeze({
         command: trialLanProbeCommandReference("host")
       }),
       Object.freeze({
+        name: "run-role",
+        command: trialRoleRunnerCommandReference("host")
+      }),
+      Object.freeze({
         name: "operator-check",
         command:
-          "Approve only the visible host consent prompt; keep pause, revoke, terminate, and disconnect controls available."
+          "Replace the session and pairing placeholders from preflight, approve only the visible host consent prompt, and keep pause, revoke, terminate, and disconnect controls available."
       })
     ])
   }),
@@ -126,9 +137,13 @@ const TRIAL_SECTIONS = Object.freeze({
         command: trialLanProbeCommandReference("viewer")
       }),
       Object.freeze({
+        name: "run-role",
+        command: trialRoleRunnerCommandReference("viewer")
+      }),
+      Object.freeze({
         name: "operator-check",
         command:
-          "Open the loopback viewer surface only after the viewer command reports readiness."
+          "Replace the session and pairing placeholders from preflight, then open the loopback viewer surface only after the viewer command reports readiness."
       })
     ])
   }),
@@ -533,7 +548,11 @@ function trialSessionBootstrapCommandReference() {
 }
 
 function trialLanProbeCommandReference(role) {
-  return `npm run mvp:lan-probe -- --role ${role} --relay-host ${RELAY_HOST_PLACEHOLDER} --session <session-id> --pairing <pairing-code> --peer ${role}-probe --device ${role}-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN`;
+  return `npm run mvp:lan-probe -- --role ${role} --relay-host ${RELAY_HOST_PLACEHOLDER} --session ${SESSION_ID_PLACEHOLDER} --pairing ${PAIRING_CODE_PLACEHOLDER} --peer ${role}-probe --device ${role}-device --token-env WINBRIDGE_RELAY_SHARED_TOKEN`;
+}
+
+function trialRoleRunnerCommandReference(role) {
+  return `npm run mvp:run -- --role ${role} --session ${SESSION_ID_PLACEHOLDER} --pairing ${PAIRING_CODE_PLACEHOLDER} --relay-host ${RELAY_HOST_PLACEHOLDER} --token-env WINBRIDGE_RELAY_SHARED_TOKEN --i-understand-foreground`;
 }
 
 function parseTrialRelayHost(raw) {
