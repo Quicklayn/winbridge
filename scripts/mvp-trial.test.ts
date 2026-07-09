@@ -280,15 +280,39 @@ describe("MVP two-PC trial helper", () => {
       }
 
       expect(formatMvpTrialError(thrown)).toBe(
-        "WinBridge two-PC MVP trial failed. reason=missing-required-evidence"
+        [
+          "WinBridge two-PC MVP trial failed. reason=missing-required-evidence",
+          "missingEvidence=host.authorizationActive,host.screenFrameSent,host.permissionRevoked,host.disconnectObserved,viewer.inputSent,viewer.disconnectObserved"
+        ].join("\n")
       );
-      expect(formatMvpTrialError(thrown, { json: true })).toBe(
-        '{"ok":false,"reason":"missing-required-evidence"}'
-      );
+      expect(JSON.parse(formatMvpTrialError(thrown, { json: true }))).toEqual({
+        ok: false,
+        reason: "missing-required-evidence",
+        missingEvidence: [
+          "host.authorizationActive",
+          "host.screenFrameSent",
+          "host.permissionRevoked",
+          "host.disconnectObserved",
+          "viewer.inputSent",
+          "viewer.disconnectObserved"
+        ]
+      });
       expect(formatMvpTrialError(thrown)).not.toContain(tempDir);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+
+  it("omits missing evidence metadata for unrelated trial failures", () => {
+    const text = formatMvpTrialError(new Error("raw-secret-token"));
+    const json = formatMvpTrialError(new Error("raw-secret-token"), { json: true });
+
+    expect(text).toBe("WinBridge two-PC MVP trial failed. reason=malformed-record");
+    expect(json).toBe('{"ok":false,"reason":"malformed-record"}');
+    expect(text).not.toContain("missingEvidence");
+    expect(json).not.toContain("missingEvidence");
+    assertNoUnsafeOutput(text);
+    assertNoUnsafeOutput(json);
   });
 
   it("does not import child process, socket, HTTP, native adapter, or browser APIs", () => {

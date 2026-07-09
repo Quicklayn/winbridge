@@ -347,8 +347,11 @@ export function formatMvpTrialError(error, options = {}) {
   }
   const reason = safeTrialReason(error?.reason ?? error?.message);
   return options.json
-    ? JSON.stringify({ ok: false, reason })
-    : `WinBridge two-PC MVP trial failed. reason=${reason}`;
+    ? JSON.stringify({ ok: false, reason, ...formatMissingEvidenceJson(reason, error?.missingEvidence) })
+    : [
+        `WinBridge two-PC MVP trial failed. reason=${reason}`,
+        ...formatMissingEvidenceLines(reason, error?.missingEvidence)
+      ].join("\n");
 }
 
 function formatTrialSection(section) {
@@ -482,6 +485,39 @@ function sanitizeEvidenceResult(result) {
 
 function safeTrialReason(reason) {
   return FAILURE_REASONS.has(reason) ? reason : "malformed-record";
+}
+
+function sanitizeMissingEvidence(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const allowed = new Set([
+    "host.authorizationApproved",
+    "host.authorizationActive",
+    "host.screenFrameSent",
+    "host.permissionRevoked",
+    "host.disconnectObserved",
+    "viewer.screenFrameOutput",
+    "viewer.inputSent",
+    "viewer.disconnectObserved"
+  ]);
+  return [...allowed].filter((item) => value.includes(item));
+}
+
+function formatMissingEvidenceLines(reason, missingEvidence) {
+  const safeMissingEvidence = sanitizeMissingEvidence(missingEvidence);
+  if (reason !== "missing-required-evidence" || safeMissingEvidence.length === 0) {
+    return [];
+  }
+  return [`missingEvidence=${safeMissingEvidence.join(",")}`];
+}
+
+function formatMissingEvidenceJson(reason, missingEvidence) {
+  const safeMissingEvidence = sanitizeMissingEvidence(missingEvidence);
+  if (reason !== "missing-required-evidence" || safeMissingEvidence.length === 0) {
+    return {};
+  }
+  return { missingEvidence: safeMissingEvidence };
 }
 
 function trialRelayHostCommandReference(target) {

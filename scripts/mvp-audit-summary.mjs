@@ -121,10 +121,11 @@ export class MvpAuditSummaryUsageError extends Error {
 }
 
 export class MvpAuditSummaryError extends Error {
-  constructor(reason) {
+  constructor(reason, options = {}) {
     super(reason);
     this.name = "MvpAuditSummaryError";
     this.reason = safeAuditSummaryReason(reason);
+    this.missingEvidence = sanitizeMissingEvidence(options.missingEvidence);
   }
 }
 
@@ -192,7 +193,9 @@ export function runMvpAuditSummaryCheck(options) {
   const viewer = readAuditSummaryRole("viewer", options.viewerPath, { readText, stat });
   const roles = { host, viewer };
   if (options.requireMvpEvidence === true && !hasRequiredMvpEvidence(roles)) {
-    throw new MvpAuditSummaryError("missing-required-evidence");
+    throw new MvpAuditSummaryError("missing-required-evidence", {
+      missingEvidence: missingRequiredMvpEvidence(roles)
+    });
   }
 
   const result = sanitizeAuditSummaryResult({
@@ -235,16 +238,22 @@ export function formatMvpAuditSummaryError(error) {
   if (error instanceof MvpAuditSummaryUsageError) {
     return MVP_AUDIT_SUMMARY_USAGE;
   }
-  return `WinBridge MVP audit summary failed. reason=${safeAuditSummaryReason(error?.reason ?? error?.message)}`;
+  const reason = safeAuditSummaryReason(error?.reason ?? error?.message);
+  return [
+    `WinBridge MVP audit summary failed. reason=${reason}`,
+    ...formatMissingEvidenceLines(reason, error?.missingEvidence)
+  ].join("\n");
 }
 
 export function formatMvpAuditSummaryJsonError(error) {
   if (error instanceof MvpAuditSummaryUsageError) {
     return JSON.stringify({ ok: false, reason: "usage" });
   }
+  const reason = safeAuditSummaryReason(error?.reason ?? error?.message);
   return JSON.stringify({
     ok: false,
-    reason: safeAuditSummaryReason(error?.reason ?? error?.message)
+    reason,
+    ...formatMissingEvidenceJson(reason, error?.missingEvidence)
   });
 }
 
@@ -481,6 +490,14 @@ function requiredRoleEvidencePresent(summary, requiredFlags) {
   return requiredFlags.every((flag) => summary?.[flag] === true);
 }
 
+function missingRequiredMvpEvidence(roles) {
+  return ROLE_NAMES.flatMap((role) =>
+    REQUIRED_MVP_EVIDENCE_BY_ROLE[role].flatMap((flag) =>
+      roles[role]?.[REQUIRED_ROLE_EVIDENCE]?.[flag] === true ? [] : [`${role}.${flag}`]
+    )
+  );
+}
+
 function sanitizeAuditSummaryResult(result) {
   if (!result || typeof result !== "object" || Array.isArray(result) || result.ok !== true) {
     return undefined;
@@ -526,6 +543,37 @@ function formatRoleSummaryLine(role, summary) {
 
 function safeAuditSummaryReason(reason) {
   return FAILURE_REASONS.has(reason) ? reason : "malformed-record";
+}
+
+function sanitizeMissingEvidence(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const allowed = new Set(
+    ROLE_NAMES.flatMap((role) => REQUIRED_MVP_EVIDENCE_BY_ROLE[role].map((flag) => `${role}.${flag}`))
+  );
+  return ROLE_NAMES.flatMap((role) =>
+    REQUIRED_MVP_EVIDENCE_BY_ROLE[role].flatMap((flag) => {
+      const marker = `${role}.${flag}`;
+      return value.includes(marker) && allowed.has(marker) ? [marker] : [];
+    })
+  );
+}
+
+function formatMissingEvidenceLines(reason, missingEvidence) {
+  const safeMissingEvidence = sanitizeMissingEvidence(missingEvidence);
+  if (reason !== "missing-required-evidence" || safeMissingEvidence.length === 0) {
+    return [];
+  }
+  return [`missingEvidence=${safeMissingEvidence.join(",")}`];
+}
+
+function formatMissingEvidenceJson(reason, missingEvidence) {
+  const safeMissingEvidence = sanitizeMissingEvidence(missingEvidence);
+  if (reason !== "missing-required-evidence" || safeMissingEvidence.length === 0) {
+    return {};
+  }
+  return { missingEvidence: safeMissingEvidence };
 }
 
 function hasAsciiControlCharacter(value) {

@@ -208,8 +208,23 @@ describe("MVP audit summary", () => {
       expect(thrown).toBeInstanceOf(MvpAuditSummaryError);
       const text = formatMvpAuditSummaryError(thrown);
       const json = formatMvpAuditSummaryJsonError(thrown);
-      expect(text).toBe("WinBridge MVP audit summary failed. reason=missing-required-evidence");
-      expect(json).toBe('{"ok":false,"reason":"missing-required-evidence"}');
+      expect(text).toBe(
+        [
+          "WinBridge MVP audit summary failed. reason=missing-required-evidence",
+          "missingEvidence=host.screenFrameSent,host.permissionRevoked,host.disconnectObserved,viewer.inputSent,viewer.disconnectObserved"
+        ].join("\n")
+      );
+      expect(JSON.parse(json)).toEqual({
+        ok: false,
+        reason: "missing-required-evidence",
+        missingEvidence: [
+          "host.screenFrameSent",
+          "host.permissionRevoked",
+          "host.disconnectObserved",
+          "viewer.inputSent",
+          "viewer.disconnectObserved"
+        ]
+      });
       assertNoUnsafeOutput(text);
       assertNoUnsafeOutput(json);
       expect(text).not.toContain(tempDir);
@@ -296,12 +311,17 @@ describe("MVP audit summary", () => {
       }
 
       expect(thrown).toBeInstanceOf(MvpAuditSummaryError);
-      expect(formatMvpAuditSummaryError(thrown)).toBe(
-        "WinBridge MVP audit summary failed. reason=missing-required-evidence"
+      expect(formatMvpAuditSummaryError(thrown)).toContain(
+        "missingEvidence=host.authorizationApproved,host.authorizationActive,host.screenFrameSent,host.permissionRevoked,viewer.screenFrameOutput,viewer.inputSent"
       );
-      expect(formatMvpAuditSummaryJsonError(thrown)).toBe(
-        '{"ok":false,"reason":"missing-required-evidence"}'
-      );
+      expect(JSON.parse(formatMvpAuditSummaryJsonError(thrown)).missingEvidence).toEqual([
+        "host.authorizationApproved",
+        "host.authorizationActive",
+        "host.screenFrameSent",
+        "host.permissionRevoked",
+        "viewer.screenFrameOutput",
+        "viewer.inputSent"
+      ]);
       assertNoUnsafeOutput(formatMvpAuditSummaryError(thrown));
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
@@ -401,6 +421,8 @@ describe("MVP audit summary", () => {
       expect(text).not.toContain("raw-secret-token");
       expect(json).not.toContain(secretPath);
       expect(json).not.toContain("raw-secret-token");
+      expect(text).not.toContain("missingEvidence=");
+      expect(json).not.toContain("missingEvidence");
     }
   });
 

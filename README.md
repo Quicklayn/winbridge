@@ -163,6 +163,10 @@ Evidence mode delegates to the existing
 `mvp:audit-summary -- --require-mvp-evidence` checks, reads only the explicit
 local audit paths, and fails closed unless role-bound consent, visible active
 authorization, frame, input, revocation, and disconnect evidence is present.
+When strict evidence is missing, text and JSON failures include only fixed
+`missingEvidence` role/flag identifiers such as `host.screenFrameSent` or
+`viewer.inputSent`; they do not echo audit paths, records, identifiers, frame
+bytes, input contents, command output, or secrets.
 
 Generate a reviewed visible-session MVP command sequence:
 
@@ -604,8 +608,10 @@ bounded reason metadata unless accepted host evidence covers approval, active
 visible authorization, frame send, revocation, and host disconnect, host local
 session disconnected, or terminal lifecycle, and accepted viewer evidence
 covers frame output, input send, and viewer disconnect. Wrong-role, denied, or
-failed evidence does not satisfy the strict gate. Omit that flag only when
-inspecting partial troubleshooting logs.
+failed evidence does not satisfy the strict gate. When the strict gate is
+missing required role-bound evidence, failure output adds only fixed
+`missingEvidence` role/flag identifiers. Omit that flag only when inspecting
+partial troubleshooting logs.
 
 To explicitly exercise the same smoke workflow with the consent-bound Windows
 capture adapter on a Windows host:
