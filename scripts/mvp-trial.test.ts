@@ -71,6 +71,9 @@ describe("MVP two-PC trial helper", () => {
 
     expect(output).toContain("WinBridge two-PC MVP trial workflow.");
     expect(output).toContain("mode=plan nonExecuting=true");
+    expect(output).toContain("[preflight] Preflight dry run");
+    expect(output).toContain("npm run mvp:ready -- --include-evidence-fixture");
+    expect(output).toContain("live trial proof still requires post-run role-bound evidence");
     expect(output).toContain("[relay] Relay PC");
     expect(output).toContain("npm run mvp:ready -- --role relay");
     expect(output).toContain("npm run mvp:commands -- --only relay");
@@ -100,6 +103,7 @@ describe("MVP two-PC trial helper", () => {
         expect.objectContaining({ role: "relay", title: "Relay PC" }),
         expect.objectContaining({ role: "host", title: "Host PC" }),
         expect.objectContaining({ role: "viewer", title: "Viewer PC" }),
+        expect.objectContaining({ role: "preflight", title: "Preflight dry run" }),
         expect.objectContaining({ role: "evidence", title: "Post-run evidence" })
       ]),
       safety: [
@@ -149,6 +153,8 @@ describe("MVP two-PC trial helper", () => {
 
     expect(host).toContain("[host] Host PC");
     expect(host).toContain("npm run mvp:ready -- --role host");
+    expect(host).not.toContain("[preflight] Preflight dry run");
+    expect(host).not.toContain("npm run mvp:ready -- --include-evidence-fixture");
     expect(host).not.toContain("[relay] Relay PC");
     expect(host).not.toContain("[viewer] Viewer PC");
     expect(host).not.toContain("[evidence] Post-run evidence");
@@ -158,6 +164,7 @@ describe("MVP two-PC trial helper", () => {
     for (const args of [
       ["--json", "--json"],
       ["--role"],
+      ["--role", "preflight"],
       ["--role", "raw-secret-token"],
       ["--role", "host", "--role", "viewer"],
       ["--relay-host"],

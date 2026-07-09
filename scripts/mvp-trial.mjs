@@ -15,7 +15,8 @@ export const MVP_TRIAL_USAGE = [
   "startup persistence, network listeners, or unattended access."
 ].join("\n");
 
-const TRIAL_ROLES = Object.freeze(["relay", "host", "viewer", "evidence"]);
+const TRIAL_SCOPED_ROLES = Object.freeze(["relay", "host", "viewer", "evidence"]);
+const TRIAL_FULL_ROLES = Object.freeze(["preflight", ...TRIAL_SCOPED_ROLES]);
 const RELAY_HOST_PLACEHOLDER = "<relay-pc-lan-ip>";
 const RELAY_HOST_SHORTCUT_PATTERN =
   /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
@@ -44,6 +45,21 @@ const PLAN_SAFETY = Object.freeze([
 ]);
 
 const TRIAL_SECTIONS = Object.freeze({
+  preflight: Object.freeze({
+    role: "preflight",
+    title: "Preflight dry run",
+    steps: Object.freeze([
+      Object.freeze({
+        name: "evidence-fixture",
+        command: "npm run mvp:ready -- --include-evidence-fixture"
+      }),
+      Object.freeze({
+        name: "operator-check",
+        command:
+          "This generated local fixture dry run proves strict evidence gate wiring only; live trial proof still requires post-run role-bound evidence."
+      })
+    ])
+  }),
   relay: Object.freeze({
     role: "relay",
     title: "Relay PC",
@@ -175,7 +191,12 @@ export function parseMvpTrialArgs(rawArgs) {
     }
     if (arg === "--role") {
       const value = rawArgs[index + 1];
-      if (role !== undefined || value === undefined || value.startsWith("--") || !TRIAL_ROLES.includes(value)) {
+      if (
+        role !== undefined ||
+        value === undefined ||
+        value.startsWith("--") ||
+        !TRIAL_SCOPED_ROLES.includes(value)
+      ) {
         throw new MvpTrialUsageError();
       }
       role = value;
@@ -247,7 +268,7 @@ export function parseMvpTrialArgs(rawArgs) {
 }
 
 export function createMvpTrialPlan(options = {}) {
-  const roles = options.role ? [options.role] : TRIAL_ROLES;
+  const roles = options.role ? [options.role] : TRIAL_FULL_ROLES;
   return {
     ok: true,
     mode: "plan",
@@ -392,7 +413,7 @@ function sanitizeSection(section) {
     !section ||
     typeof section !== "object" ||
     Array.isArray(section) ||
-    !TRIAL_ROLES.includes(section.role) ||
+    !TRIAL_FULL_ROLES.includes(section.role) ||
     !Array.isArray(section.steps)
   ) {
     return undefined;

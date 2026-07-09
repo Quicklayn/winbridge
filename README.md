@@ -113,14 +113,18 @@ npm run mvp:trial -- --role evidence
 ```
 
 The trial helper is non-executing in plan mode. It references the existing
-role-scoped readiness gates, role-filtered command blocks, and strict post-run
-audit gate without starting relay, host, viewer, browser, capture, input,
-sockets, HTTP listeners, services, startup persistence, unattended access, or
-privilege elevation. `--relay-host` only substitutes a validated host into the
-bounded `mvp:commands -- --only ... --relay-host ... --token-env
+role-scoped readiness gates, a full-plan generated local evidence fixture dry
+run, role-filtered command blocks, and strict post-run audit gate without
+starting relay, host, viewer, browser, capture, input, sockets, HTTP listeners,
+services, startup persistence, unattended access, or privilege elevation. The
+fixture preflight step is `npm run mvp:ready -- --include-evidence-fixture`;
+it proves strict evidence gate wiring only, not that a live two-PC session
+happened. `--relay-host` only substitutes a validated host into the bounded
+`mvp:commands -- --only ... --relay-host ... --token-env
 WINBRIDGE_RELAY_SHARED_TOKEN` command references. It does not print generated
 session commands, relay URLs, pairing codes, token values, local URLs, audit
-records, frame bytes, screen contents, input contents, or secrets.
+records, generated fixture paths, frame bytes, screen contents, input contents,
+or secrets.
 
 Before running the full host/viewer assistance commands on two PCs, verify that
 the relay is reachable and that both operators are using the same session and
@@ -218,7 +222,12 @@ explicit native Windows control smoke gate,
 non-executing preflight command. It remains separate from `--include-all-smoke`
 because it reads the local screen and applies bounded smoke input through the
 reviewed native adapters only when the developer explicitly runs it. The
-generated full and preflight-only plans also print a post-run
+generated full and preflight-only plans also print the local evidence fixture
+dry-run gate, `npm run mvp:ready -- --include-evidence-fixture`, as a
+non-executing preflight command. It proves strict evidence gate wiring only,
+not that a live two-PC session happened, and does not print generated fixture
+paths or raw audit records. The generated full and preflight-only plans also
+print a post-run
 read-only audit evidence command:
 `npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence`.
 Run it only after the visible, consented two-PC trial has produced both local

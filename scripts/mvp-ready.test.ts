@@ -3445,6 +3445,18 @@ describe("MVP ready helper", () => {
           mode: "session",
           nonExecuting: true,
           commands: commandPlanCommands().filter(
+            (command) => command.name !== "preflight.ready-evidence-fixture"
+          )
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        JSON.stringify({
+          ok: true,
+          mode: "session",
+          nonExecuting: true,
+          commands: commandPlanCommands().filter(
             (command) => command.name !== "preflight.ready-all-smoke"
           )
         })
@@ -3466,6 +3478,13 @@ describe("MVP ready helper", () => {
       parseCommandPlanReadiness(
         commandPlanOutput({
           windowsControlSmokeCommand: "npm run mvp:ready -- --include-windows-input-smoke"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parseCommandPlanReadiness(
+        commandPlanOutput({
+          evidenceFixtureReadyCommand: "npm run mvp:evidence-fixture -- --verify --json"
         })
       )
     ).toBe(false);
@@ -3597,6 +3616,11 @@ describe("MVP ready helper", () => {
     ).toBe(false);
     expect(
       parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({ missing: "preflight.ready-evidence-fixture" })
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
         preflightCommandPlanOutput({ missing: "preflight.audit-summary" })
       )
     ).toBe(false);
@@ -3604,6 +3628,13 @@ describe("MVP ready helper", () => {
       parsePreflightCommandPlanReadiness(
         preflightCommandPlanOutput({
           windowsControlSmokeCommand: "npm run mvp:ready -- --include-windows-input-smoke"
+        })
+      )
+    ).toBe(false);
+    expect(
+      parsePreflightCommandPlanReadiness(
+        preflightCommandPlanOutput({
+          evidenceFixtureReadyCommand: "npm run mvp:evidence-fixture -- --verify --json"
         })
       )
     ).toBe(false);
@@ -4472,6 +4503,21 @@ function roleFilterOutput(
       "npm run mvp:native-preflight",
       "- On one local development machine before the two-PC trial:",
       "npm run mvp:smoke",
+      "- Full local smoke coverage before the two-PC trial:",
+      ...(options.tokenEnv
+        ? [
+            options.tokenEnv === "WINBRIDGE_RELAY_SHARED_TOKEN"
+              ? "npm run mvp:ready -- --include-all-smoke"
+              : `$env:WINBRIDGE_RELAY_SHARED_TOKEN = $env:${options.tokenEnv}; npm run mvp:ready -- --include-all-smoke`
+          ]
+        : [
+            "Set $env:WINBRIDGE_RELAY_SHARED_TOKEN, then run:",
+            "npm run mvp:ready -- --include-all-smoke"
+          ]),
+      "- Explicit native Windows control smoke before the two-PC trial:",
+      "npm run mvp:ready -- --include-windows-control-smoke",
+      "- Local evidence fixture dry run before the live two-PC trial:",
+      "npm run mvp:ready -- --include-evidence-fixture",
       "Safety checks:",
       "- Host consent and visible sessions are required before any live assistance trial.",
       "- Do not proceed if any preflight command fails.",
@@ -4578,7 +4624,7 @@ function roleFilterReadyReminder(target: string) {
   return `Preflight reminder: run npm run mvp:ready -- --role ${role} on this machine before a live trial.`;
 }
 
-type TrialPlanRole = "relay" | "host" | "viewer" | "evidence";
+type TrialPlanRole = "preflight" | "relay" | "host" | "viewer" | "evidence";
 
 function trialPlanOutput(
   role?: TrialPlanRole,
@@ -4593,7 +4639,7 @@ function trialPlanOutput(
 ) {
   const roles = overrides.roles ?? (role
     ? [trialPlanRole(role, overrides.relayHost)]
-    : ["relay", "host", "viewer", "evidence"].map((item) =>
+    : ["preflight", "relay", "host", "viewer", "evidence"].map((item) =>
         trialPlanRole(item as TrialPlanRole, overrides.relayHost)
       ));
   return JSON.stringify({
@@ -4609,6 +4655,18 @@ function trialPlanOutput(
 function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
   const relayHostValue = relayHost ?? "<relay-pc-lan-ip>";
   const sections = {
+    preflight: {
+      role: "preflight",
+      title: "Preflight dry run",
+      steps: [
+        { name: "evidence-fixture", command: "npm run mvp:ready -- --include-evidence-fixture" },
+        {
+          name: "operator-check",
+          command:
+            "This generated local fixture dry run proves strict evidence gate wiring only; live trial proof still requires post-run role-bound evidence."
+        }
+      ]
+    },
     relay: {
       role: "relay",
       title: "Relay PC",
@@ -4816,6 +4874,7 @@ type CommandPlanFixtureOptions = {
   viewerRequestArg?: string | null;
   viewerFrameOutputArg?: string | null;
   windowsControlSmokeCommand?: string;
+  evidenceFixtureReadyCommand?: string;
   auditSummaryCommand?: string;
 };
 
@@ -4833,6 +4892,7 @@ function preflightCommandPlanOutput(
   options: {
     allSmokeCommand?: string;
     windowsControlSmokeCommand?: string;
+    evidenceFixtureReadyCommand?: string;
     missing?: string;
     mode?: string;
     nonExecuting?: boolean;
@@ -4902,6 +4962,12 @@ function commandPlanCommands(options: CommandPlanFixtureOptions = {}) {
         "npm run mvp:ready -- --include-windows-control-smoke"
     },
     {
+      name: "preflight.ready-evidence-fixture",
+      command:
+        options.evidenceFixtureReadyCommand ??
+        "npm run mvp:ready -- --include-evidence-fixture"
+    },
+    {
       name: "preflight.audit-summary",
       command: auditSummaryCommand(options.auditSummaryCommand)
     },
@@ -4933,6 +4999,7 @@ function preflightCommandPlanCommands(
   options: {
     allSmokeCommand?: string;
     windowsControlSmokeCommand?: string;
+    evidenceFixtureReadyCommand?: string;
     auditSummaryCommand?: string;
     tokenEnv?: string;
   } = {}
@@ -4951,6 +5018,12 @@ function preflightCommandPlanCommands(
       command:
         options.windowsControlSmokeCommand ??
         "npm run mvp:ready -- --include-windows-control-smoke"
+    },
+    {
+      name: "preflight.ready-evidence-fixture",
+      command:
+        options.evidenceFixtureReadyCommand ??
+        "npm run mvp:ready -- --include-evidence-fixture"
     },
     {
       name: "preflight.audit-summary",

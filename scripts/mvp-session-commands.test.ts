@@ -29,6 +29,8 @@ describe("MVP session command kit", () => {
     expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
     expect(output).toContain("Explicit native Windows control smoke before the two-PC trial:");
     expect(output).toContain("npm run mvp:ready -- --include-windows-control-smoke");
+    expect(output).toContain("Local evidence fixture dry run before the live two-PC trial:");
+    expect(output).toContain("npm run mvp:ready -- --include-evidence-fixture");
     expect(output).toContain("Relay address:");
     expect(output).toContain("Current relay URL: ws://localhost:8787/");
     expect(output).toContain("localhost relay URLs are same-machine only");
@@ -107,6 +109,8 @@ describe("MVP session command kit", () => {
     expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
     expect(output).toContain("Explicit native Windows control smoke before the two-PC trial:");
     expect(output).toContain("npm run mvp:ready -- --include-windows-control-smoke");
+    expect(output).toContain("Local evidence fixture dry run before the live two-PC trial:");
+    expect(output).toContain("npm run mvp:ready -- --include-evidence-fixture");
     expect(output).toContain("Post-run audit evidence after the two-PC trial:");
     expect(output).toContain(
       "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
@@ -220,6 +224,7 @@ describe("MVP session command kit", () => {
     expect(preflight).toContain("npm run mvp:ready");
     expect(preflight).toContain("npm run mvp:ready -- --include-all-smoke");
     expect(preflight).toContain("npm run mvp:ready -- --include-windows-control-smoke");
+    expect(preflight).toContain("npm run mvp:ready -- --include-evidence-fixture");
     expect(preflight).toContain("npm run mvp:audit-summary");
     expect(preflight).not.toContain("npm run dev:relay");
     expect(preflight).not.toContain("npm run dev:agent -- host");
@@ -336,6 +341,10 @@ describe("MVP session command kit", () => {
         {
           name: "preflight.ready-windows-control-smoke",
           command: "npm run mvp:ready -- --include-windows-control-smoke"
+        },
+        {
+          name: "preflight.ready-evidence-fixture",
+          command: "npm run mvp:ready -- --include-evidence-fixture"
         },
         {
           name: "preflight.audit-summary",
@@ -484,6 +493,10 @@ describe("MVP session command kit", () => {
           command: "npm run mvp:ready -- --include-windows-control-smoke"
         },
         {
+          name: "preflight.ready-evidence-fixture",
+          command: "npm run mvp:ready -- --include-evidence-fixture"
+        },
+        {
           name: "preflight.audit-summary",
           command:
             "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
@@ -537,6 +550,10 @@ describe("MVP session command kit", () => {
       command: "npm run mvp:ready -- --include-windows-control-smoke"
     });
     expect(parsed.commands).toContainEqual({
+      name: "preflight.ready-evidence-fixture",
+      command: "npm run mvp:ready -- --include-evidence-fixture"
+    });
+    expect(parsed.commands).toContainEqual({
       name: "preflight.audit-summary",
       command:
         "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
@@ -576,6 +593,10 @@ describe("MVP session command kit", () => {
     expect(parsed.commands).toContainEqual({
       name: "preflight.ready-windows-control-smoke",
       command: "npm run mvp:ready -- --include-windows-control-smoke"
+    });
+    expect(parsed.commands).toContainEqual({
+      name: "preflight.ready-evidence-fixture",
+      command: "npm run mvp:ready -- --include-evidence-fixture"
     });
     expect(parsed.safety).toContain(
       "Token mode references $env:WINBRIDGE_RELAY_SHARED_TOKEN; the raw token value is not printed."

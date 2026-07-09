@@ -68,6 +68,7 @@ const REQUIRED_COMMAND_PLAN_NAMES = new Set([
   "preflight.smoke",
   "preflight.ready-all-smoke",
   "preflight.ready-windows-control-smoke",
+  "preflight.ready-evidence-fixture",
   "preflight.audit-summary",
   "relay",
   "host",
@@ -81,6 +82,7 @@ const REQUIRED_PREFLIGHT_COMMAND_PLAN_NAMES = new Set([
   "preflight.smoke",
   "preflight.ready-all-smoke",
   "preflight.ready-windows-control-smoke",
+  "preflight.ready-evidence-fixture",
   "preflight.audit-summary"
 ]);
 const MVP_READY_LAN_RELAY_HOST = "192.168.1.10";
@@ -95,13 +97,14 @@ const REVIEWED_VIEWER_FRAME_OUTPUT_ARG = "--viewer-screen-frame-output 'frames\\
 const REVIEWED_AUDIT_SUMMARY_COMMAND =
   "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence";
 const REVIEWED_WINDOWS_CONTROL_SMOKE_COMMAND = "npm run mvp:ready -- --include-windows-control-smoke";
+const REVIEWED_EVIDENCE_FIXTURE_READY_COMMAND = "npm run mvp:ready -- --include-evidence-fixture";
 const REVIEWED_EVIDENCE_FIXTURE_RECORDS = Object.freeze({ host: 5, viewer: 3 });
 const EPHEMERAL_VIEWER_SURFACE_BROWSER_INSTRUCTION =
   "Open the viewer local control surface URL printed by the viewer command log.";
 const OUTPUT_LIMIT_BYTES = 32768;
 const MVP_READY_ROLES = Object.freeze(["relay", "host", "viewer"]);
 const MVP_TRIAL_RELAY_HOST_PLACEHOLDER = "<relay-pc-lan-ip>";
-const MVP_TRIAL_PLAN_ROLES = Object.freeze(["relay", "host", "viewer", "evidence"]);
+const MVP_TRIAL_PLAN_ROLES = Object.freeze(["preflight", "relay", "host", "viewer", "evidence"]);
 const MVP_TRIAL_PLAN_SAFETY = Object.freeze([
   "host-consent-required",
   "host-visible-session-required",
@@ -110,6 +113,20 @@ const MVP_TRIAL_PLAN_SAFETY = Object.freeze([
   "plan-is-non-executing"
 ]);
 const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
+  preflight: Object.freeze({
+    title: "Preflight dry run",
+    steps: Object.freeze([
+      Object.freeze({
+        name: "evidence-fixture",
+        command: "npm run mvp:ready -- --include-evidence-fixture"
+      }),
+      Object.freeze({
+        name: "operator-check",
+        command:
+          "This generated local fixture dry run proves strict evidence gate wiring only; live trial proof still requires post-run role-bound evidence."
+      })
+    ])
+  }),
   relay: Object.freeze({
     title: "Relay PC",
     steps: Object.freeze([
@@ -1237,6 +1254,7 @@ export function parseCommandPlanReadiness(output, options = {}) {
     commandPlanUsesReviewedHostControlSurface(commandsByName) &&
     commandPlanUsesReviewedNativeControlPath(commandsByName) &&
     commandPlanUsesReviewedWindowsControlSmoke(commandsByName) &&
+    commandPlanUsesReviewedEvidenceFixture(commandsByName) &&
     commandPlanUsesReviewedAuditSummary(commandsByName)
   );
 }
@@ -1316,6 +1334,7 @@ export function parsePreflightCommandPlanReadiness(output, options = {}) {
 
   return (
     preflightCommandPlanUsesReviewedWindowsControlSmoke(commandsByName) &&
+    preflightCommandPlanUsesReviewedEvidenceFixture(commandsByName) &&
     preflightCommandPlanUsesReviewedAuditSummary(commandsByName)
   );
 }
@@ -1447,6 +1466,7 @@ export function parseTokenEnvPreflightRoleFilteredCommandReadiness(output) {
     parseRoleFilteredCommandReadiness(output, "preflight") &&
     output.includes(`$env:${MVP_READY_TOKEN_ENV_NAME}`) &&
     output.includes("The token value is referenced through the environment") &&
+    !output.includes(`$env:${MVP_READY_TOKEN_ENV_NAME} = $env:`) &&
     !hasRuntimeTokenArgument(output) &&
     !output.includes("raw-secret-token")
   );
@@ -1607,6 +1627,7 @@ function roleFilterMarkersForTarget(target, options = {}) {
       "npm run mvp:doctor",
       "npm run mvp:native-preflight",
       "npm run mvp:smoke",
+      "npm run mvp:ready -- --include-evidence-fixture",
       "Safety checks:",
       "This helper printed commands only"
     ];
@@ -1795,8 +1816,17 @@ function commandPlanUsesReviewedWindowsControlSmoke(commandsByName) {
   return windowsControlSmokeCommand === REVIEWED_WINDOWS_CONTROL_SMOKE_COMMAND;
 }
 
+function commandPlanUsesReviewedEvidenceFixture(commandsByName) {
+  const evidenceFixtureCommand = commandsByName.get("preflight.ready-evidence-fixture")?.command;
+  return evidenceFixtureCommand === REVIEWED_EVIDENCE_FIXTURE_READY_COMMAND;
+}
+
 function preflightCommandPlanUsesReviewedWindowsControlSmoke(commandsByName) {
   return commandPlanUsesReviewedWindowsControlSmoke(commandsByName);
+}
+
+function preflightCommandPlanUsesReviewedEvidenceFixture(commandsByName) {
+  return commandPlanUsesReviewedEvidenceFixture(commandsByName);
 }
 
 function preflightCommandPlanUsesReviewedAuditSummary(commandsByName) {
