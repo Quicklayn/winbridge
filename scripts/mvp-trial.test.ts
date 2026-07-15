@@ -80,6 +80,8 @@ describe("MVP two-PC trial helper", () => {
     expect(output).toContain(
       "npm run mvp:commands -- --generate-session --generate-pairing --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
     );
+    expect(output).toContain("npm run mvp:ready -- --include-all-smoke");
+    expect(output).toContain("npm run mvp:ready -- --include-windows-control-smoke");
     expect(output).toContain("npm run mvp:ready -- --include-evidence-fixture");
     expect(output).toContain("live trial proof still requires post-run role-bound evidence");
     expect(output).toContain("[relay] Relay PC");
@@ -137,6 +139,16 @@ describe("MVP two-PC trial helper", () => {
     expect(JSON.stringify(parsed)).toContain(
       "npm run mvp:commands -- --generate-session --generate-pairing --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
     );
+    expect(parsed.roles.find((section: { role: string }) => section.role === "preflight").steps).toEqual([
+      expect.objectContaining({ name: "session-bootstrap" }),
+      { name: "all-smoke", command: "npm run mvp:ready -- --include-all-smoke" },
+      {
+        name: "windows-control-smoke",
+        command: "npm run mvp:ready -- --include-windows-control-smoke"
+      },
+      { name: "evidence-fixture", command: "npm run mvp:ready -- --include-evidence-fixture" },
+      expect.objectContaining({ name: "operator-check" })
+    ]);
     expect(output).toContain("<relay-pc-lan-ip>");
     expect(output).toContain("<host-audit-jsonl>");
     assertNoUnsafeOutput(output);
@@ -201,6 +213,8 @@ describe("MVP two-PC trial helper", () => {
     expect(host).not.toContain("[preflight] Preflight dry run");
     expect(host).not.toContain("--generate-session");
     expect(host).not.toContain("--generate-pairing");
+    expect(host).not.toContain("npm run mvp:ready -- --include-all-smoke");
+    expect(host).not.toContain("npm run mvp:ready -- --include-windows-control-smoke");
     expect(host).not.toContain("npm run mvp:ready -- --include-evidence-fixture");
     expect(host).not.toContain("[relay] Relay PC");
     expect(host).not.toContain("[viewer] Viewer PC");

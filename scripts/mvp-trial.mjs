@@ -56,6 +56,14 @@ const TRIAL_SECTIONS = Object.freeze({
         command: trialSessionBootstrapCommandReference()
       }),
       Object.freeze({
+        name: "all-smoke",
+        command: "npm run mvp:ready -- --include-all-smoke"
+      }),
+      Object.freeze({
+        name: "windows-control-smoke",
+        command: "npm run mvp:ready -- --include-windows-control-smoke"
+      }),
+      Object.freeze({
         name: "evidence-fixture",
         command: "npm run mvp:ready -- --include-evidence-fixture"
       }),

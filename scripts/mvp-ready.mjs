@@ -135,6 +135,14 @@ const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
         command: REVIEWED_MVP_TRIAL_SESSION_BOOTSTRAP_COMMAND
       }),
       Object.freeze({
+        name: "all-smoke",
+        command: "npm run mvp:ready -- --include-all-smoke"
+      }),
+      Object.freeze({
+        name: "windows-control-smoke",
+        command: "npm run mvp:ready -- --include-windows-control-smoke"
+      }),
+      Object.freeze({
         name: "evidence-fixture",
         command: "npm run mvp:ready -- --include-evidence-fixture"
       }),

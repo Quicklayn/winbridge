@@ -3812,6 +3812,24 @@ describe("MVP ready helper", () => {
         : section
     );
     expect(parseMvpTrialPlanReadiness(JSON.stringify(planWithoutSessionBootstrap))).toBe(false);
+    for (const mutate of [
+      (steps: unknown[]) => steps.filter((_, index) => index !== 1),
+      (steps: unknown[]) => [steps[0], steps[2], steps[1], ...steps.slice(3)],
+      (steps: unknown[]) => [steps[0], steps[1], steps[1], ...steps.slice(2)],
+      (steps: Array<{ name: string; command: string }>) =>
+        steps.map((step) =>
+          step.name === "windows-control-smoke"
+            ? { ...step, command: "npm run mvp:ready -- --include-windows-input-smoke" }
+            : step
+        )
+    ]) {
+      const driftedPlan = JSON.parse(trialPlanOutput());
+      driftedPlan.roles = driftedPlan.roles.map(
+        (section: { role: string; steps: Array<{ name: string; command: string }> }) =>
+          section.role === "preflight" ? { ...section, steps: mutate(section.steps) } : section
+      );
+      expect(parseMvpTrialPlanReadiness(JSON.stringify(driftedPlan))).toBe(false);
+    }
     expect(parseMvpTrialPlanReadiness(trialPlanOutput("host"), { expectedRole: "host" })).toBe(true);
     expect(
       parseMvpTrialPlanReadiness(trialPlanOutput(undefined, { relayHost: "192.168.1.10" }), {
@@ -5005,6 +5023,11 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
         {
           name: "session-bootstrap",
           command: `npm run mvp:commands -- --generate-session --generate-pairing --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
+        },
+        { name: "all-smoke", command: "npm run mvp:ready -- --include-all-smoke" },
+        {
+          name: "windows-control-smoke",
+          command: "npm run mvp:ready -- --include-windows-control-smoke"
         },
         { name: "evidence-fixture", command: "npm run mvp:ready -- --include-evidence-fixture" },
         {

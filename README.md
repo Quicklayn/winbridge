@@ -115,7 +115,8 @@ npm run mvp:trial -- --role evidence
 
 The trial helper is non-executing in plan mode. It references the existing
 role-scoped readiness gates, a fixed full-plan session bootstrap command, a
-full-plan generated local evidence fixture dry run, role-filtered command
+full-plan ordered local preflight sequence for all-smoke, separate manual
+Windows control smoke, and generated evidence fixture dry run, role-filtered command
 blocks including a browser-only viewer-surface command reference, reviewed
 foreground `mvp:run` role templates, and strict post-run audit gate without
 starting relay, host, viewer, browser, capture, input, sockets, HTTP listeners,
@@ -128,7 +129,10 @@ commands. Generated session ids and pairing codes are coordination metadata
 only, not authentication, authorization, relay tokens, or host consent. The
 fixture preflight step is `npm run mvp:ready -- --include-evidence-fixture`;
 it proves strict evidence gate wiring only, not that a live two-PC session
-happened. `--relay-host` only substitutes a validated host into the bounded
+happened. The preceding native control step is the separate explicit
+`npm run mvp:ready -- --include-windows-control-smoke` opt-in because it reads
+the local screen and applies bounded test input; printing the trial plan never
+runs it. `--relay-host` only substitutes a validated host into the bounded
 bootstrap and `mvp:commands -- --only ... --relay-host ... --token-env
 WINBRIDGE_RELAY_SHARED_TOKEN` command references, plus the reviewed
 `mvp:run -- --role ... --session <session-id> --pairing <pairing-code>
@@ -437,7 +441,8 @@ viewer `screen:view,input:pointer,input:keyboard` request, and
 `--viewer-screen-frame-output frames\latest.jpg`. It also validates the bounded
 `mvp:commands -- --only preflight --json` plan, the bounded
 token-env preflight JSON plan, the bounded `mvp:trial -- --json` full
-operator workflow plan including its viewer-browser section, and explicit
+operator workflow plan including its exact all-smoke, separate Windows control
+smoke, evidence-fixture preflight sequence and viewer-browser section, and explicit
 ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
 checked before a live trial. It also validates non-executing sanitized
