@@ -3894,10 +3894,51 @@ describe("MVP ready helper", () => {
     expect(parseMvpRoleRunnerDryRunReadiness(roleRunnerDryRunOutput("relay", { env: [] }), "relay")).toBe(false);
     expect(
       parseMvpRoleRunnerDryRunReadiness(
+        roleRunnerDryRunOutput("relay", {
+          env: ["WINBRIDGE_RELAY_BIND_HOST", "WINBRIDGE_RELAY_SHARED_TOKEN", "UNREVIEWED_SECRET_ENV"]
+        }),
+        "relay"
+      )
+    ).toBe(false);
+    expect(
+      parseMvpRoleRunnerDryRunReadiness(
+        roleRunnerDryRunOutput("host", { env: ["UNREVIEWED_SECRET_ENV"] }),
+        "host"
+      )
+    ).toBe(false);
+    for (const extraArgs of [
+      ["--token", "<unexpected-token>"],
+      ["--pairing", "<unexpected-pairing>"],
+      ["--relay", "wss://support.example/"],
+      ["--audit-log", "C:\\sensitive\\audit.jsonl"],
+      ["--credential", "<credential>"],
+      ["--stdout", "<child-output>"]
+    ]) {
+      expect(
+        parseMvpRoleRunnerDryRunReadiness(
+          roleRunnerDryRunOutput("viewer", {
+            args: [...roleRunnerDryRunArgs("viewer"), ...extraArgs]
+          }),
+          "viewer"
+        )
+      ).toBe(false);
+    }
+    expect(
+      parseMvpRoleRunnerDryRunReadiness(
         roleRunnerDryRunOutput("viewer", {
           args: [...roleRunnerDryRunArgs("viewer"), "234-567"]
         }),
         "viewer"
+      )
+    ).toBe(false);
+    expect(
+      parseMvpRoleRunnerDryRunReadiness(
+        [
+          "> winbridge@0.1.0 mvp:run",
+          "> node scripts/mvp-role-runner.mjs --session mvp-ready-runner --pairing 234-567",
+          roleRunnerDryRunOutput("host")
+        ].join("\n"),
+        "host"
       )
     ).toBe(false);
     expect(
@@ -4392,6 +4433,7 @@ function roleRunnerDryRunPlanSteps() {
     name: `role-runner-${role}-dry-run`,
     command: "npm",
     args: [
+      "--silent",
       "run",
       "mvp:run",
       "--",

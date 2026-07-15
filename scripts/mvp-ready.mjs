@@ -461,6 +461,10 @@ export function createMvpReadyPlan(options = {}) {
     command: npmInvocation.command,
     args: [...npmInvocation.argsPrefix, "run", script, "--", ...args]
   });
+  const silentCommandWithArgs = (script, args) => ({
+    command: npmInvocation.command,
+    args: [...npmInvocation.argsPrefix, "--silent", "run", script, "--", ...args]
+  });
 
   if (role) {
     return createRoleMvpReadyPlan(role, command, commandWithArgs);
@@ -505,7 +509,7 @@ export function createMvpReadyPlan(options = {}) {
     { name: "trial-plan", ...commandWithArgs("mvp:trial", ["--json"]) },
     ...MVP_READY_RUNNER_ROLES.map((target) => ({
       name: `role-runner-${target}-dry-run`,
-      ...commandWithArgs("mvp:run", [
+      ...silentCommandWithArgs("mvp:run", [
         "--role",
         target,
         "--session",
@@ -1671,12 +1675,11 @@ export function parseMvpRoleRunnerDryRunReadiness(output, expectedRole) {
   if (expectedRole === "relay") {
     return (
       sameStringArray(parsed.args, ["run", "dev:relay"]) &&
-      parsed.env.includes("WINBRIDGE_RELAY_BIND_HOST") &&
-      parsed.env.includes("WINBRIDGE_RELAY_SHARED_TOKEN")
+      sameStringArray(parsed.env, ["WINBRIDGE_RELAY_BIND_HOST", "WINBRIDGE_RELAY_SHARED_TOKEN"])
     );
   }
 
-  return reviewedRoleRunnerAgentArgs(parsed.args, expectedRole);
+  return parsed.env.length === 0 && reviewedRoleRunnerAgentArgs(parsed.args, expectedRole);
 }
 
 function hasRuntimeTokenArgument(output) {
@@ -1740,7 +1743,7 @@ function hasExactMvpRoleRunnerDryRunShape(parsed) {
 }
 
 function reviewedRoleRunnerAgentArgs(args, role) {
-  const requiredMarkers =
+  const reviewedArgs =
     role === "host"
       ? [
           "run",
@@ -1753,8 +1756,12 @@ function reviewedRoleRunnerAgentArgs(args, role) {
           "<session-id>",
           "--pairing",
           "<pairing-code>",
+          "--name",
+          "<display-name>",
           "--host-consent-prompt",
           "true",
+          "--host-consent-timeout-ms",
+          "60000",
           "--visible-session",
           "true",
           "--host-control-prompt",
@@ -1767,8 +1774,14 @@ function reviewedRoleRunnerAgentArgs(args, role) {
           "<audit-log>",
           "--host-apply-input",
           "true",
+          "--dev-screen-frame-after-ms",
+          "1000",
           "--dev-screen-frame-source",
           "windows-capture",
+          "--dev-screen-frame-count",
+          "600",
+          "--dev-screen-frame-interval-ms",
+          "1000",
           "--token-env",
           "<token-env>"
         ]
@@ -1783,10 +1796,14 @@ function reviewedRoleRunnerAgentArgs(args, role) {
           "<session-id>",
           "--pairing",
           "<pairing-code>",
+          "--name",
+          "<display-name>",
           "--request",
           "screen:view,input:pointer,input:keyboard",
           "--request-reason",
           "<request-reason>",
+          "--viewer-signal-probe-after-ms",
+          "1000",
           "--audit-log",
           "<audit-log>",
           "--viewer-screen-frame-output",
@@ -1797,7 +1814,7 @@ function reviewedRoleRunnerAgentArgs(args, role) {
           "<token-env>"
         ];
 
-  return requiredMarkers.every((marker) => args.includes(marker));
+  return sameStringArray(args, reviewedArgs);
 }
 
 function sameStringArray(actual, expected) {
