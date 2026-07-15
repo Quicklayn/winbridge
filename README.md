@@ -437,7 +437,8 @@ viewer `screen:view,input:pointer,input:keyboard` request, and
 `--viewer-screen-frame-output frames\latest.jpg`. It also validates the bounded
 `mvp:commands -- --only preflight --json` plan, the bounded
 token-env preflight JSON plan, the bounded `mvp:trial -- --json` full
-operator workflow plan, and explicit ephemeral browser-only output for
+operator workflow plan including its viewer-browser section, and explicit
+ephemeral browser-only output for
 `--viewer-control-surface-port 0`, so the per-machine operator blocks are
 checked before a live trial. It also validates non-executing sanitized
 `mvp:run -- --dry-run --json` metadata for relay, host, and viewer, including
@@ -490,7 +491,8 @@ relay, and shared-token environment-reference shapes, plus the matching
 native Windows preflight, viewer command block in localhost, representative
 LAN relay, and shared-token environment-reference shapes, browser command
 block, explicit ephemeral browser-only block, and matching
-`mvp:trial -- --role viewer --json` plan. Role mode is local, never reads token
+`mvp:trial -- --role viewer --json` and `mvp:trial -- --role browser --json`
+plans. Role mode is local, never reads token
 values, and does not run smoke;
 `--include-smoke` is rejected with `--role`.
 

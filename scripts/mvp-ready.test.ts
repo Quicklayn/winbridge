@@ -951,6 +951,11 @@ describe("MVP ready helper", () => {
         name: "trial-role-viewer-plan",
         command: "npm",
         args: ["run", "mvp:trial", "--", "--role", "viewer", "--json"]
+      },
+      {
+        name: "trial-role-browser-plan",
+        command: "npm",
+        args: ["run", "mvp:trial", "--", "--role", "browser", "--json"]
       }
     ]);
     expect(() => createMvpReadyPlan({ npmCommand: "npm", role: "unsafe" })).toThrow(
@@ -2143,7 +2148,8 @@ describe("MVP ready helper", () => {
       "role-filter-browser-command",
       "token-role-filter-browser-command",
       "ephemeral-role-filter-browser-command",
-      "trial-role-viewer-plan"
+      "trial-role-viewer-plan",
+      "trial-role-browser-plan"
     ]);
     expect(result).toEqual({
       ok: true,
@@ -2156,7 +2162,8 @@ describe("MVP ready helper", () => {
         { name: "role-filter-browser-command", ok: true },
         { name: "token-role-filter-browser-command", ok: true },
         { name: "ephemeral-role-filter-browser-command", ok: true },
-        { name: "trial-role-viewer-plan", ok: true }
+        { name: "trial-role-viewer-plan", ok: true },
+        { name: "trial-role-browser-plan", ok: true }
       ]
     });
     expect(formatMvpReadyResult(result)).toBe(
@@ -2170,11 +2177,46 @@ describe("MVP ready helper", () => {
         "role-filter-browser-command=ok",
         "token-role-filter-browser-command=ok",
         "ephemeral-role-filter-browser-command=ok",
-        "trial-role-viewer-plan=ok"
+        "trial-role-viewer-plan=ok",
+        "trial-role-browser-plan=ok"
       ].join("\n")
     );
     expect(formatMvpReadyResult(result)).not.toContain("smoke=skipped");
     expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+  });
+
+  it("fails closed when viewer-scoped browser trial output drifts", () => {
+    const result = runMvpReadyCheck({
+      role: "viewer",
+      plan: createMvpReadyPlan({ npmCommand: "npm", role: "viewer" }),
+      runCommand: (step: { name: string }) => {
+        if (step.name === "trial-role-browser-plan") {
+          return {
+            ok: true,
+            output: trialPlanOutput("browser", {
+              roles: [
+                trialPlanRoleWithMutatedStep(
+                  "browser",
+                  "operator-check",
+                  "bounded local surface URL",
+                  "raw-secret-token"
+                )
+              ]
+            })
+          };
+        }
+        return { ok: true, output: roleFilterOutputForStep(step.name) };
+      }
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.checks.at(-1)).toEqual({
+      name: "trial-role-browser-plan",
+      ok: false,
+      reason: "exit-nonzero"
+    });
+    expect(formatMvpReadyResult(result)).not.toContain("raw-secret-token");
+    expect(formatMvpReadyJsonResult(result)).not.toContain("raw-secret-token");
   });
 
   it("reports relay role-scoped LAN bind readiness success", () => {
@@ -3750,6 +3792,16 @@ describe("MVP ready helper", () => {
 
   it("parses only reviewed MVP trial plan output", () => {
     expect(parseMvpTrialPlanReadiness(trialPlanOutput())).toBe(true);
+    expect(
+      parseMvpTrialPlanReadiness(
+        trialPlanOutput(undefined, {
+          roles: ["preflight", "relay", "host", "viewer", "evidence"].map((role) =>
+            trialPlanRole(role as TrialPlanRole)
+          )
+        })
+      )
+    ).toBe(false);
+    expect(parseMvpTrialPlanReadiness(trialPlanOutput("browser"), { expectedRole: "browser" })).toBe(true);
     const planWithoutSessionBootstrap = JSON.parse(trialPlanOutput());
     planWithoutSessionBootstrap.roles = planWithoutSessionBootstrap.roles.map((section: { role: string; steps: unknown[] }) =>
       section.role === "preflight"
@@ -4566,6 +4618,9 @@ function roleFilterOutputForStep(name: string) {
   if (name === "trial-role-viewer-plan") {
     return trialPlanOutput("viewer");
   }
+  if (name === "trial-role-browser-plan") {
+    return trialPlanOutput("browser");
+  }
   if (name === "token-role-filter-preflight-command") {
     return tokenEnvPreflightRoleFilterOutput();
   }
@@ -4870,7 +4925,7 @@ function roleFilterReadyReminder(target: string) {
   return `Preflight reminder: run npm run mvp:ready -- --role ${role} on this machine before a live trial.`;
 }
 
-type TrialPlanRole = "preflight" | "relay" | "host" | "viewer" | "evidence";
+type TrialPlanRole = "preflight" | "relay" | "host" | "viewer" | "browser" | "evidence";
 
 function trialPlanOutput(
   role?: TrialPlanRole,
@@ -4885,7 +4940,7 @@ function trialPlanOutput(
 ) {
   const roles = overrides.roles ?? (role
     ? [trialPlanRole(role, overrides.relayHost)]
-    : ["preflight", "relay", "host", "viewer", "evidence"].map((item) =>
+    : ["preflight", "relay", "host", "viewer", "browser", "evidence"].map((item) =>
         trialPlanRole(item as TrialPlanRole, overrides.relayHost)
       ));
   return JSON.stringify({
@@ -4995,6 +5050,23 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
           name: "operator-check",
           command:
             "Replace the session and pairing placeholders from preflight, then open the loopback viewer surface only after the viewer command reports readiness."
+        }
+      ]
+    },
+    browser: {
+      role: "browser",
+      title: "Viewer browser",
+      steps: [
+        { name: "readiness", command: "npm run mvp:ready -- --role viewer" },
+        {
+          name: "print-browser-command",
+          command:
+            `npm run mvp:commands -- --only browser --relay-host ${relayHostValue} --token-env WINBRIDGE_RELAY_SHARED_TOKEN`
+        },
+        {
+          name: "operator-check",
+          command:
+            "Open the loopback viewer surface only after the viewer command reports readiness and prints the bounded local surface URL."
         }
       ]
     },

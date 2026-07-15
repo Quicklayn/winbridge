@@ -111,7 +111,14 @@ const MVP_READY_RUNNER_ROLES = Object.freeze(["relay", "host", "viewer"]);
 const MVP_READY_RUNNER_SESSION = "mvp-ready-runner";
 const MVP_READY_RUNNER_PAIRING = "234-567";
 const MVP_TRIAL_RELAY_HOST_PLACEHOLDER = "<relay-pc-lan-ip>";
-const MVP_TRIAL_PLAN_ROLES = Object.freeze(["preflight", "relay", "host", "viewer", "evidence"]);
+const MVP_TRIAL_PLAN_ROLES = Object.freeze([
+  "preflight",
+  "relay",
+  "host",
+  "viewer",
+  "browser",
+  "evidence"
+]);
 const MVP_TRIAL_PLAN_SAFETY = Object.freeze([
   "host-consent-required",
   "host-visible-session-required",
@@ -213,6 +220,22 @@ const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
         name: "operator-check",
         command:
           "Replace the session and pairing placeholders from preflight, then open the loopback viewer surface only after the viewer command reports readiness."
+      })
+    ])
+  }),
+  browser: Object.freeze({
+    title: "Viewer browser",
+    steps: Object.freeze([
+      Object.freeze({ name: "readiness", command: "npm run mvp:ready -- --role viewer" }),
+      Object.freeze({
+        name: "print-browser-command",
+        command:
+          "npm run mvp:commands -- --only browser --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN"
+      }),
+      Object.freeze({
+        name: "operator-check",
+        command:
+          "Open the loopback viewer surface only after the viewer command reports readiness and prints the bounded local surface URL."
       })
     ])
   }),
@@ -1251,6 +1274,13 @@ function createRoleMvpReadyPlan(role, command, commandWithArgs) {
     ...commandWithArgs("mvp:trial", ["--role", role, "--json"])
   });
 
+  if (role === "viewer") {
+    steps.push({
+      name: "trial-role-browser-plan",
+      ...commandWithArgs("mvp:trial", ["--role", "browser", "--json"])
+    });
+  }
+
   return steps;
 }
 
@@ -1660,7 +1690,7 @@ function trialRoleForStep(stepName) {
     return undefined;
   }
   const role = stepName.slice(prefix.length, -suffix.length);
-  return MVP_READY_ROLES.includes(role) ? role : undefined;
+  return MVP_TRIAL_PLAN_ROLES.includes(role) ? role : undefined;
 }
 
 function roleRunnerRoleForStep(stepName) {
