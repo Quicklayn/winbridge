@@ -210,9 +210,9 @@ describe("MVP ready helper", () => {
     expect(parseEvidenceFixtureReadiness(evidenceFixtureOutput())).toBe(true);
     expect(parseEvidenceFixtureReadiness(`npm banner\n${evidenceFixtureOutput()}`)).toBe(true);
     expect(parseEvidenceFixtureReadiness(evidenceFixtureOutput({ hostRecords: 4 }))).toBe(false);
-    expect(parseEvidenceFixtureReadiness(evidenceFixtureOutput({ viewerRecords: 4 }))).toBe(false);
+    expect(parseEvidenceFixtureReadiness(evidenceFixtureOutput({ viewerRecords: 3 }))).toBe(false);
     expect(parseEvidenceFixtureReadiness(evidenceFixtureOutput({ verified: false }))).toBe(false);
-    expect(parseEvidenceFixtureReadiness(JSON.stringify({ ok: true, hostRecords: 5, viewerRecords: 3, verified: true, path: "logs\\host-audit.jsonl" }))).toBe(false);
+    expect(parseEvidenceFixtureReadiness(JSON.stringify({ ok: true, hostRecords: 9, viewerRecords: 4, verified: true, path: "logs\\host-audit.jsonl" }))).toBe(false);
     expect(parseEvidenceFixtureReadiness("raw-secret-token")).toBe(false);
   });
 
@@ -749,7 +749,15 @@ describe("MVP ready helper", () => {
       {
         name: "evidence-fixture",
         command: "npm",
-        args: ["run", "mvp:evidence-fixture", "--", "--verify", "--json"]
+        args: [
+          "run",
+          "mvp:evidence-fixture",
+          "--",
+          "--verify",
+          "--session",
+          "fixture-session",
+          "--json"
+        ]
       }
     ]);
   });
@@ -5142,12 +5150,12 @@ function trialPlanRole(role: TrialPlanRole, relayHost?: string) {
         {
           name: "strict-evidence",
           command:
-            "npm run mvp:trial -- --evidence --host-audit <host-audit-jsonl> --viewer-audit <viewer-audit-jsonl>"
+            "npm run mvp:trial -- --evidence --host-audit <host-audit-jsonl> --viewer-audit <viewer-audit-jsonl> --session <session-id>"
         },
         {
           name: "underlying-gate",
           command:
-            "npm run mvp:audit-summary -- --host <host-audit-jsonl> --viewer <viewer-audit-jsonl> --require-mvp-evidence"
+            "npm run mvp:audit-summary -- --host <host-audit-jsonl> --viewer <viewer-audit-jsonl> --session <session-id> --require-mvp-evidence"
         },
         {
           name: "operator-check",
@@ -5274,8 +5282,8 @@ function evidenceFixtureOutput(
 ) {
   return JSON.stringify({
     ok: options.ok ?? true,
-    hostRecords: options.hostRecords ?? 5,
-    viewerRecords: options.viewerRecords ?? 3,
+    hostRecords: options.hostRecords ?? 9,
+    viewerRecords: options.viewerRecords ?? 4,
     verified: options.verified ?? true
   });
 }
@@ -5454,7 +5462,7 @@ function preflightCommandPlanCommands(
 function auditSummaryCommand(command: string | undefined) {
   return (
     command ??
-    "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence"
+    "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --session 'demo' --require-mvp-evidence"
   );
 }
 

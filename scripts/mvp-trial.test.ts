@@ -60,14 +60,17 @@ describe("MVP two-PC trial helper", () => {
         "--host-audit",
         String.raw`logs\host-audit.jsonl`,
         "--viewer-audit",
-        String.raw`logs\viewer-audit.jsonl`
+        String.raw`logs\viewer-audit.jsonl`,
+        "--session",
+        "session001"
       ])
     ).toMatchObject({
       help: false,
       mode: "evidence",
       json: false,
       hostPath: String.raw`logs\host-audit.jsonl`,
-      viewerPath: String.raw`logs\viewer-audit.jsonl`
+      viewerPath: String.raw`logs\viewer-audit.jsonl`,
+      expectedSessionId: "session001"
     });
   });
 
@@ -108,6 +111,7 @@ describe("MVP two-PC trial helper", () => {
     expect(output).toContain("Open the loopback viewer surface only after the viewer command reports readiness");
     expect(output).toContain("[evidence] Post-run evidence");
     expect(output).toContain("npm run mvp:audit-summary");
+    expect(output).toContain("--session <session-id> --require-mvp-evidence");
     expect(output).toContain("--require-mvp-evidence");
     assertNoUnsafeOutput(output);
   });
@@ -254,6 +258,10 @@ describe("MVP two-PC trial helper", () => {
       ["--evidence", "--role", "browser"],
       ["--evidence", "--role", "evidence"],
       ["--evidence"],
+      ["--evidence", "--host-audit", String.raw`logs\host-audit.jsonl`, "--viewer-audit", String.raw`logs\viewer-audit.jsonl`],
+      ["--evidence", "--host-audit", String.raw`logs\host-audit.jsonl`, "--viewer-audit", String.raw`logs\viewer-audit.jsonl`, "--session", " raw-secret-token "],
+      ["--evidence", "--host-audit", String.raw`logs\host-audit.jsonl`, "--viewer-audit", String.raw`logs\viewer-audit.jsonl`, "--session", "session001", "--session", "raw-secret-token"],
+      ["--session", "session001"],
       ["--host-audit", String.raw`logs\host-audit.jsonl`],
       ["--evidence", "--host-audit", " raw-secret-token ", "--viewer-audit", String.raw`logs\viewer-audit.jsonl`],
       [
@@ -293,39 +301,36 @@ describe("MVP two-PC trial helper", () => {
       const viewerPath = join(tempDir, "viewer-audit.jsonl");
       writeFileSync(
         hostPath,
-        jsonl([
-          auditRecord("agent-shell.authorization.approved", "accepted", "host"),
-          auditRecord("agent-shell.authorization.active", "accepted", "host"),
-          auditRecord("agent-shell.remote-interaction.screen-frame.sent", "accepted", "host"),
-          auditRecord("agent-shell.permission.revoked", "accepted", "host"),
-          auditRecord("agent-shell.session.disconnected", "accepted", "host")
-        ])
+        jsonl(correlatedHostRecords())
       );
       writeFileSync(
         viewerPath,
-        jsonl([
-          auditRecord("agent-shell.remote-interaction.screen-frame.output-written", "accepted", "viewer"),
-          auditRecord("agent-shell.remote-interaction.input-event.sent", "accepted", "viewer"),
-          auditRecord("agent-shell.viewer.disconnect.sent", "accepted", "viewer")
-        ])
+        jsonl(correlatedViewerRecords())
       );
 
-      const result = runMvpTrialEvidence({ hostPath, viewerPath });
+      const result = runMvpTrialEvidence({
+        hostPath,
+        viewerPath,
+        expectedSessionId: "session001"
+      });
       const text = formatMvpTrialEvidenceResult(result);
       const json = formatMvpTrialEvidenceJsonResult(result);
       const parsed = JSON.parse(json);
 
       expect(text).toContain("WinBridge two-PC MVP trial evidence passed.");
-      expect(text).toContain("audit.host.records=5 accepted=5 denied=0 failed=0");
-      expect(text).toContain("audit.viewer.records=3 accepted=3 denied=0 failed=0");
+      expect(text).toContain("audit.host.records=9 accepted=9 denied=0 failed=0");
+      expect(text).toContain("audit.viewer.records=4 accepted=4 denied=0 failed=0");
       expect(parsed.ok).toBe(true);
       expect(parsed.mode).toBe("evidence");
       expect(parsed.evidence.coverage).toEqual([
         "authorizationApproved",
         "authorizationActive",
+        "screenCaptureRequested",
+        "screenCaptureCompleted",
         "screenFrameSent",
         "screenFrameOutput",
         "inputSent",
+        "inputApplied",
         "permissionRevoked",
         "disconnectObserved"
       ]);
@@ -343,7 +348,9 @@ describe("MVP two-PC trial helper", () => {
     try {
       const hostPath = join(tempDir, "host-audit.jsonl");
       const viewerPath = join(tempDir, "viewer-audit.jsonl");
-      writeFileSync(hostPath, jsonl([auditRecord("agent-shell.authorization.approved", "accepted", "host")]));
+      writeFileSync(hostPath, jsonl([auditRecord("agent-shell.authorization.approved", "accepted", "host", {
+        authorizationStatus: "approved"
+      })]));
       writeFileSync(
         viewerPath,
         jsonl([auditRecord("agent-shell.remote-interaction.screen-frame.output-written", "accepted", "viewer")])
@@ -351,7 +358,7 @@ describe("MVP two-PC trial helper", () => {
 
       let thrown: unknown;
       try {
-        runMvpTrialEvidence({ hostPath, viewerPath });
+        runMvpTrialEvidence({ hostPath, viewerPath, expectedSessionId: "session001" });
       } catch (error) {
         thrown = error;
       }
@@ -359,7 +366,7 @@ describe("MVP two-PC trial helper", () => {
       expect(formatMvpTrialError(thrown)).toBe(
         [
           "WinBridge two-PC MVP trial failed. reason=missing-required-evidence",
-          "missingEvidence=host.authorizationActive,host.screenFrameSent,host.permissionRevoked,host.disconnectObserved,viewer.inputSent,viewer.disconnectObserved"
+          "missingEvidence=host.authorizationActive,host.screenCaptureRequested,host.screenCaptureCompleted,host.screenFrameSent,host.inputApplied,host.permissionRevoked,host.disconnectObserved,viewer.screenFrameOutput,viewer.inputSent,viewer.disconnectObserved"
         ].join("\n")
       );
       expect(JSON.parse(formatMvpTrialError(thrown, { json: true }))).toEqual({
@@ -367,9 +374,13 @@ describe("MVP two-PC trial helper", () => {
         reason: "missing-required-evidence",
         missingEvidence: [
           "host.authorizationActive",
+          "host.screenCaptureRequested",
+          "host.screenCaptureCompleted",
           "host.screenFrameSent",
+          "host.inputApplied",
           "host.permissionRevoked",
           "host.disconnectObserved",
+          "viewer.screenFrameOutput",
           "viewer.inputSent",
           "viewer.disconnectObserved"
         ]
@@ -412,7 +423,81 @@ describe("MVP two-PC trial helper", () => {
   });
 });
 
-function auditRecord(action: string, outcome = "accepted", actorType = "host") {
+function correlatedHostRecords() {
+  return [
+    auditRecord("agent-shell.authorization.approved", "accepted", "host", {
+      authorizationId: "auth0001",
+      authorizationStatus: "approved",
+      visibleToHost: false
+    }),
+    auditRecord("agent-shell.authorization.active", "accepted", "host", {
+      authorizationId: "auth0001",
+      authorizationStatus: "active",
+      visibleToHost: true
+    }),
+    auditRecord("agent-shell.remote-interaction.screen-capture.requested", "accepted", "host", {
+      authorizationId: "auth0001",
+      authorizationStatus: "active",
+      frameId: "frame0001",
+      sequence: 0
+    }),
+    auditRecord("agent-shell.remote-interaction.screen-capture.completed", "accepted", "host", {
+      authorizationId: "auth0001",
+      authorizationStatus: "active",
+      frameId: "frame0001",
+      sequence: 0
+    }),
+    auditRecord("agent-shell.remote-interaction.screen-frame.sent", "accepted", "host", {
+      authorizationId: "auth0001",
+      frameId: "frame0001",
+      sequence: 0
+    }),
+    auditRecord("agent-shell.remote-interaction.input-event.application-requested", "accepted", "host", {
+      authorizationId: "auth0001",
+      authorizationStatus: "active",
+      eventId: "input0001",
+      sequence: 0
+    }),
+    auditRecord("agent-shell.remote-interaction.input-event.applied", "accepted", "host", {
+      authorizationId: "auth0001",
+      authorizationStatus: "active",
+      eventId: "input0001",
+      sequence: 0
+    }),
+    auditRecord("agent-shell.permission.revoked", "accepted", "host", {
+      authorizationStatus: "active"
+    }),
+    auditRecord("agent-shell.session.disconnected", "accepted", "host")
+  ];
+}
+
+function correlatedViewerRecords() {
+  return [
+    auditRecord("agent-shell.remote-interaction.screen-frame.output-requested", "accepted", "viewer", {
+      authorizationId: "auth0001",
+      frameId: "frame0001",
+      sequence: 0
+    }),
+    auditRecord("agent-shell.remote-interaction.screen-frame.output-written", "accepted", "viewer", {
+      authorizationId: "auth0001",
+      frameId: "frame0001",
+      sequence: 0
+    }),
+    auditRecord("agent-shell.remote-interaction.input-event.sent", "accepted", "viewer", {
+      authorizationId: "auth0001",
+      eventId: "input0001",
+      sequence: 0
+    }),
+    auditRecord("agent-shell.session.disconnected", "accepted", "viewer")
+  ];
+}
+
+function auditRecord(
+  action: string,
+  outcome = "accepted",
+  actorType = "host",
+  detail: Record<string, unknown> = {}
+) {
   return {
     eventId: "audit0001",
     timestamp: "2026-01-01T00:00:00.000Z",
@@ -431,7 +516,8 @@ function auditRecord(action: string, outcome = "accepted", actorType = "host") {
       authorizationId: "auth0001",
       displayName: "Raw Secret Display Name",
       pointer: { x: 0.5, y: 0.5 },
-      token: "raw-secret-token"
+      token: "raw-secret-token",
+      ...detail
     }
   };
 }
@@ -447,6 +533,8 @@ function assertNoUnsafeOutput(output: string) {
     "viewer001",
     "session001",
     "auth0001",
+    "frame0001",
+    "input0001",
     "Raw Secret Display Name",
     "raw-secret-token",
     "123-456",

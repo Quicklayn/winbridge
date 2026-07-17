@@ -507,12 +507,15 @@ function renderAllSmokePreflightCommand(parsed) {
 function renderPostRunAuditSummaryCommand(parsed = {}) {
   const hostAuditLog = parsed.hostAuditLog ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.hostAuditLog;
   const viewerAuditLog = parsed.viewerAuditLog ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.viewerAuditLog;
+  const session = parsed.session ?? DEFAULT_MVP_SESSION_COMMAND_OPTIONS.session;
   return [
     "npm run mvp:audit-summary --",
     "--host",
     quotePowerShellArgument(hostAuditLog),
     "--viewer",
     quotePowerShellArgument(viewerAuditLog),
+    "--session",
+    quotePowerShellArgument(session),
     "--require-mvp-evidence"
   ].join(" ");
 }

@@ -1,39 +1,4 @@
-# mvp-audit-summary Specification
-
-## Purpose
-Define the read-only MVP audit summary helper used to verify bounded host and
-viewer audit evidence after development remote-assistance trials.
-## Requirements
-### Requirement: MVP audit summary reads explicit local audit logs
-
-The MVP audit summary helper SHALL provide a root
-`npm run mvp:audit-summary` command that reads only explicitly supplied local
-host and viewer audit JSONL file paths. It MUST require `--host <path>` and
-`--viewer <path>`, MUST reject missing, duplicate, blank, untrimmed, oversized,
-control-character, Unicode format-control, Windows device, Windows device
-namespace, or alternate-data-stream paths before reading files, and MUST NOT
-start relay, host, viewer, browser, capture, input, services, startup
-persistence, unattended access, network listeners, privilege elevation, remote
-log retrieval, log upload, hidden sessions, or Windows prompt bypass. Failure
-diagnostics MUST remain bounded and MUST NOT echo raw paths, raw audit lines,
-record details, tokens, token environment values, pairing codes, credentials,
-display names, private reasons, command strings, stdout, stderr, frame bytes,
-screen contents, input contents, clipboard contents, file-transfer contents,
-diagnostics, or full secrets.
-
-#### Scenario: Host and viewer audit paths are explicit
-
-- **WHEN** a developer runs
-  `npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl`
-- **THEN** the helper reads only those two local files
-- **AND** it emits bounded summary metadata without starting runtime processes
-
-#### Scenario: Unsafe audit summary paths fail closed
-
-- **WHEN** a developer omits a required path, repeats an option, or supplies an
-  unsafe audit path
-- **THEN** the helper rejects the request before reading files
-- **AND** diagnostics do not echo the raw path value
+## MODIFIED Requirements
 
 ### Requirement: MVP audit summary emits bounded evidence only
 
@@ -66,30 +31,6 @@ credentials, local paths, command strings, stdout, stderr, or full secrets.
   `roles`, and `coverage`
 - **AND** the JSON omits raw audit records, paths, details, identifiers, and
   secrets
-
-### Requirement: MVP audit summary rejects malformed audit input
-
-The MVP audit summary helper SHALL reject missing files, unreadable files,
-oversized files, oversized lines, malformed JSONL, non-object lines, malformed
-audit record shapes, unsafe action/outcome metadata, and secret-bearing audit
-actions before emitting a successful summary. Failure output MUST use fixed
-reason metadata only and MUST NOT echo raw file contents, raw line contents,
-paths, audit details, identifiers, tokens, pairing codes, credentials, screen
-contents, input contents, clipboard contents, file-transfer contents,
-diagnostics, or full secrets.
-
-#### Scenario: Malformed audit JSONL fails closed
-
-- **WHEN** either audit file contains malformed JSONL or a malformed audit
-  record shape
-- **THEN** the helper exits non-zero with a bounded fixed reason
-- **AND** diagnostics do not expose raw log content
-
-#### Scenario: Oversized audit input fails closed
-
-- **WHEN** either audit file or audit line exceeds the reviewed summary limits
-- **THEN** the helper exits non-zero with a bounded fixed reason
-- **AND** diagnostics do not expose raw log content
 
 ### Requirement: MVP audit summary can require complete MVP evidence
 
@@ -226,54 +167,6 @@ pairing codes, credentials, command strings, stdout, stderr, or full secrets.
 - **AND** the developer omits `--require-mvp-evidence`
 - **THEN** the helper still emits bounded summary and coverage flags
 - **AND** the output remains metadata-only
-
-### Requirement: MVP evidence failures report bounded missing flags
-
-The strict MVP audit evidence gate SHALL report bounded missing evidence
-metadata when required role-bound evidence is absent. The metadata MUST use
-only fixed role/flag identifiers from the reviewed required MVP evidence set,
-formatted as `host.<flag>` or `viewer.<flag>`, and MUST be deterministic,
-deduplicated, and sorted by the reviewed required evidence order.
-
-Text failure output MAY include one `missingEvidence=` line only for the fixed
-`missing-required-evidence` reason. JSON failure output MAY include a
-`missingEvidence` array only for that same reason. The audit summary and trial
-evidence helpers MUST NOT include raw audit records, local paths, event ids,
-actor ids, target ids, session ids, authorization ids, display names, private
-reasons, pointer coordinates, key values, frame bytes, screen content, input
-content, clipboard content, file-transfer content, diagnostic content, tokens,
-token environment values, pairing codes, credentials, generated commands,
-stdout, stderr, child output, or full secrets in missing-evidence diagnostics.
-
-This requirement MUST NOT start relay, host, viewer, browser, capture, input,
-sockets, HTTP listeners, services, startup persistence, unattended access,
-privilege elevation, remote log retrieval, log upload, hidden sessions,
-AV/EDR evasion, or Windows prompt bypass.
-
-#### Scenario: Audit summary reports missing role-bound evidence
-
-- **WHEN** strict audit summary evidence is requested and the explicit local
-  audit logs are safe but lack required host or viewer evidence
-- **THEN** the helper exits non-zero with `missing-required-evidence`
-- **AND** text and JSON diagnostics include only fixed missing role/flag
-  identifiers for absent required evidence
-- **AND** diagnostics remain metadata-only and secret-safe
-
-#### Scenario: Trial evidence delegates missing diagnostics
-
-- **WHEN** `mvp:trial -- --evidence` delegates to the strict audit summary
-  gate and required evidence is missing
-- **THEN** trial evidence failure diagnostics include the same bounded missing
-  role/flag identifiers
-- **AND** the helper does not expose audit paths, records, identifiers, command
-  strings, stdout, stderr, or secrets
-
-#### Scenario: Missing diagnostics are omitted for unrelated failures
-
-- **WHEN** strict audit summary or trial evidence fails because arguments,
-  paths, files, JSONL, records, or audit metadata are malformed
-- **THEN** diagnostics use only the fixed failure reason
-- **AND** no missing-evidence array or line is printed
 
 ### Requirement: MVP evidence fixture helper generates safe local audit evidence
 

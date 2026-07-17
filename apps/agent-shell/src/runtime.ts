@@ -4,6 +4,7 @@ import type { AuditSink } from "@winbridge/audit-log";
 import {
   createWindowsScreenCaptureAdapter,
   type WindowsScreenCaptureAdapter,
+  type WindowsScreenCaptureFrame,
   type WindowsScreenCaptureFormat
 } from "@winbridge/windows-capture";
 import {
@@ -569,8 +570,10 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         throw new Error(AGENT_SHELL_VIEWER_LEAVE_ROLE_ERROR_MESSAGE);
       }
 
+      const authorization = sessionState.viewerAuthorization;
       await stopRuntime();
       sessionState.viewerLocalInactiveCause = "local-leave";
+      scheduleLocalViewerLeaveAudit(options, authorization);
     },
 
     getHostStatus() {
@@ -1547,9 +1550,21 @@ async function captureAndSendDevelopmentScreenFrame(
       peerConnected: !sessionState.localPeerDisconnected && !sessionState.remotePeerDisconnected,
       expiresAt: authorization.expiresAt
     });
+    if (frame.authorizationId !== authorization.authorizationId) {
+      throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
+    }
+    const currentAuthorization = getAuthorizedWindowsScreenCaptureAuthorization(
+      options,
+      sessionState,
+      input.toPeerId
+    );
+    if (currentAuthorization.authorizationId !== authorization.authorizationId) {
+      throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
+    }
+    persistWindowsScreenCaptureCompletedAudit(options, currentAuthorization, input, frame);
 
     sendDevelopmentScreenFrame(socket, options, sessionState, {
-      authorizationId: authorization.authorizationId,
+      authorizationId: currentAuthorization.authorizationId,
       toPeerId: input.toPeerId,
       frameId: input.frameId,
       sequence: input.sequence,
@@ -1690,6 +1705,30 @@ function persistWindowsScreenCaptureAudit(
   });
 }
 
+function persistWindowsScreenCaptureCompletedAudit(
+  options: AgentShellRuntimeOptions,
+  snapshot: VisibleRuntimeAuthorizationSnapshot,
+  input: AgentShellCapturedScreenFrameInput,
+  frame: WindowsScreenCaptureFrame
+): void {
+  writeDevelopmentAuditRecord(options, {
+    action: "agent-shell.remote-interaction.screen-capture.completed",
+    outcome: "accepted",
+    detail: {
+      authorizationId: snapshot.authorizationId,
+      authorizationStatus: snapshot.status,
+      frameId: input.frameId,
+      sequence: input.sequence,
+      format: protocolScreenFrameFormatForCapture(frame.format),
+      width: frame.width,
+      height: frame.height,
+      frameDataByteLength: frame.dataBase64Bytes,
+      visibleToHost: snapshot.visibleToHost,
+      permissionCount: snapshot.permissions.length
+    }
+  });
+}
+
 function applyInboundWindowsInput(
   options: AgentShellRuntimeOptions,
   sessionState: AgentShellSessionState,
@@ -1704,7 +1743,12 @@ function applyInboundWindowsInput(
   }
 
   const authorization = getAuthorizedWindowsInputAuthorization(options, sessionState, message);
-  persistWindowsInputApplicationAudit(options, authorization, message);
+  persistWindowsInputApplicationAudit(
+    options,
+    authorization,
+    message,
+    "agent-shell.remote-interaction.input-event.application-requested"
+  );
   const inputAdapter = options.windowsInput ?? createWindowsInputAdapter();
   return inputAdapter.applyInputEvent(
     {
@@ -1716,7 +1760,15 @@ function applyInboundWindowsInput(
       expiresAt: authorization.expiresAt
     },
     message
-  );
+  ).then((result) => {
+    persistWindowsInputApplicationAudit(
+      options,
+      authorization,
+      message,
+      "agent-shell.remote-interaction.input-event.applied"
+    );
+    return result;
+  });
 }
 
 function getAuthorizedWindowsInputAuthorization(
@@ -1747,10 +1799,13 @@ function getAuthorizedWindowsInputAuthorization(
 function persistWindowsInputApplicationAudit(
   options: AgentShellRuntimeOptions,
   snapshot: VisibleRuntimeAuthorizationSnapshot,
-  message: AgentShellInputEventEnvelope
+  message: AgentShellInputEventEnvelope,
+  action:
+    | "agent-shell.remote-interaction.input-event.application-requested"
+    | "agent-shell.remote-interaction.input-event.applied"
 ): void {
   writeDevelopmentAuditRecord(options, {
-    action: "agent-shell.remote-interaction.input-event.applied",
+    action,
     outcome: "accepted",
     detail: {
       authorizationId: snapshot.authorizationId,
@@ -1897,11 +1952,16 @@ function persistInboundScreenFrameOutput(
   }
 
   writeDevelopmentAuditRecord(options, {
-    action: "agent-shell.remote-interaction.screen-frame.output-written",
+    action: "agent-shell.remote-interaction.screen-frame.output-requested",
     outcome: "accepted",
     detail: remoteInteractionAuditDetail(message)
   });
   options.viewerScreenFrameOutputSink.writeFrame(message);
+  writeDevelopmentAuditRecord(options, {
+    action: "agent-shell.remote-interaction.screen-frame.output-written",
+    outcome: "accepted",
+    detail: remoteInteractionAuditDetail(message)
+  });
 }
 
 function remoteInteractionAuditDetail(
@@ -2340,9 +2400,12 @@ async function handleHostAuthorizationRequest(
     action: "agent-shell.authorization.approved",
     outcome: "accepted",
     detail: {
+      authorizationId,
+      authorizationStatus: "approved",
       requestedPermissionCount: request.requestedPermissions.length,
       grantedPermissionCount: grantedPermissions.length,
-      requestReasonProvided: request.reason !== undefined
+      requestReasonProvided: request.reason !== undefined,
+      visibleToHost: false
     }
   });
 
@@ -2379,6 +2442,8 @@ async function handleHostAuthorizationRequest(
     action: "agent-shell.authorization.active",
     outcome: "accepted",
     detail: {
+      authorizationId,
+      authorizationStatus: "active",
       grantedPermissionCount: grantedPermissions.length,
       visibleToHost: true
     }
@@ -3387,10 +3452,17 @@ function revokeHostPermission(
     (permission) => permission !== revokedPermission
   );
   const finalGrantRevoked = remainingPermissions.length === 0;
+  const authorizationStatus = finalGrantRevoked
+    ? "revoked"
+    : workflowState.paused
+      ? "paused"
+      : "active";
   const auditEvent = prepareDevelopmentAuditEvent(options, {
     action: "agent-shell.permission.revoked",
     outcome: "accepted",
     detail: {
+      authorizationId,
+      authorizationStatus,
       revokedPermission,
       remainingPermissionCount: remainingPermissions.length,
       finalGrantRevoked
@@ -3404,7 +3476,7 @@ function revokeHostPermission(
 
   setHostAuthorizationSnapshot(sessionState, {
     authorizationId,
-    status: finalGrantRevoked ? "revoked" : workflowState.paused ? "paused" : "active",
+    status: authorizationStatus,
     visibleToHost: true,
     permissions: remainingPermissions,
     expiresAt
@@ -3528,6 +3600,8 @@ function pauseHostAuthorization(
     action: "agent-shell.authorization.paused",
     outcome: "accepted",
     detail: {
+      authorizationId,
+      authorizationStatus: "paused",
       grantedPermissionCount: workflowState.permissions.length,
       visibleToHost: true,
       paused: true,
@@ -3582,6 +3656,8 @@ function resumeHostAuthorization(
     action: "agent-shell.authorization.resumed",
     outcome: "accepted",
     detail: {
+      authorizationId,
+      authorizationStatus: "active",
       grantedPermissionCount: workflowState.permissions.length,
       visibleToHost: true,
       resumed: true,
@@ -3774,6 +3850,8 @@ function terminateHostAuthorization(
     action: "agent-shell.authorization.terminated",
     outcome: "accepted",
     detail: {
+      authorizationId,
+      authorizationStatus: "terminated",
       previouslyGrantedPermissionCount: workflowState.permissions.length,
       visibleToHost: true,
       terminated: true,
@@ -3845,6 +3923,8 @@ function scheduleHostExpiration(
       action: "agent-shell.authorization.expired",
       outcome: "accepted",
       detail: {
+        authorizationId,
+        authorizationStatus: "expired",
         previouslyGrantedPermissionCount: workflowState.permissions.length,
         ttlMs,
         visibleToHost: true,
@@ -4131,6 +4211,42 @@ function persistLocalHostDisconnectAudit(
   } catch (error) {
     reportRuntimeErrorBestEffort(options, error);
   }
+}
+
+function persistLocalViewerLeaveAudit(
+  options: AgentShellRuntimeOptions,
+  snapshot: RuntimeAuthorizationSnapshot | undefined
+): void {
+  if (snapshot === undefined) {
+    return;
+  }
+
+  try {
+    writeDevelopmentAuditRecord(options, {
+      action: "agent-shell.session.disconnected",
+      outcome: "accepted",
+      detail: {
+        authorizationId: snapshot.authorizationId,
+        authorizationStatus: snapshot.status,
+        cause: "local-leave",
+        visibleToHost: snapshot.visibleToHost,
+        permissionCount: snapshot.permissions.length
+      }
+    });
+  } catch (error) {
+    reportRuntimeErrorBestEffort(options, error);
+  }
+}
+
+function scheduleLocalViewerLeaveAudit(
+  options: AgentShellRuntimeOptions,
+  snapshot: RuntimeAuthorizationSnapshot | undefined
+): void {
+  if (snapshot === undefined) {
+    return;
+  }
+
+  setImmediate(() => persistLocalViewerLeaveAudit(options, snapshot));
 }
 
 function deactivateHostIndicatorBestEffort(

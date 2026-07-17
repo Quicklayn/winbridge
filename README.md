@@ -173,14 +173,18 @@ After a visible, consented two-PC trial has produced local host and viewer
 audit logs, the same helper can run the strict evidence gate:
 
 ```powershell
-npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl
-npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl --json
+npm run mvp:trial -- --evidence --session demo --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl
+npm run mvp:trial -- --evidence --session demo --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl --json
 ```
 
 Evidence mode delegates to the existing
 `mvp:audit-summary -- --require-mvp-evidence` checks, reads only the explicit
-local audit paths, and fails closed unless role-bound consent, visible active
-authorization, frame, input, revocation, and disconnect evidence is present.
+local audit paths, and requires the exact session id used for the trial. It
+fails closed unless one role-bound authorization chain contains visible host
+consent, correlated native capture request/completion/send and viewer frame
+output request/success, correlated native
+input application, revocation, and host/viewer disconnect evidence in the
+required per-log order.
 When strict evidence is missing, text and JSON failures include only fixed
 `missingEvidence` role/flag identifiers such as `host.screenFrameSent` or
 `viewer.inputSent`; they do not echo audit paths, records, identifiers, frame
@@ -259,7 +263,7 @@ not that a live two-PC session happened, and does not print generated fixture
 paths or raw audit records. The generated full and preflight-only plans also
 print a post-run
 read-only audit evidence command:
-`npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence`.
+`npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence --session <session-id>`.
 Run it only after the visible, consented two-PC trial has produced both local
 audit logs. Command generation does not read audit files, retrieve logs,
 upload logs, start runtimes, or print raw audit records.
@@ -477,7 +481,8 @@ npm run mvp:ready -- --include-evidence-fixture
 npm run mvp:ready -- --include-evidence-fixture --json
 ```
 
-This explicit gate runs `mvp:evidence-fixture -- --verify --json` and accepts
+This explicit gate runs
+`mvp:evidence-fixture -- --verify --session fixture-session --json` and accepts
 only bounded fixture metadata with the reviewed host/viewer record counts and
 `verified=true`. Default readiness does not run this helper or write fixture
 files. The readiness output reports only fixed `evidence-fixture` check status
@@ -633,18 +638,19 @@ After a development two-PC trial, summarize the explicit local host and viewer
 audit files:
 
 ```powershell
-npm run mvp:evidence-fixture -- --verify
-npm run mvp:evidence-fixture -- --verify --json
-npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl
-npm run mvp:trial -- --evidence --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl --json
-npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence
-npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence --json
+npm run mvp:evidence-fixture -- --verify --session fixture-session
+npm run mvp:evidence-fixture -- --verify --session fixture-session --json
+npm run mvp:trial -- --evidence --session demo --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl
+npm run mvp:trial -- --evidence --session demo --host-audit logs\host-audit.jsonl --viewer-audit logs\viewer-audit.jsonl --json
+npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence --session demo
+npm run mvp:audit-summary -- --host logs\host-audit.jsonl --viewer logs\viewer-audit.jsonl --require-mvp-evidence --session demo --json
 ```
 
 `mvp:evidence-fixture` is a local dry-run helper for the strict evidence gate.
 It writes generated host/viewer audit JSONL fixtures to reviewed default paths
-or to explicit safe `--host` and `--viewer` paths, and `--verify` checks those
-generated files through the same strict audit-summary evidence gate in-process.
+or to explicit safe `--host` and `--viewer` paths, and `--verify` requires the
+expected fixture session before checking those generated files through the
+same strict audit-summary evidence gate in-process.
 Fixture output is bounded and labels the files as generated local fixtures; it
 does not prove that a live two-PC assistance session happened. It does not
 start relay, host, viewer, browser, capture, input, sockets, HTTP listeners,
@@ -656,7 +662,8 @@ credentials, or secrets.
 
 `mvp:trial -- --evidence` is the shortest two-PC post-run gate and delegates to
 the strict audit summary check. `mvp:audit-summary` is the underlying read-only
-post-run evidence check. It reads only the
+post-run evidence check. Strict mode requires the exact expected `--session`
+and reads only the
 two paths passed with `--host` and `--viewer`, rejects unsafe paths or malformed
 JSONL, and prints fixed host/viewer outcome counts plus coverage flags for MVP
 evidence such as approval, visible active authorization, frame send/output,
@@ -668,11 +675,17 @@ diagnostics, tokens, pairing codes, credentials, and secrets. It does not start
 relay, host, viewer, browser, capture, input, services, startup persistence,
 network listeners, unattended access, privilege elevation, remote log retrieval,
 or log upload. The explicit `--require-mvp-evidence` flag fails closed with
-bounded reason metadata unless accepted host evidence covers approval, active
-visible authorization, frame send, revocation, and host disconnect, host local
-session disconnected, or terminal lifecycle, and accepted viewer evidence
-covers frame output, input send, and viewer disconnect. Wrong-role, denied, or
-failed evidence does not satisfy the strict gate. When the strict gate is
+bounded reason metadata unless one accepted authorization lifecycle in that
+session contains host approval, active visible authorization, a native capture
+request followed by post-adapter completion and its matching frame send, a native input application request
+followed by its matching successful apply, revocation, and host disconnect.
+The same lifecycle must contain matching viewer frame-output request followed
+by output-written success, input send, and viewer disconnect evidence. A pause
+requires resume before later native milestones, while early revoke, disconnect,
+expiration, or termination permanently invalidates the candidate. Wrong-role,
+denied, failed, mixed-session, mixed-authorization, mismatched, standalone
+legacy output-written, or out-of-order evidence does not satisfy the
+strict gate. When the strict gate is
 missing required role-bound evidence, failure output adds only fixed
 `missingEvidence` role/flag identifiers. Omit that flag only when inspecting
 partial troubleshooting logs.
@@ -1176,7 +1189,7 @@ Simulate a viewer leaving the session locally:
 npm run dev:agent -- viewer --session demo --pairing 123-456 --viewer-disconnect-after-ms 5000
 ```
 
-`--viewer-disconnect-after-ms` is viewer-only, accepts an exact integer delay from `0` through `2147483647`, and does not require requested permissions or active authorization. It invokes the managed viewer-only `leave()` control and closes only the local viewer runtime; host runtimes reject this control without closing the host transport. The viewer does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages. The relay observes the socket close and notifies the remaining host.
+`--viewer-disconnect-after-ms` is viewer-only, accepts an exact integer delay from `0` through `2147483647`, and does not require requested permissions or active authorization. It invokes the managed viewer-only `leave()` control and closes only the local viewer runtime; host runtimes reject this control without closing the host transport. When local viewer audit is configured, bounded disconnect evidence is attempted asynchronously only after socket closure, so slow or failed audit I/O cannot delay leave. The viewer does not send forged `peer-disconnected`, lifecycle, signal, control, or workflow audit messages. The relay observes the socket close and notifies the remaining host.
 
 Persist development host workflow audit records as JSONL:
 

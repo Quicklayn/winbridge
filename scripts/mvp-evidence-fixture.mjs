@@ -17,27 +17,21 @@ export const DEFAULT_MVP_EVIDENCE_FIXTURE_VIEWER_PATH = join(
   "winbridge-mvp-evidence-fixture",
   "viewer-audit.jsonl"
 );
+export const DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID = "fixture-session";
 
 export const MVP_EVIDENCE_FIXTURE_USAGE = [
-  "Usage: npm run mvp:evidence-fixture -- [--host logs\\fixture-host.jsonl] [--viewer logs\\fixture-viewer.jsonl] [--verify] [--json]",
+  "Usage: npm run mvp:evidence-fixture -- [--host logs\\fixture-host.jsonl] [--viewer logs\\fixture-viewer.jsonl] [--session <session-id>] [--verify] [--json]",
   "",
   "Writes generated local MVP audit fixture JSONL files for dry-running the",
   "strict evidence gate. Fixtures are not proof of a live two-PC session."
 ].join("\n");
 
 const FAILURE_REASONS = new Set(["usage", "unsafe-path", "write-failed", "verify-failed"]);
-const HOST_FIXTURE_RECORDS = Object.freeze([
-  auditRecord("fixture001", "host", "agent-shell.authorization.approved"),
-  auditRecord("fixture002", "host", "agent-shell.authorization.active"),
-  auditRecord("fixture003", "host", "agent-shell.remote-interaction.screen-frame.sent"),
-  auditRecord("fixture004", "host", "agent-shell.permission.revoked"),
-  auditRecord("fixture005", "host", "agent-shell.session.disconnected")
-]);
-const VIEWER_FIXTURE_RECORDS = Object.freeze([
-  auditRecord("fixture101", "viewer", "agent-shell.remote-interaction.screen-frame.output-written"),
-  auditRecord("fixture102", "viewer", "agent-shell.remote-interaction.input-event.sent"),
-  auditRecord("fixture103", "viewer", "agent-shell.viewer.disconnect.sent")
-]);
+const HOST_FIXTURE_RECORD_COUNT = 9;
+const VIEWER_FIXTURE_RECORD_COUNT = 4;
+const FIXTURE_AUTHORIZATION_ID = "fixtureauth";
+const FIXTURE_FRAME_ID = "fixtureframe";
+const FIXTURE_INPUT_EVENT_ID = "fixtureinput";
 
 export class MvpEvidenceFixtureUsageError extends Error {
   constructor() {
@@ -65,6 +59,7 @@ export function parseMvpEvidenceFixtureArgs(rawArgs) {
 
   let hostPath;
   let viewerPath;
+  let expectedSessionId;
   let verify = false;
   let json = false;
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -81,6 +76,15 @@ export function parseMvpEvidenceFixtureArgs(rawArgs) {
         throw new MvpEvidenceFixtureUsageError();
       }
       json = true;
+      continue;
+    }
+    if (arg === "--session") {
+      const value = rawArgs[index + 1];
+      if (value === undefined || value.startsWith("--") || expectedSessionId !== undefined) {
+        throw new MvpEvidenceFixtureUsageError();
+      }
+      expectedSessionId = value;
+      index += 1;
       continue;
     }
     if (arg === "--host" || arg === "--viewer") {
@@ -105,9 +109,14 @@ export function parseMvpEvidenceFixtureArgs(rawArgs) {
     throw new MvpEvidenceFixtureUsageError();
   }
 
-  const parsed = validateFixturePaths(
+  if (verify && expectedSessionId === undefined) {
+    throw new MvpEvidenceFixtureUsageError();
+  }
+
+  const parsed = validateFixtureInputs(
     hostPath ?? DEFAULT_MVP_EVIDENCE_FIXTURE_HOST_PATH,
-    viewerPath ?? DEFAULT_MVP_EVIDENCE_FIXTURE_VIEWER_PATH
+    viewerPath ?? DEFAULT_MVP_EVIDENCE_FIXTURE_VIEWER_PATH,
+    expectedSessionId ?? DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID
   );
 
   return { help: false, ...parsed, verify, json };
@@ -118,11 +127,17 @@ export function runMvpEvidenceFixture(options = {}) {
   const viewerPath = options.viewerPath ?? DEFAULT_MVP_EVIDENCE_FIXTURE_VIEWER_PATH;
   const writeText = options.writeText ?? writeFixtureText;
   const verify = options.verify === true;
+  if (verify && options.expectedSessionId === undefined) {
+    throw new MvpEvidenceFixtureUsageError();
+  }
+  const expectedSessionId = options.expectedSessionId ?? DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID;
 
-  const paths = validateFixturePaths(hostPath, viewerPath);
+  const paths = validateFixtureInputs(hostPath, viewerPath, expectedSessionId);
+  const hostRecords = createHostFixtureRecords(paths.expectedSessionId);
+  const viewerRecords = createViewerFixtureRecords(paths.expectedSessionId);
   try {
-    writeText(paths.hostPath, jsonl(HOST_FIXTURE_RECORDS));
-    writeText(paths.viewerPath, jsonl(VIEWER_FIXTURE_RECORDS));
+    writeText(paths.hostPath, jsonl(hostRecords));
+    writeText(paths.viewerPath, jsonl(viewerRecords));
   } catch {
     throw new MvpEvidenceFixtureError("write-failed");
   }
@@ -132,6 +147,7 @@ export function runMvpEvidenceFixture(options = {}) {
       runMvpAuditSummaryCheck({
         hostPath: paths.hostPath,
         viewerPath: paths.viewerPath,
+        expectedSessionId: paths.expectedSessionId,
         requireMvpEvidence: true
       });
     } catch {
@@ -141,8 +157,8 @@ export function runMvpEvidenceFixture(options = {}) {
 
   return sanitizeEvidenceFixtureResult({
     ok: true,
-    hostRecords: HOST_FIXTURE_RECORDS.length,
-    viewerRecords: VIEWER_FIXTURE_RECORDS.length,
+    hostRecords: hostRecords.length,
+    viewerRecords: viewerRecords.length,
     verified: verify
   });
 }
@@ -188,20 +204,23 @@ export function formatMvpEvidenceFixtureJsonError(error) {
   });
 }
 
-function validateFixturePaths(hostPath, viewerPath) {
+function validateFixtureInputs(hostPath, viewerPath, expectedSessionId) {
   try {
     const parsed = parseMvpAuditSummaryArgs([
       "--host",
       hostPath,
       "--viewer",
-      viewerPath
+      viewerPath,
+      "--session",
+      expectedSessionId
     ]);
     if (parsed.hostPath === parsed.viewerPath) {
       throw new Error("unsafe-path");
     }
     return {
       hostPath: parsed.hostPath,
-      viewerPath: parsed.viewerPath
+      viewerPath: parsed.viewerPath,
+      expectedSessionId: parsed.expectedSessionId
     };
   } catch {
     throw new MvpEvidenceFixtureUsageError();
@@ -213,21 +232,100 @@ function writeFixtureText(path, content) {
   writeFileSync(path, content, "utf8");
 }
 
-function auditRecord(eventId, actorType, action) {
+function createHostFixtureRecords(expectedSessionId) {
+  return Object.freeze([
+    auditRecord("fixture001", 1, "host", "agent-shell.authorization.approved", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      authorizationStatus: "approved",
+      visibleToHost: false
+    }),
+    auditRecord("fixture002", 2, "host", "agent-shell.authorization.active", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      authorizationStatus: "active",
+      visibleToHost: true
+    }),
+    auditRecord("fixture003", 3, "host", "agent-shell.remote-interaction.screen-capture.requested", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      authorizationStatus: "active",
+      frameId: FIXTURE_FRAME_ID,
+      sequence: 0,
+      visibleToHost: true
+    }),
+    auditRecord("fixture004", 4, "host", "agent-shell.remote-interaction.screen-capture.completed", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      authorizationStatus: "active",
+      frameId: FIXTURE_FRAME_ID,
+      sequence: 0,
+      visibleToHost: true
+    }),
+    auditRecord("fixture005", 5, "host", "agent-shell.remote-interaction.screen-frame.sent", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      frameId: FIXTURE_FRAME_ID,
+      sequence: 0
+    }),
+    auditRecord("fixture006", 6, "host", "agent-shell.remote-interaction.input-event.application-requested", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      authorizationStatus: "active",
+      eventId: FIXTURE_INPUT_EVENT_ID,
+      sequence: 0
+    }),
+    auditRecord("fixture007", 7, "host", "agent-shell.remote-interaction.input-event.applied", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      authorizationStatus: "active",
+      eventId: FIXTURE_INPUT_EVENT_ID,
+      sequence: 0
+    }),
+    auditRecord("fixture008", 8, "host", "agent-shell.permission.revoked", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      authorizationStatus: "active"
+    }),
+    auditRecord("fixture009", 9, "host", "agent-shell.session.disconnected", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      authorizationStatus: "active"
+    })
+  ]);
+}
+
+function createViewerFixtureRecords(expectedSessionId) {
+  return Object.freeze([
+    auditRecord("fixture101", 1, "viewer", "agent-shell.remote-interaction.screen-frame.output-requested", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      frameId: FIXTURE_FRAME_ID,
+      sequence: 0
+    }),
+    auditRecord("fixture102", 2, "viewer", "agent-shell.remote-interaction.screen-frame.output-written", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      frameId: FIXTURE_FRAME_ID,
+      sequence: 0
+    }),
+    auditRecord("fixture103", 3, "viewer", "agent-shell.remote-interaction.input-event.sent", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      eventId: FIXTURE_INPUT_EVENT_ID,
+      sequence: 0
+    }),
+    auditRecord("fixture104", 4, "viewer", "agent-shell.session.disconnected", expectedSessionId, {
+      authorizationId: FIXTURE_AUTHORIZATION_ID,
+      authorizationStatus: "active"
+    })
+  ]);
+}
+
+function auditRecord(eventId, offsetSeconds, actorType, action, expectedSessionId, detail) {
   return {
     eventId,
-    timestamp: "2026-01-01T00:00:00.000Z",
+    timestamp: `2026-01-01T00:00:${String(offsetSeconds).padStart(2, "0")}.000Z`,
     actor: {
       type: actorType,
       id: `${actorType}fixture`
     },
     action,
     outcome: "accepted",
-    sessionId: "fixture-session",
+    sessionId: expectedSessionId,
     target: {
       type: "authorization",
-      id: "fixtureauth"
-    }
+      id: FIXTURE_AUTHORIZATION_ID
+    },
+    detail
   };
 }
 
@@ -241,9 +339,9 @@ function sanitizeEvidenceFixtureResult(result) {
   }
   if (
     !Number.isInteger(result.hostRecords) ||
-    result.hostRecords !== HOST_FIXTURE_RECORDS.length ||
+    result.hostRecords !== HOST_FIXTURE_RECORD_COUNT ||
     !Number.isInteger(result.viewerRecords) ||
-    result.viewerRecords !== VIEWER_FIXTURE_RECORDS.length
+    result.viewerRecords !== VIEWER_FIXTURE_RECORD_COUNT
   ) {
     return undefined;
   }

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { runMvpAuditSummaryCheck } from "./mvp-audit-summary.mjs";
 import {
   DEFAULT_MVP_EVIDENCE_FIXTURE_HOST_PATH,
+  DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID,
   DEFAULT_MVP_EVIDENCE_FIXTURE_VIEWER_PATH,
   formatMvpEvidenceFixtureError,
   formatMvpEvidenceFixtureJsonError,
@@ -25,6 +26,7 @@ describe("MVP evidence fixture helper", () => {
       help: false,
       hostPath: DEFAULT_MVP_EVIDENCE_FIXTURE_HOST_PATH,
       viewerPath: DEFAULT_MVP_EVIDENCE_FIXTURE_VIEWER_PATH,
+      expectedSessionId: DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID,
       verify: false,
       json: false
     });
@@ -32,6 +34,8 @@ describe("MVP evidence fixture helper", () => {
       parseMvpEvidenceFixtureArgs([
         "--json",
         "--verify",
+        "--session",
+        DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID,
         "--viewer",
         String.raw`logs\fixture-viewer.jsonl`,
         "--host",
@@ -41,6 +45,7 @@ describe("MVP evidence fixture helper", () => {
       help: false,
       hostPath: String.raw`logs\fixture-host.jsonl`,
       viewerPath: String.raw`logs\fixture-viewer.jsonl`,
+      expectedSessionId: DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID,
       verify: true,
       json: true
     });
@@ -52,7 +57,12 @@ describe("MVP evidence fixture helper", () => {
     try {
       const hostPath = join(tempDir, "host-audit.jsonl");
       const viewerPath = join(tempDir, "viewer-audit.jsonl");
-      const result = runMvpEvidenceFixture({ hostPath, viewerPath, verify: true });
+      const result = runMvpEvidenceFixture({
+        hostPath,
+        viewerPath,
+        expectedSessionId: DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID,
+        verify: true
+      });
       const text = formatMvpEvidenceFixtureResult(result);
       const json = JSON.parse(formatMvpEvidenceFixtureJsonResult(result));
 
@@ -60,22 +70,27 @@ describe("MVP evidence fixture helper", () => {
       expect(existsSync(viewerPath)).toBe(true);
       expect(result).toEqual({
         ok: true,
-        hostRecords: 5,
-        viewerRecords: 3,
+        hostRecords: 9,
+        viewerRecords: 4,
         verified: true
       });
       expect(text).toBe(
         [
           "WinBridge MVP evidence fixture generated.",
-          "fixture.host=written records=5",
-          "fixture.viewer=written records=3",
+          "fixture.host=written records=9",
+          "fixture.viewer=written records=4",
           "verify=passed",
           "safety=generated-local-fixture-only"
         ].join("\n")
       );
       expect(json).toEqual(result);
       expect(() =>
-        runMvpAuditSummaryCheck({ hostPath, viewerPath, requireMvpEvidence: true })
+        runMvpAuditSummaryCheck({
+          hostPath,
+          viewerPath,
+          expectedSessionId: DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID,
+          requireMvpEvidence: true
+        })
       ).not.toThrow();
       assertNoUnsafeOutput(text);
       assertNoUnsafeOutput(JSON.stringify(json));
@@ -95,8 +110,34 @@ describe("MVP evidence fixture helper", () => {
     const text = formatMvpEvidenceFixtureResult(result);
 
     expect(writes.size).toBe(2);
-    expect(writes.get(String.raw`logs\fixture-host.jsonl`)?.split(/\r?\n/).filter(Boolean)).toHaveLength(5);
-    expect(writes.get(String.raw`logs\fixture-viewer.jsonl`)?.split(/\r?\n/).filter(Boolean)).toHaveLength(3);
+    const hostLines = writes.get(String.raw`logs\fixture-host.jsonl`)?.split(/\r?\n/).filter(Boolean) ?? [];
+    const viewerLines = writes.get(String.raw`logs\fixture-viewer.jsonl`)?.split(/\r?\n/).filter(Boolean) ?? [];
+    expect(hostLines).toHaveLength(9);
+    expect(viewerLines).toHaveLength(4);
+    const records = [...hostLines, ...viewerLines].map((line) => JSON.parse(line));
+    expect(new Set(records.map((record) => record.sessionId))).toEqual(
+      new Set([DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID])
+    );
+    expect(new Set(records.map((record) => record.detail.authorizationId))).toEqual(
+      new Set(["fixtureauth"])
+    );
+    expect(hostLines.map((line) => JSON.parse(line).action)).toEqual([
+      "agent-shell.authorization.approved",
+      "agent-shell.authorization.active",
+      "agent-shell.remote-interaction.screen-capture.requested",
+      "agent-shell.remote-interaction.screen-capture.completed",
+      "agent-shell.remote-interaction.screen-frame.sent",
+      "agent-shell.remote-interaction.input-event.application-requested",
+      "agent-shell.remote-interaction.input-event.applied",
+      "agent-shell.permission.revoked",
+      "agent-shell.session.disconnected"
+    ]);
+    expect(viewerLines.map((line) => JSON.parse(line).action)).toEqual([
+      "agent-shell.remote-interaction.screen-frame.output-requested",
+      "agent-shell.remote-interaction.screen-frame.output-written",
+      "agent-shell.remote-interaction.input-event.sent",
+      "agent-shell.session.disconnected"
+    ]);
     expect(text).toContain("verify=not-run");
     assertNoUnsafeOutput(text);
   });
@@ -108,6 +149,10 @@ describe("MVP evidence fixture helper", () => {
       ["--host", String.raw`logs\fixture-host.jsonl`, "--host", "raw-secret-token"],
       ["--viewer", String.raw`logs\fixture-viewer.jsonl`, "--viewer", "raw-secret-token"],
       ["--verify", "--verify"],
+      ["--verify"],
+      ["--session"],
+      ["--session", DEFAULT_MVP_EVIDENCE_FIXTURE_SESSION_ID, "--session", "raw-secret-token"],
+      ["--session", " raw-secret-token "],
       ["--json", "--json"],
       ["--host", " raw-secret-token ", "--viewer", String.raw`logs\fixture-viewer.jsonl`],
       ["--host", String.raw`logs\NUL.jsonl`, "--viewer", String.raw`logs\fixture-viewer.jsonl`],

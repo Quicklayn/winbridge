@@ -7,7 +7,7 @@ import {
 
 export const MVP_TRIAL_USAGE = [
   "Usage: npm run mvp:trial -- [--json] [--role relay|host|viewer|browser|evidence] [--relay-host RELAY-PC-LAN-IP]",
-  "       npm run mvp:trial -- --evidence --host-audit logs\\host-audit.jsonl --viewer-audit logs\\viewer-audit.jsonl [--json]",
+  "       npm run mvp:trial -- --evidence --host-audit logs\\host-audit.jsonl --viewer-audit logs\\viewer-audit.jsonl --session <session-id> [--json]",
   "",
   "Prints a bounded, non-executing two-PC MVP trial workflow, or verifies",
   "explicit local host/viewer audit logs through the strict MVP evidence gate.",
@@ -181,12 +181,12 @@ const TRIAL_SECTIONS = Object.freeze({
       Object.freeze({
         name: "strict-evidence",
         command:
-          "npm run mvp:trial -- --evidence --host-audit <host-audit-jsonl> --viewer-audit <viewer-audit-jsonl>"
+          `npm run mvp:trial -- --evidence --host-audit <host-audit-jsonl> --viewer-audit <viewer-audit-jsonl> --session ${SESSION_ID_PLACEHOLDER}`
       }),
       Object.freeze({
         name: "underlying-gate",
         command:
-          "npm run mvp:audit-summary -- --host <host-audit-jsonl> --viewer <viewer-audit-jsonl> --require-mvp-evidence"
+          `npm run mvp:audit-summary -- --host <host-audit-jsonl> --viewer <viewer-audit-jsonl> --session ${SESSION_ID_PLACEHOLDER} --require-mvp-evidence`
       }),
       Object.freeze({
         name: "operator-check",
@@ -217,6 +217,7 @@ export function parseMvpTrialArgs(rawArgs) {
   let evidence = false;
   let hostAudit;
   let viewerAudit;
+  let expectedSessionId;
   let relayHost;
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -258,6 +259,15 @@ export function parseMvpTrialArgs(rawArgs) {
       index += 1;
       continue;
     }
+    if (arg === "--session") {
+      const value = rawArgs[index + 1];
+      if (expectedSessionId !== undefined || value === undefined || value.startsWith("--")) {
+        throw new MvpTrialUsageError();
+      }
+      expectedSessionId = value;
+      index += 1;
+      continue;
+    }
     if (arg === "--host-audit" || arg === "--viewer-audit") {
       const value = rawArgs[index + 1];
       if (value === undefined || value.startsWith("--")) {
@@ -281,7 +291,13 @@ export function parseMvpTrialArgs(rawArgs) {
   }
 
   if (evidence) {
-    if (role !== undefined || relayHost !== undefined || hostAudit === undefined || viewerAudit === undefined) {
+    if (
+      role !== undefined ||
+      relayHost !== undefined ||
+      hostAudit === undefined ||
+      viewerAudit === undefined ||
+      expectedSessionId === undefined
+    ) {
       throw new MvpTrialUsageError();
     }
     const parsedAudit = parseMvpAuditSummaryArgs([
@@ -289,6 +305,8 @@ export function parseMvpTrialArgs(rawArgs) {
       hostAudit,
       "--viewer",
       viewerAudit,
+      "--session",
+      expectedSessionId,
       "--require-mvp-evidence"
     ]);
     return {
@@ -296,11 +314,12 @@ export function parseMvpTrialArgs(rawArgs) {
       mode: "evidence",
       json,
       hostPath: parsedAudit.hostPath,
-      viewerPath: parsedAudit.viewerPath
+      viewerPath: parsedAudit.viewerPath,
+      expectedSessionId: parsedAudit.expectedSessionId
     };
   }
 
-  if (hostAudit !== undefined || viewerAudit !== undefined) {
+  if (hostAudit !== undefined || viewerAudit !== undefined || expectedSessionId !== undefined) {
     throw new MvpTrialUsageError();
   }
 
@@ -328,6 +347,7 @@ export function runMvpTrialEvidence(options) {
   const result = runMvpAuditSummaryCheck({
     hostPath: options.hostPath,
     viewerPath: options.viewerPath,
+    expectedSessionId: options.expectedSessionId,
     requireMvpEvidence: true,
     readText: options.readText,
     stat: options.stat
@@ -540,7 +560,10 @@ function sanitizeMissingEvidence(value) {
   const allowed = new Set([
     "host.authorizationApproved",
     "host.authorizationActive",
+    "host.screenCaptureRequested",
+    "host.screenCaptureCompleted",
     "host.screenFrameSent",
+    "host.inputApplied",
     "host.permissionRevoked",
     "host.disconnectObserved",
     "viewer.screenFrameOutput",

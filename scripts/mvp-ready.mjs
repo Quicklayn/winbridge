@@ -95,10 +95,11 @@ const REVIEWED_HOST_WINDOWS_CAPTURE_ARG = "--dev-screen-frame-source 'windows-ca
 const REVIEWED_VIEWER_CONTROL_REQUEST_ARG = "--request 'screen:view,input:pointer,input:keyboard'";
 const REVIEWED_VIEWER_FRAME_OUTPUT_ARG = "--viewer-screen-frame-output 'frames\\latest.jpg'";
 const REVIEWED_AUDIT_SUMMARY_COMMAND =
-  "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --require-mvp-evidence";
+  "npm run mvp:audit-summary -- --host 'logs\\host-audit.jsonl' --viewer 'logs\\viewer-audit.jsonl' --session 'demo' --require-mvp-evidence";
 const REVIEWED_WINDOWS_CONTROL_SMOKE_COMMAND = "npm run mvp:ready -- --include-windows-control-smoke";
 const REVIEWED_EVIDENCE_FIXTURE_READY_COMMAND = "npm run mvp:ready -- --include-evidence-fixture";
-const REVIEWED_EVIDENCE_FIXTURE_RECORDS = Object.freeze({ host: 5, viewer: 3 });
+const REVIEWED_EVIDENCE_FIXTURE_SESSION = "fixture-session";
+const REVIEWED_EVIDENCE_FIXTURE_RECORDS = Object.freeze({ host: 9, viewer: 4 });
 const REVIEWED_MVP_TRIAL_SESSION_BOOTSTRAP_COMMAND =
   "npm run mvp:commands -- --generate-session --generate-pairing --relay-host <relay-pc-lan-ip> --token-env WINBRIDGE_RELAY_SHARED_TOKEN";
 const REVIEWED_MVP_TRIAL_SESSION_PLACEHOLDER = "<session-id>";
@@ -251,14 +252,14 @@ const MVP_TRIAL_PLAN_ROLE_DETAILS = Object.freeze({
     title: "Post-run evidence",
     steps: Object.freeze([
       Object.freeze({
-        name: "strict-evidence",
-        command:
-          "npm run mvp:trial -- --evidence --host-audit <host-audit-jsonl> --viewer-audit <viewer-audit-jsonl>"
+          name: "strict-evidence",
+          command:
+            "npm run mvp:trial -- --evidence --host-audit <host-audit-jsonl> --viewer-audit <viewer-audit-jsonl> --session <session-id>"
       }),
       Object.freeze({
-        name: "underlying-gate",
-        command:
-          "npm run mvp:audit-summary -- --host <host-audit-jsonl> --viewer <viewer-audit-jsonl> --require-mvp-evidence"
+          name: "underlying-gate",
+          command:
+            "npm run mvp:audit-summary -- --host <host-audit-jsonl> --viewer <viewer-audit-jsonl> --session <session-id> --require-mvp-evidence"
       }),
       Object.freeze({
         name: "operator-check",
@@ -656,7 +657,12 @@ export function createMvpReadyPlan(options = {}) {
       ? [
           {
             name: "evidence-fixture",
-            ...commandWithArgs("mvp:evidence-fixture", ["--verify", "--json"])
+            ...commandWithArgs("mvp:evidence-fixture", [
+              "--verify",
+              "--session",
+              REVIEWED_EVIDENCE_FIXTURE_SESSION,
+              "--json"
+            ])
           }
         ]
       : [])
