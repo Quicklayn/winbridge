@@ -10,7 +10,9 @@ import {
   createWindowsInputAdapter,
   type WindowsInputEvent,
   type WindowsInputGrant,
-  type WindowsInputNativeRunner
+  type WindowsInputNativeRunner,
+  type WindowsInputNativeWorker,
+  type WindowsInputNativeWorkerFactory
 } from "./index.js";
 
 const now = new Date("2026-06-16T05:00:00.000Z");
@@ -238,6 +240,209 @@ describe("windows input adapter", () => {
     expect(runner).not.toHaveBeenCalled();
   });
 
+  it("lazily reuses one worker and serializes concurrent events", async () => {
+    const first = deferred<string>();
+    const second = deferred<string>();
+    const run = vi
+      .fn<WindowsInputNativeWorker["run"]>()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const close = vi.fn();
+    const workerFactory = vi.fn<WindowsInputNativeWorkerFactory>(() => ({ run, close }));
+    const adapter = createWindowsInputAdapter({
+      workerFactory,
+      platform: "win32",
+      now: () => now
+    });
+
+    expect(workerFactory).not.toHaveBeenCalled();
+    const pointer = adapter.applyInputEvent(validPointerGrant, pointerMoveInput);
+    const keyboard = adapter.applyInputEvent(validKeyboardGrant, keyboardInput);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    expect(workerFactory).toHaveBeenCalledTimes(1);
+
+    first.resolve(nativeSuccess);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    second.resolve(nativeSuccess);
+
+    await expect(pointer).resolves.toMatchObject({ eventId: "input_pointer_1" });
+    await expect(keyboard).resolves.toMatchObject({ eventId: "input_keyboard_1" });
+    expect(workerFactory).toHaveBeenCalledTimes(1);
+    adapter.close();
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a queued event whose grant expires before dispatch", async () => {
+    let currentNow = now;
+    const first = deferred<string>();
+    const run = vi
+      .fn<WindowsInputNativeWorker["run"]>()
+      .mockImplementationOnce(() => first.promise);
+    const adapter = createWindowsInputAdapter({
+      workerFactory: () => ({ run, close: vi.fn() }),
+      platform: "win32",
+      now: () => currentNow
+    });
+    const longGrant = {
+      ...validPointerGrant,
+      expiresAt: "2026-06-16T05:20:00.000Z"
+    };
+    const shortGrant = {
+      ...validPointerGrant,
+      expiresAt: "2026-06-16T05:00:05.000Z"
+    };
+
+    const activeResult = adapter.applyInputEvent(longGrant, pointerMoveInput);
+    const expiredResult = adapter.applyInputEvent(shortGrant, {
+      ...pointerMoveInput,
+      eventId: "input_pointer_expired_in_queue",
+      sequence: 2
+    });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    currentNow = new Date("2026-06-16T05:00:06.000Z");
+    first.resolve(nativeSuccess);
+
+    await expect(activeResult).resolves.toMatchObject({ eventId: "input_pointer_1" });
+    await expect(expiredResult).rejects.toThrow(WINDOWS_INPUT_GRANT_ERROR_MESSAGE);
+    expect(run).toHaveBeenCalledTimes(1);
+    adapter.close();
+  });
+
+  it("bounds queued native input before accepting more work", async () => {
+    const activeNative = deferred<string>();
+    const run = vi.fn<WindowsInputNativeWorker["run"]>(() => activeNative.promise);
+    const adapter = createWindowsInputAdapter({
+      workerFactory: () => ({
+        run,
+        close: () => activeNative.reject(new Error("closed"))
+      }),
+      platform: "win32",
+      now: () => now,
+      maxQueueSize: 1
+    });
+
+    const activeResult = adapter.applyInputEvent(validPointerGrant, pointerMoveInput);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    await expect(
+      adapter.applyInputEvent(validPointerGrant, {
+        ...pointerMoveInput,
+        eventId: "input_pointer_queue_overflow",
+        sequence: 2
+      })
+    ).rejects.toThrow(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE);
+    expect(run).toHaveBeenCalledTimes(1);
+    adapter.close();
+    await expect(activeResult).rejects.toThrow(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE);
+  });
+
+  it("close rejects active and queued work before later native dispatch", async () => {
+    const activeNative = deferred<string>();
+    const run = vi.fn<WindowsInputNativeWorker["run"]>(() => activeNative.promise);
+    const close = vi.fn(() => activeNative.reject(new Error("raw native close failure KeyZ")));
+    const adapter = createWindowsInputAdapter({
+      workerFactory: () => ({ run, close }),
+      platform: "win32",
+      now: () => now
+    });
+
+    const activeResult = adapter.applyInputEvent(validPointerGrant, pointerMoveInput);
+    const queuedResult = adapter.applyInputEvent(validPointerGrant, {
+      ...pointerMoveInput,
+      eventId: "input_pointer_queued_close",
+      sequence: 2
+    });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1));
+    adapter.close();
+    adapter.close();
+
+    await expect(activeResult).rejects.toThrow(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE);
+    await expect(queuedResult).rejects.toThrow(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(await Promise.allSettled([activeResult, queuedResult]))).not.toContain(
+      "raw native close failure KeyZ"
+    );
+  });
+
+  it("starts a fresh worker only for a later valid generation", async () => {
+    const firstNative = deferred<string>();
+    const firstRun = vi.fn<WindowsInputNativeWorker["run"]>(() => firstNative.promise);
+    const firstClose = vi.fn(() => firstNative.reject(new Error("closed")));
+    const secondRun = vi.fn<WindowsInputNativeWorker["run"]>().mockResolvedValue(nativeSuccess);
+    const secondClose = vi.fn();
+    const workerFactory = vi
+      .fn<WindowsInputNativeWorkerFactory>()
+      .mockReturnValueOnce({ run: firstRun, close: firstClose })
+      .mockReturnValueOnce({ run: secondRun, close: secondClose });
+    const adapter = createWindowsInputAdapter({ workerFactory, platform: "win32", now: () => now });
+
+    const stale = adapter.applyInputEvent(validPointerGrant, pointerMoveInput);
+    await vi.waitFor(() => expect(firstRun).toHaveBeenCalledTimes(1));
+    adapter.close();
+    await expect(stale).rejects.toThrow(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE);
+
+    await expect(
+      adapter.applyInputEvent(validPointerGrant, {
+        ...pointerMoveInput,
+        eventId: "input_pointer_new_generation",
+        sequence: 2
+      })
+    ).resolves.toMatchObject({ eventId: "input_pointer_new_generation" });
+    expect(workerFactory).toHaveBeenCalledTimes(2);
+    expect(secondRun).toHaveBeenCalledTimes(1);
+    adapter.close();
+    expect(secondClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards a failed worker and keeps diagnostics generic", async () => {
+    const rawFailure = "worker failed with KeyA control raw-token";
+    const firstRun = vi.fn<WindowsInputNativeWorker["run"]>().mockRejectedValue(new Error(rawFailure));
+    const firstClose = vi.fn();
+    const secondRun = vi.fn<WindowsInputNativeWorker["run"]>().mockResolvedValue(nativeSuccess);
+    const secondClose = vi.fn();
+    const workerFactory = vi
+      .fn<WindowsInputNativeWorkerFactory>()
+      .mockReturnValueOnce({ run: firstRun, close: firstClose })
+      .mockReturnValueOnce({ run: secondRun, close: secondClose });
+    const adapter = createWindowsInputAdapter({ workerFactory, platform: "win32", now: () => now });
+
+    const failure = await adapter.applyInputEvent(validKeyboardGrant, keyboardInput).catch((error) => error);
+    expect(failure).toEqual(new Error(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE));
+    expect(String(failure)).not.toContain(rawFailure);
+    expect(firstClose).toHaveBeenCalled();
+
+    await expect(adapter.applyInputEvent(validKeyboardGrant, keyboardInput)).resolves.toMatchObject({
+      eventId: "input_keyboard_1"
+    });
+    expect(workerFactory).toHaveBeenCalledTimes(2);
+    adapter.close();
+  });
+
+  it("closes the reusable worker after the one-shot convenience operation", async () => {
+    const run = vi.fn<WindowsInputNativeWorker["run"]>().mockResolvedValue(nativeSuccess);
+    const close = vi.fn();
+
+    await expect(
+      applyWindowsInputEvent(validPointerGrant, pointerMoveInput, {
+        workerFactory: () => ({ run, close }),
+        platform: "win32",
+        now: () => now
+      })
+    ).resolves.toMatchObject({ eventId: "input_pointer_1" });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects ambiguous runner and worker configuration before native work", () => {
+    const runner = vi.fn<WindowsInputNativeRunner>();
+    const workerFactory = vi.fn<WindowsInputNativeWorkerFactory>();
+
+    expect(() => createWindowsInputAdapter({ runner, workerFactory })).toThrow(
+      WINDOWS_INPUT_OUTPUT_ERROR_MESSAGE
+    );
+    expect(runner).not.toHaveBeenCalled();
+    expect(workerFactory).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed input before native invocation", async () => {
     const runner = vi.fn<WindowsInputNativeRunner>().mockResolvedValue(nativeSuccess);
     const rawKeyBuffer = "raw-keylogging-buffer-secret";
@@ -355,3 +560,22 @@ describe("windows input adapter", () => {
     expect(command.join(" ")).toContain("Convert-ToDword");
   });
 });
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: Error): void;
+} {
+  let resolvePromise!: (value: T) => void;
+  let rejectPromise!: (error: Error) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+
+  return {
+    promise,
+    resolve: resolvePromise,
+    reject: rejectPromise
+  };
+}

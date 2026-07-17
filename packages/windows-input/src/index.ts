@@ -8,8 +8,28 @@ import {
   type Permission,
   type ProtocolEnvelope
 } from "@winbridge/protocol";
+import {
+  createPowerShellWindowsInputWorker,
+  type WindowsInputNativeWorker,
+  type WindowsInputNativeWorkerFactory
+} from "./persistent-worker.js";
+
+export {
+  createPowerShellWindowsInputWorker,
+  createPowerShellWindowsInputWorkerCommand,
+  DEFAULT_WINDOWS_INPUT_WORKER_MAX_REQUEST_BYTES,
+  DEFAULT_WINDOWS_INPUT_WORKER_MAX_RESPONSE_BYTES,
+  WINDOWS_INPUT_WORKER_ERROR_MESSAGE
+} from "./persistent-worker.js";
+export type {
+  PowerShellWindowsInputWorkerOptions,
+  WindowsInputNativeWorker,
+  WindowsInputNativeWorkerFactory,
+  WindowsInputWorkerProcessFactory
+} from "./persistent-worker.js";
 
 export const DEFAULT_WINDOWS_INPUT_TIMEOUT_MS = 5_000;
+export const DEFAULT_WINDOWS_INPUT_MAX_QUEUE_SIZE = 128;
 export const MAX_WINDOWS_INPUT_TIMEOUT_MS = 2_147_483_647;
 export const WINDOWS_INPUT_GRANT_ERROR_MESSAGE =
   "Windows input requires an active visible matching input grant";
@@ -84,9 +104,11 @@ export type WindowsInputApplyResult = Readonly<{
 
 export type WindowsInputAdapterOptions = Readonly<{
   runner?: WindowsInputNativeRunner;
+  workerFactory?: WindowsInputNativeWorkerFactory;
   platform?: NodeJS.Platform;
   now?: () => Date;
   timeoutMs?: number;
+  maxQueueSize?: number;
 }>;
 
 export type WindowsInputAdapter = Readonly<{
@@ -94,6 +116,7 @@ export type WindowsInputAdapter = Readonly<{
     grant: WindowsInputGrant,
     input: WindowsInputEvent
   ): Promise<WindowsInputApplyResult>;
+  close(): void;
 }>;
 
 const INPUT_VALIDATION_SESSION_ID = "session-input-validation";
@@ -103,6 +126,21 @@ const MAX_POWERSHELL_OUTPUT_BYTES = 4096;
 const ABSOLUTE_POINTER_RANGE = 65_535;
 const POINTER_WHEEL_DELTA_UNIT = 120;
 const NATIVE_SUCCESS_OUTPUT = { applied: true } as const;
+
+type QueuedWindowsInputApplication = {
+  generation: number;
+  grant: WindowsInputGrant;
+  parsedInput: WindowsInputEvent;
+  requiredPermission: Permission;
+  nativeEvent: WindowsInputNativeEvent;
+  resolve(result: WindowsInputApplyResult): void;
+  reject(error: Error): void;
+};
+
+type ActiveWindowsInputApplication = {
+  entry: QueuedWindowsInputApplication;
+  settled: boolean;
+};
 
 const VIRTUAL_KEY_BY_KEY = new Map<string, number>([
   ["Backspace", 0x08],
@@ -284,7 +322,12 @@ if ($sent -ne $array.Length) { throw "SendInput failed" }
 export function createWindowsInputAdapter(
   options: WindowsInputAdapterOptions = {}
 ): WindowsInputAdapter {
-  const runner = options.runner ?? runPowerShellWindowsInput;
+  if (options.runner !== undefined && options.workerFactory !== undefined) {
+    throw new Error(WINDOWS_INPUT_OUTPUT_ERROR_MESSAGE);
+  }
+
+  const runner = options.runner;
+  const workerFactory = options.workerFactory ?? createPowerShellWindowsInputWorker;
   const platform = options.platform ?? process.platform;
   const now = options.now ?? (() => new Date());
   const timeoutMs = validateBoundedPositiveSafeInteger(
@@ -292,22 +335,165 @@ export function createWindowsInputAdapter(
     MAX_WINDOWS_INPUT_TIMEOUT_MS,
     WINDOWS_INPUT_OUTPUT_ERROR_MESSAGE
   );
+  const maxQueueSize = validateBoundedPositiveSafeInteger(
+    options.maxQueueSize ?? DEFAULT_WINDOWS_INPUT_MAX_QUEUE_SIZE,
+    DEFAULT_WINDOWS_INPUT_MAX_QUEUE_SIZE,
+    WINDOWS_INPUT_OUTPUT_ERROR_MESSAGE
+  );
+  let generation = 0;
+  let worker: WindowsInputNativeWorker | undefined;
+  let active: ActiveWindowsInputApplication | undefined;
+  const queue: QueuedWindowsInputApplication[] = [];
+
+  const close = () => {
+    generation += 1;
+    const error = new Error(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE);
+    if (active && !active.settled) {
+      active.settled = true;
+      active.entry.reject(error);
+    }
+    for (const entry of queue.splice(0)) {
+      entry.reject(new Error(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE));
+    }
+    const workerToClose = worker;
+    worker = undefined;
+    closeNativeWorkerBestEffort(workerToClose);
+  };
+
+  const dispatchNativeInput = async (
+    entry: QueuedWindowsInputApplication
+  ): Promise<WindowsInputApplyResult> => {
+    if (entry.generation !== generation) {
+      throw new Error(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE);
+    }
+
+    assertInputGrant(
+      entry.grant,
+      platform,
+      now(),
+      entry.parsedInput.authorizationId,
+      entry.requiredPermission
+    );
+    const request = { timeoutMs, event: entry.nativeEvent } as const;
+    if (runner) {
+      await runNativeInput(runner, request);
+    } else {
+      let activeWorker = worker;
+      if (!activeWorker) {
+        try {
+          activeWorker = workerFactory();
+          worker = activeWorker;
+        } catch {
+          throw new Error(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE);
+        }
+      }
+
+      try {
+        await runNativeInput((nativeRequest) => activeWorker.run(nativeRequest), request);
+      } catch (error) {
+        if (worker === activeWorker) {
+          worker = undefined;
+          closeNativeWorkerBestEffort(activeWorker);
+        }
+        throw error;
+      }
+    }
+
+    if (entry.generation !== generation) {
+      throw new Error(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE);
+    }
+
+    assertInputGrant(
+      entry.grant,
+      platform,
+      now(),
+      entry.parsedInput.authorizationId,
+      entry.requiredPermission
+    );
+
+    return {
+      authorizationId: entry.parsedInput.authorizationId,
+      eventId: entry.parsedInput.eventId,
+      inputKind: entry.parsedInput.event.kind,
+      appliedAt: now().toISOString()
+    };
+  };
+
+  const drain = () => {
+    if (active || queue.length === 0) {
+      return;
+    }
+
+    const entry = queue.shift();
+    if (!entry) {
+      return;
+    }
+
+    if (entry.generation !== generation) {
+      entry.reject(new Error(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE));
+      queueMicrotask(drain);
+      return;
+    }
+
+    const activeApplication: ActiveWindowsInputApplication = { entry, settled: false };
+    active = activeApplication;
+    void dispatchNativeInput(entry)
+      .then(
+        (result) => {
+          if (!activeApplication.settled) {
+            activeApplication.settled = true;
+            entry.resolve(result);
+          }
+        },
+        (error: unknown) => {
+          if (!activeApplication.settled) {
+            activeApplication.settled = true;
+            entry.reject(
+              error instanceof Error ? error : new Error(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE)
+            );
+          }
+        }
+      )
+      .finally(() => {
+        if (active === activeApplication) {
+          active = undefined;
+        }
+        drain();
+      });
+  };
 
   return {
-    async applyInputEvent(grant, input) {
+    applyInputEvent(grant, input) {
       const parsedInput = parseWindowsInputEvent(input);
       const requiredPermission = inputEventRequiredPermission(parsedInput.event);
       assertInputGrant(grant, platform, now(), parsedInput.authorizationId, requiredPermission);
+      if (queue.length + (active ? 1 : 0) >= maxQueueSize) {
+        return Promise.reject(new Error(WINDOWS_INPUT_RUNNER_ERROR_MESSAGE));
+      }
       const nativeEvent = normalizeNativeInputEvent(parsedInput);
-      await runNativeInput(runner, { timeoutMs, event: nativeEvent });
-
-      return {
-        authorizationId: parsedInput.authorizationId,
-        eventId: parsedInput.eventId,
-        inputKind: parsedInput.event.kind,
-        appliedAt: now().toISOString()
+      const grantSnapshot: WindowsInputGrant = {
+        authorizationId: grant.authorizationId,
+        authorizationStatus: grant.authorizationStatus,
+        visibleToHost: grant.visibleToHost,
+        permissions: [...grant.permissions],
+        peerConnected: grant.peerConnected,
+        expiresAt: grant.expiresAt
       };
-    }
+
+      return new Promise<WindowsInputApplyResult>((resolve, reject) => {
+        queue.push({
+          generation,
+          grant: grantSnapshot,
+          parsedInput,
+          requiredPermission,
+          nativeEvent,
+          resolve,
+          reject
+        });
+        drain();
+      });
+    },
+    close
   };
 }
 
@@ -316,7 +502,12 @@ export async function applyWindowsInputEvent(
   input: WindowsInputEvent,
   options: WindowsInputAdapterOptions = {}
 ): Promise<WindowsInputApplyResult> {
-  return createWindowsInputAdapter(options).applyInputEvent(grant, input);
+  const adapter = createWindowsInputAdapter(options);
+  try {
+    return await adapter.applyInputEvent(grant, input);
+  } finally {
+    adapter.close();
+  }
 }
 
 export function createPowerShellWindowsInputCommand(
@@ -365,6 +556,14 @@ function runPowerShellWindowsInput(request: WindowsInputNativeRequest): Promise<
       }
     );
   });
+}
+
+function closeNativeWorkerBestEffort(worker: WindowsInputNativeWorker | undefined): void {
+  try {
+    worker?.close();
+  } catch {
+    // Authorization loss and adapter shutdown must not expose native diagnostics.
+  }
 }
 
 function assertInputGrant(

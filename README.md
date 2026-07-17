@@ -1091,15 +1091,28 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request input:poi
 
 `--host-apply-input true` is host-only, disabled by default, and rejected without
 `--audit-log` or `WINBRIDGE_AGENT_AUDIT_LOG_PATH`. The host writes
-metadata-only input-application audit before invoking the Windows input adapter;
-audit failure, stale authorization, pause, revoke, termination, expiration,
-disconnect, wrong permission, or adapter failure blocks trusted success. Runtime
-events, logs, and audit records still redact pointer coordinates, buttons, keys,
-modifiers, raw input payloads, tokens, pairing codes, credentials, and private
-reason text. This development path does not capture input, keylog, sync
-clipboard, transfer files, install services, configure startup persistence,
-elevate privileges, run unattended, hide the host indicator, or bypass Windows
-prompts.
+metadata-only input-application audit before invoking the Windows input adapter.
+After the first authorized event, one direct foreground PowerShell child helper
+is reused by that host runtime and processes a bounded queue in FIFO order with
+at most one native request in flight. The helper receives only normalized
+supported input metadata and internal correlation numbers; it does not receive
+session or authorization ids, relay tokens, pairing codes, audit paths,
+credentials, endpoints, arbitrary commands, or text buffers. Pause, any
+permission revoke, termination, expiration, local or peer disconnect, socket
+close, authorization replacement, and runtime stop immediately block further
+native input and close the helper. Resume does not bypass validation: a later
+event must pass the ordinary active visible unexpired authorization, routing,
+connectivity, permission, and audit gates before a fresh helper generation can
+start. Lifecycle audit failure keeps input locally blocked, and late helper
+success cannot create trusted applied evidence after authorization loss.
+
+Helper timeout, process, protocol, output, and shutdown failures stay generic;
+runtime events, logs, and audit records redact pointer coordinates, buttons,
+keys, modifiers, raw input payloads, native diagnostics, tokens, pairing codes,
+credentials, and private reason text. This development path does not capture
+input, keylog, sync clipboard, transfer files, install services, configure
+startup persistence, elevate privileges, run unattended, hide the host
+indicator, or bypass Windows prompts.
 
 Use the development host control prompt to invoke immediate local controls from the host terminal:
 

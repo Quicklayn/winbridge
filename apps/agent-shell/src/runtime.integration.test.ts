@@ -8,7 +8,10 @@ import type {
   WindowsScreenCaptureAdapter,
   WindowsScreenCaptureFrame
 } from "@winbridge/windows-capture";
-import type { WindowsInputAdapter } from "@winbridge/windows-input";
+import type {
+  WindowsInputAdapter,
+  WindowsInputApplyResult
+} from "@winbridge/windows-input";
 import {
   createMessageBase,
   encodeProtocolEnvelope,
@@ -52,6 +55,12 @@ type TestLogger = {
 };
 type MutableStatusSnapshot<T> = {
   -readonly [K in keyof T]: T[K];
+};
+type InputCloseBoundaryContext = {
+  host: AgentShellRuntime;
+  viewer: AgentShellRuntime;
+  hostEvents: AgentShellEvent[];
+  viewerEvents: AgentShellEvent[];
 };
 
 const silentLogger: TestLogger = {
@@ -2036,7 +2045,7 @@ describe("agent shell consent workflow", () => {
       hostAuditSink,
       hostApplyInput: true,
       hostDecision: "approve",
-      hostWindowsInput: { applyInputEvent },
+      hostWindowsInput: { applyInputEvent, close: vi.fn() },
       visibleToHost: true
     });
     const viewer = await startViewer(relay.url(), ["input:pointer", "input:keyboard"], viewerEvents);
@@ -2187,6 +2196,394 @@ describe("agent shell consent workflow", () => {
     expect(serialized).not.toContain("shift");
   });
 
+  it("reuses one runtime input adapter and requires resume before later input", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const close = vi.fn();
+    const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>(async (_grant, input) => ({
+      authorizationId: input.authorizationId,
+      eventId: input.eventId,
+      inputKind: input.event.kind,
+      appliedAt: new Date().toISOString()
+    }));
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostApplyInput: true,
+      hostDecision: "approve",
+      hostWindowsInput: { applyInputEvent, close },
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["input:pointer"], viewerEvents);
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_runtime_reuse_1",
+      sequence: 1,
+      event: { kind: "pointer-move", x: 0.2, y: 0.3 }
+    });
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "input-event" && message.eventId === "input_runtime_reuse_1"
+    );
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_runtime_reuse_2",
+      sequence: 2,
+      event: { kind: "pointer-move", x: 0.4, y: 0.5 }
+    });
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "input-event" && message.eventId === "input_runtime_reuse_2"
+    );
+
+    expect(applyInputEvent).toHaveBeenCalledTimes(2);
+    const closeCountBeforePause = close.mock.calls.length;
+    host.pause();
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "paused"
+    );
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforePause);
+
+    host.resume();
+    await waitForReceivedMessageCount(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active",
+      2
+    );
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_runtime_after_resume",
+      sequence: 3,
+      event: { kind: "pointer-move", x: 0.6, y: 0.7 }
+    });
+    await waitForMessage(
+      hostEvents,
+      (message) =>
+        message.type === "input-event" && message.eventId === "input_runtime_after_resume"
+    );
+
+    expect(applyInputEvent).toHaveBeenCalledTimes(3);
+    expect(
+      hostAuditSink.records().filter(
+        (record) => record.action === "agent-shell.remote-interaction.input-event.applied"
+      )
+    ).toHaveLength(3);
+  });
+
+  it("withholds late input success after host pause closes the runtime adapter", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const pendingInput = deferred<WindowsInputApplyResult>();
+    const close = vi.fn();
+    const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>(
+      () => pendingInput.promise
+    );
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostApplyInput: true,
+      hostDecision: "approve",
+      hostWindowsInput: { applyInputEvent, close },
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["input:pointer"], viewerEvents);
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_pause_in_flight",
+      sequence: 1,
+      event: { kind: "pointer-move", x: 0.25, y: 0.75 }
+    });
+    await vi.waitFor(() => expect(applyInputEvent).toHaveBeenCalledTimes(1));
+    const closeCountBeforePause = close.mock.calls.length;
+
+    host.pause();
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "paused"
+    );
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforePause);
+    pendingInput.resolve({
+      authorizationId,
+      eventId: "input_pause_in_flight",
+      inputKind: "pointer-move",
+      appliedAt: new Date().toISOString()
+    });
+
+    await waitForRuntimeError(hostEvents);
+    await delay(50);
+    expect(
+      hostAuditSink.records().some(
+        (record) =>
+          record.action === "agent-shell.remote-interaction.input-event.application-requested" &&
+          record.detail.eventId === "input_pause_in_flight"
+      )
+    ).toBe(true);
+    expect(
+      hostAuditSink.records().some(
+        (record) =>
+          record.action === "agent-shell.remote-interaction.input-event.applied" &&
+          record.detail.eventId === "input_pause_in_flight"
+      )
+    ).toBe(false);
+    expect(
+      hostEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "input-event" &&
+          event.message.eventId === "input_pause_in_flight"
+      )
+    ).toBe(false);
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain("0.25");
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain("0.75");
+  });
+
+  it("keeps native input blocked when pause audit persistence fails", async () => {
+    const backingSink = new MemoryAuditSink();
+    const rawAuditFailure = "pause audit failed with KeyZ control raw-token";
+    const failingSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.authorization.paused") {
+          throw new Error(rawAuditFailure);
+        }
+
+        return backingSink.write(input);
+      }
+    };
+    const close = vi.fn();
+    const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>(async (_grant, input) => ({
+      authorizationId: input.authorizationId,
+      eventId: input.eventId,
+      inputKind: input.event.kind,
+      appliedAt: new Date().toISOString()
+    }));
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostApplyInput: true,
+      hostDecision: "approve",
+      hostWindowsInput: { applyInputEvent, close },
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["input:keyboard"], viewerEvents);
+    const authorizationId = await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    const closeCountBeforePause = close.mock.calls.length;
+
+    expect(() => host.pause()).toThrow("Agent shell runtime error");
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforePause);
+    const errorCountAfterPause = hostEvents.filter((event) => event.direction === "error").length;
+
+    viewer.sendInputEvent({
+      authorizationId,
+      eventId: "input_after_failed_pause_audit",
+      sequence: 1,
+      event: {
+        kind: "key-down",
+        key: "KeyZ",
+        code: "KeyZ",
+        modifiers: ["control"]
+      }
+    });
+    await vi.waitFor(() =>
+      expect(hostEvents.filter((event) => event.direction === "error").length).toBeGreaterThan(
+        errorCountAfterPause
+      )
+    );
+    await delay(50);
+
+    expect(applyInputEvent).not.toHaveBeenCalled();
+    expect(
+      backingSink.records().some(
+        (record) =>
+          record.action === "agent-shell.remote-interaction.input-event.application-requested" ||
+          record.action === "agent-shell.remote-interaction.input-event.applied"
+      )
+    ).toBe(false);
+    expect(
+      hostEvents.some(
+        (event) =>
+          event.direction === "received" &&
+          event.message.type === "input-event" &&
+          event.message.eventId === "input_after_failed_pause_audit"
+      )
+    ).toBe(false);
+    const serialized = JSON.stringify([hostEvents, backingSink.records()]);
+    expect(serialized).not.toContain(rawAuditFailure);
+    expect(serialized).not.toContain("KeyZ");
+    expect(serialized).not.toContain("control");
+    expect(serialized).not.toContain("raw-token");
+  });
+
+  it.each([
+    {
+      name: "permission revoke",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ host, viewerEvents }: InputCloseBoundaryContext) => {
+        host.revokePermission("input:pointer");
+        await waitForMessage(
+          viewerEvents,
+          (message) =>
+            message.type === "session-authorization-state" && message.status === "revoked"
+        );
+      }
+    },
+    {
+      name: "termination",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ host, viewerEvents }: InputCloseBoundaryContext) => {
+        host.terminate();
+        await waitForMessage(
+          viewerEvents,
+          (message) =>
+            message.type === "session-authorization-state" && message.status === "terminated"
+        );
+      }
+    },
+    {
+      name: "local disconnect",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ host, hostEvents }: InputCloseBoundaryContext) => {
+        host.disconnect();
+        await waitForClosedEvent(hostEvents);
+      }
+    },
+    {
+      name: "peer disconnect",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ viewer, hostEvents }: InputCloseBoundaryContext) => {
+        await viewer.leave();
+        await waitForMessage(hostEvents, (message) => message.type === "peer-disconnected");
+      }
+    },
+    {
+      name: "authorization expiration",
+      authorizationTtlMs: 100,
+      crossBoundary: async ({ viewerEvents }: InputCloseBoundaryContext) => {
+        await waitForMessage(
+          viewerEvents,
+          (message) =>
+            message.type === "session-authorization-state" && message.status === "expired"
+        );
+      }
+    },
+    {
+      name: "runtime stop",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ host }: InputCloseBoundaryContext) => {
+        await host.stop();
+      }
+    }
+  ])("closes the runtime input adapter on $name", async ({
+    authorizationTtlMs,
+    crossBoundary
+  }) => {
+    const close = vi.fn();
+    const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>(async (_grant, input) => ({
+      authorizationId: input.authorizationId,
+      eventId: input.eventId,
+      inputKind: input.event.kind,
+      appliedAt: new Date().toISOString()
+    }));
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs,
+      hostAuditSink: new MemoryAuditSink(),
+      hostApplyInput: true,
+      hostDecision: "approve",
+      hostWindowsInput: { applyInputEvent, close },
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["input:pointer"], viewerEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    const closeCountBeforeBoundary = close.mock.calls.length;
+
+    await crossBoundary({ host, viewer, hostEvents, viewerEvents });
+
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforeBoundary);
+    expect(applyInputEvent).not.toHaveBeenCalled();
+  });
+
+  it("closes the runtime input adapter before authorization replacement", async () => {
+    const close = vi.fn();
+    const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>(async (_grant, input) => ({
+      authorizationId: input.authorizationId,
+      eventId: input.eventId,
+      inputKind: input.event.kind,
+      appliedAt: new Date().toISOString()
+    }));
+    const { relay, hostEvents } = await startRelayAndHost({
+      hostAuditSink: new MemoryAuditSink(),
+      hostApplyInput: true,
+      hostDecision: "approve",
+      hostWindowsInput: { applyInputEvent, close },
+      visibleToHost: true
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      sendRawViewerAuthorizationRequest(rawViewer, ["input:pointer"]);
+      await waitForSentActiveAuthorizationId(hostEvents);
+      const closeCountBeforeReplacement = close.mock.calls.length;
+
+      sendRawViewerAuthorizationRequest(rawViewer, ["input:pointer"]);
+      await vi.waitFor(() =>
+        expect(
+          hostEvents.filter(
+            (event) =>
+              event.direction === "sent" &&
+              event.message.type === "session-authorization-state" &&
+              event.message.status === "active"
+          )
+        ).toHaveLength(2)
+      );
+
+      expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforeReplacement);
+      expect(applyInputEvent).not.toHaveBeenCalled();
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("closes the runtime input adapter when the stop indicator callback fails", async () => {
+    const rawIndicatorFailure = "runtime stop indicator failed with raw-token";
+    const close = vi.fn();
+    let closeCountBeforeStop = 0;
+    let inputClosedBeforeStopIndicator = false;
+    const applyInputEvent = vi.fn<WindowsInputAdapter["applyInputEvent"]>(async (_grant, input) => ({
+      authorizationId: input.authorizationId,
+      eventId: input.eventId,
+      inputKind: input.event.kind,
+      appliedAt: new Date().toISOString()
+    }));
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: new MemoryAuditSink(),
+      hostApplyInput: true,
+      hostDecision: "approve",
+      hostOnEvent: (event) => {
+        if (event.direction === "indicator" && event.cause === "runtime-stop") {
+          inputClosedBeforeStopIndicator = close.mock.calls.length > closeCountBeforeStop;
+          throw new Error(rawIndicatorFailure);
+        }
+      },
+      hostWindowsInput: { applyInputEvent, close },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["input:pointer"], viewerEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    closeCountBeforeStop = close.mock.calls.length;
+
+    await expect(host.stop()).resolves.toBeUndefined();
+
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforeStop);
+    expect(inputClosedBeforeStopIndicator).toBe(true);
+    expect(applyInputEvent).not.toHaveBeenCalled();
+    expect(JSON.stringify(hostEvents)).not.toContain(rawIndicatorFailure);
+    expect(JSON.stringify(hostEvents)).not.toContain("raw-token");
+  });
+
   it("keeps inbound input metadata-only when host input application is disabled", async () => {
     const hostAuditSink = new MemoryAuditSink();
     const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
@@ -2247,7 +2644,7 @@ describe("agent shell consent workflow", () => {
       hostAuditSink: failingSink,
       hostApplyInput: true,
       hostDecision: "approve",
-      hostWindowsInput: { applyInputEvent },
+      hostWindowsInput: { applyInputEvent, close: vi.fn() },
       visibleToHost: true
     });
     const viewer = await startViewer(relay.url(), ["input:keyboard"], viewerEvents);
@@ -2305,7 +2702,7 @@ describe("agent shell consent workflow", () => {
       hostAuditSink: failingSink,
       hostApplyInput: true,
       hostDecision: "approve",
-      hostWindowsInput: { applyInputEvent },
+      hostWindowsInput: { applyInputEvent, close: vi.fn() },
       visibleToHost: true
     });
     const viewer = await startViewer(relay.url(), ["input:keyboard"], viewerEvents);
@@ -2357,7 +2754,7 @@ describe("agent shell consent workflow", () => {
       hostAuditSink,
       hostApplyInput: true,
       hostDecision: "approve",
-      hostWindowsInput: { applyInputEvent },
+      hostWindowsInput: { applyInputEvent, close: vi.fn() },
       visibleToHost: true
     });
     const viewer = await startViewer(relay.url(), ["input:keyboard"], viewerEvents);
@@ -3697,7 +4094,7 @@ describe("agent shell consent workflow", () => {
         ...scenario.options,
         hostApplyInput: true,
         hostAuditSink,
-        hostWindowsInput: { applyInputEvent },
+        hostWindowsInput: { applyInputEvent, close: vi.fn() },
         hostLogger: captureLogger(hostLogs)
       });
       const rawViewer = await startRawViewer(relay.url());
@@ -3758,7 +4155,7 @@ describe("agent shell consent workflow", () => {
         hostApplyInput: true,
         hostAuditSink,
         hostDecision: "approve",
-        hostWindowsInput: { applyInputEvent },
+        hostWindowsInput: { applyInputEvent, close: vi.fn() },
         hostLogger: captureLogger(hostLogs),
         visibleToHost: true
       });
@@ -18259,6 +18656,25 @@ function restorePropertyDescriptor(
   }
 
   delete (target as Record<string, unknown>)[key];
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: Error): void;
+} {
+  let resolvePromise!: (value: T) => void;
+  let rejectPromise!: (error: Error) => void;
+  const promise = new Promise<T>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+
+  return {
+    promise,
+    resolve: resolvePromise,
+    reject: rejectPromise
+  };
 }
 
 function delay(ms: number): Promise<void> {

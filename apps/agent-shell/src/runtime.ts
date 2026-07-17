@@ -406,6 +406,8 @@ type AgentShellSessionState = {
   viewerSignalProbeGeneration: number;
   hostSignalProbeAckAuthorizationId?: string;
   hostIndicator?: AgentShellHostIndicatorEvent;
+  windowsInputAdapter?: WindowsInputAdapter;
+  hostInputBlocked: boolean;
 };
 
 type RuntimeAuthorizationSnapshot = {
@@ -443,7 +445,12 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
     recipientAvailable: false,
     helloSent: false,
     viewerAuthorizationRequestSent: false,
-    viewerSignalProbeGeneration: 0
+    viewerSignalProbeGeneration: 0,
+    windowsInputAdapter:
+      options.hostApplyInput === true
+        ? options.windowsInput ?? createWindowsInputAdapter()
+        : undefined,
+    hostInputBlocked: true
   };
 
   if (options.token) {
@@ -467,7 +474,8 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
       clearTimeout(timer);
     }
     timers.clear();
-    deactivateHostIndicator(options, sessionState, "runtime-stop");
+    blockHostWindowsInput(sessionState);
+    deactivateHostIndicatorBestEffort(options, sessionState, "runtime-stop");
     resetConnectionScopedSessionState(sessionState);
 
     const socketToClose = socket;
@@ -508,6 +516,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         const reasonBytes = closeReasonByteLength(reason);
         const suppressViewerSocketClosedStatus = suppressNextViewerSocketCloseInactiveCause;
         suppressNextViewerSocketCloseInactiveCause = false;
+        blockHostWindowsInput(sessionState);
         sessionState.localPeerDisconnected = true;
         invalidateViewerSignalProbe(sessionState);
         recordViewerSocketClosedStatus(options, sessionState, suppressViewerSocketClosedStatus);
@@ -803,6 +812,7 @@ function rawDataToString(data: RawData): string {
 }
 
 function resetConnectionScopedSessionState(sessionState: AgentShellSessionState): void {
+  blockHostWindowsInput(sessionState);
   sessionState.localPeerDisconnected = false;
   sessionState.remotePeerDisconnected = false;
   sessionState.remoteDisconnectReasonCode = undefined;
@@ -823,6 +833,23 @@ function resetConnectionScopedSessionState(sessionState: AgentShellSessionState)
   sessionState.viewerSignalProbeGeneration = 0;
   sessionState.hostSignalProbeAckAuthorizationId = undefined;
   sessionState.hostIndicator = undefined;
+}
+
+function blockHostWindowsInput(sessionState: AgentShellSessionState): void {
+  sessionState.hostInputBlocked = true;
+  try {
+    sessionState.windowsInputAdapter?.close();
+  } catch {
+    // Local lifecycle loss must not be delayed by native helper diagnostics.
+  }
+}
+
+function enableHostWindowsInput(
+  sessionState: AgentShellSessionState,
+  permissions: readonly Permission[]
+): void {
+  sessionState.hostInputBlocked =
+    !permissions.includes("input:pointer") && !permissions.includes("input:keyboard");
 }
 
 function recordViewerSocketClosedStatus(
@@ -924,6 +951,10 @@ async function handleMessage(
   if (isUnauthorizedInboundRemoteInteraction(envelope, options, sessionState)) {
     reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
+  }
+
+  if (envelope.type === "peer-disconnected") {
+    blockHostWindowsInput(sessionState);
   }
 
   try {
@@ -1749,7 +1780,10 @@ function applyInboundWindowsInput(
     message,
     "agent-shell.remote-interaction.input-event.application-requested"
   );
-  const inputAdapter = options.windowsInput ?? createWindowsInputAdapter();
+  const inputAdapter = sessionState.windowsInputAdapter;
+  if (!inputAdapter) {
+    throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
+  }
   return inputAdapter.applyInputEvent(
     {
       authorizationId: authorization.authorizationId,
@@ -1761,9 +1795,17 @@ function applyInboundWindowsInput(
     },
     message
   ).then((result) => {
+    const currentAuthorization = getAuthorizedWindowsInputAuthorization(options, sessionState, message);
+    if (
+      result.authorizationId !== message.authorizationId ||
+      result.eventId !== message.eventId ||
+      result.inputKind !== message.event.kind
+    ) {
+      throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
+    }
     persistWindowsInputApplicationAudit(
       options,
-      authorization,
+      currentAuthorization,
       message,
       "agent-shell.remote-interaction.input-event.applied"
     );
@@ -1778,6 +1820,10 @@ function getAuthorizedWindowsInputAuthorization(
 ): VisibleRuntimeAuthorizationSnapshot {
   if (options.role !== "host") {
     throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
+  }
+
+  if (sessionState.hostInputBlocked) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
   }
 
   const requiredPermission = inputEventRequiredPermission(message.event);
@@ -2339,6 +2385,7 @@ async function handleHostAuthorizationRequest(
   }
 
   const viewerDeviceIdentity = getObservedViewerDeviceIdentity(sessionState, request.viewerPeerId);
+  blockHostWindowsInput(sessionState);
 
   switch (decision) {
     case "deny": {
@@ -2470,6 +2517,7 @@ async function handleHostAuthorizationRequest(
     expiresAt
   });
   sendProtocol(socket, options, activeAuditEvent);
+  enableHostWindowsInput(sessionState, grantedPermissions);
 
   scheduleHostExpiration(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostRevoke(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
@@ -3290,7 +3338,11 @@ function assertRuntimeHostInputApplication(options: AgentShellRuntimeOptions): v
     throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
   }
 
-  if (options.windowsInput !== undefined && typeof options.windowsInput.applyInputEvent !== "function") {
+  if (
+    options.windowsInput !== undefined &&
+    (typeof options.windowsInput.applyInputEvent !== "function" ||
+      typeof options.windowsInput.close !== "function")
+  ) {
     throw new Error(RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE);
   }
 }
@@ -3448,6 +3500,7 @@ function revokeHostPermission(
   revokedPermission: Permission,
   reason: string
 ): void {
+  blockHostWindowsInput(sessionState);
   const remainingPermissions = workflowState.permissions.filter(
     (permission) => permission !== revokedPermission
   );
@@ -3517,6 +3570,9 @@ function revokeHostPermission(
     reason
   });
   sendProtocol(socket, options, auditEvent);
+  if (!finalGrantRevoked && !workflowState.paused) {
+    enableHostWindowsInput(sessionState, remainingPermissions);
+  }
 }
 
 function canSendHostPause(
@@ -3596,6 +3652,7 @@ function pauseHostAuthorization(
   reason: string,
   reasonConfigured: boolean
 ): void {
+  blockHostWindowsInput(sessionState);
   const auditEvent = prepareDevelopmentAuditEvent(options, {
     action: "agent-shell.authorization.paused",
     outcome: "accepted",
@@ -3696,6 +3753,7 @@ function resumeHostAuthorization(
   });
 
   sendProtocol(socket, options, auditEvent);
+  enableHostWindowsInput(sessionState, workflowState.permissions);
 }
 
 function scheduleHostPause(
@@ -3846,6 +3904,7 @@ function terminateHostAuthorization(
   reason: string,
   reasonConfigured: boolean
 ): void {
+  blockHostWindowsInput(sessionState);
   const auditEvent = prepareDevelopmentAuditEvent(options, {
     action: "agent-shell.authorization.terminated",
     outcome: "accepted",
@@ -3919,6 +3978,7 @@ function scheduleHostExpiration(
       return;
     }
 
+    blockHostWindowsInput(sessionState);
     const auditEvent = prepareDevelopmentAuditEvent(options, {
       action: "agent-shell.authorization.expired",
       outcome: "accepted",
@@ -4183,6 +4243,7 @@ function closeLocalHostConnection(
   closeReason: string,
   logMessage: string
 ): void {
+  blockHostWindowsInput(sessionState);
   persistLocalHostDisconnectAudit(options, authorization, options.hostDisconnectReason !== undefined);
   sessionState.localPeerDisconnected = true;
   deactivateHostIndicatorBestEffort(options, sessionState, "local-disconnect");
