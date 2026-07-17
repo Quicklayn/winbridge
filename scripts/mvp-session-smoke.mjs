@@ -109,7 +109,8 @@ const REQUIRED_SMOKE_AUDIT_ACTIONS_BY_ROLE = Object.freeze({
     "agent-shell.remote-interaction.screen-frame.output-written": "screenFrameOutput",
     "agent-shell.remote-interaction.input-event.sent": "inputSent",
     "agent-shell.viewer.disconnect.requested": "disconnectObserved",
-    "agent-shell.viewer.disconnect.sent": "disconnectObserved"
+    "agent-shell.viewer.disconnect.sent": "disconnectObserved",
+    "agent-shell.session.disconnected": "disconnectObserved"
   })
 });
 const SMOKE_AUDIT_SUMMARY_ACTIONS = Object.freeze({

@@ -1732,7 +1732,7 @@ describe("MVP session smoke check", () => {
     ).toBeUndefined();
   });
 
-  it("requires strict role-bound smoke audit evidence before returning a summary", () => {
+  it("accepts canonical viewer local-leave evidence in the strict role-bound summary", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "winbridge-smoke-audit-"));
     try {
       const hostPath = join(tempDir, "host-audit.jsonl");
@@ -1752,7 +1752,7 @@ describe("MVP session smoke check", () => {
         [
           smokeAuditLine("agent-shell.remote-interaction.screen-frame.output-written"),
           smokeAuditLine("agent-shell.remote-interaction.input-event.sent"),
-          smokeAuditLine("agent-shell.viewer.disconnect.sent")
+          smokeAuditLine("agent-shell.session.disconnected")
         ].join("\n")
       );
 
@@ -1770,6 +1770,96 @@ describe("MVP session smoke check", () => {
           disconnectObserved: true
         }
       });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("retains strict viewer disconnect requested and sent evidence compatibility", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-smoke-audit-"));
+    try {
+      const hostPath = join(tempDir, "host-audit.jsonl");
+      const viewerPath = join(tempDir, "viewer-audit.jsonl");
+      writeFileSync(
+        hostPath,
+        [
+          smokeAuditLine("agent-shell.authorization.approved"),
+          smokeAuditLine("agent-shell.authorization.active"),
+          smokeAuditLine("agent-shell.remote-interaction.screen-frame.sent"),
+          smokeAuditLine("agent-shell.permission.revoked"),
+          smokeAuditLine("agent-shell.session.disconnected")
+        ].join("\n")
+      );
+
+      for (const action of [
+        "agent-shell.viewer.disconnect.requested",
+        "agent-shell.viewer.disconnect.sent"
+      ]) {
+        writeFileSync(
+          viewerPath,
+          [
+            smokeAuditLine("agent-shell.remote-interaction.screen-frame.output-written"),
+            smokeAuditLine("agent-shell.remote-interaction.input-event.sent"),
+            smokeAuditLine(action)
+          ].join("\n")
+        );
+
+        expect(tryReadSmokeAuditSummary(hostPath, viewerPath)).toMatchObject({
+          viewer: {
+            screenFrameOutput: true,
+            inputSent: true,
+            disconnectObserved: true
+          }
+        });
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects denied or failed canonical viewer local-leave evidence", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "winbridge-smoke-audit-"));
+    try {
+      const hostPath = join(tempDir, "host-audit.jsonl");
+      const viewerPath = join(tempDir, "viewer-audit.jsonl");
+      writeFileSync(
+        hostPath,
+        [
+          smokeAuditLine("agent-shell.authorization.approved"),
+          smokeAuditLine("agent-shell.authorization.active"),
+          smokeAuditLine("agent-shell.remote-interaction.screen-frame.sent"),
+          smokeAuditLine("agent-shell.permission.revoked"),
+          smokeAuditLine("agent-shell.session.disconnected")
+        ].join("\n")
+      );
+
+      for (const outcome of ["denied", "failed"]) {
+        writeFileSync(
+          viewerPath,
+          [
+            smokeAuditLine("agent-shell.remote-interaction.screen-frame.output-written"),
+            smokeAuditLine("agent-shell.remote-interaction.input-event.sent"),
+            smokeAuditLine("agent-shell.session.disconnected", outcome)
+          ].join("\n")
+        );
+
+        expect(tryReadSmokeAuditSummary(hostPath, viewerPath)).toBeUndefined();
+        expect(
+          summarizeSmokeAuditLogContent(readFileSync(viewerPath, "utf8"), "viewer")
+        ).toMatchObject({
+          records: 3,
+          accepted: 2,
+          [outcome]: 1,
+          screenFrameOutput: true,
+          inputSent: true,
+          disconnectObserved: false
+        });
+      }
+
+      const output = formatMvpSessionSmokeJsonError(new Error("audit-not-ready"));
+      expect(output).not.toContain("agent-shell.session.disconnected");
+      expect(output).not.toContain(hostPath);
+      expect(output).not.toContain(viewerPath);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

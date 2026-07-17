@@ -593,13 +593,14 @@ subcheck as passed, it MUST require accepted audit outcomes for the fixed MVP
 evidence flags in their expected local roles: host authorization approval, host
 active visible authorization, host screen frame sent, host permission revoked,
 host disconnect, host local session disconnected, or terminal lifecycle
-evidence, viewer screen frame output, viewer input sent, and viewer disconnect
-evidence. Denied, failed, missing, or wrong-role evidence MUST NOT satisfy
-smoke audit readiness. Human and JSON output MUST NOT include audit paths, raw
-audit lines, event ids, authorization ids, actor ids, target ids, detail
-values, reasons, raw action strings, raw child output, tokens, pairing codes,
-credentials, private reasons, screen contents, input contents, clipboard
-contents, file-transfer contents, diagnostics dumps, or full secrets.
+evidence; viewer screen frame output, viewer input sent, and viewer disconnect
+requested/sent or viewer local `agent-shell.session.disconnected` evidence.
+Denied, failed, missing, or wrong-role evidence MUST NOT satisfy smoke audit
+readiness. Human and JSON output MUST NOT include audit paths, raw audit lines,
+event ids, authorization ids, actor ids, target ids, detail values, reasons, raw
+action strings, raw child output, tokens, pairing codes, credentials, private
+reasons, screen contents, input contents, clipboard contents, file-transfer
+contents, diagnostics dumps, or full secrets.
 
 #### Scenario: Smoke JSON includes bounded audit summary
 
@@ -612,12 +613,23 @@ contents, file-transfer contents, diagnostics dumps, or full secrets.
 - **AND** it does not include raw audit record content or local audit file
   paths
 
+#### Scenario: Canonical viewer local leave satisfies disconnect evidence
+
+- **WHEN** the configured host audit file contains all accepted host-required
+  evidence and the configured viewer audit file contains accepted screen frame
+  output, input sent, and `agent-shell.session.disconnected` records
+- **THEN** strict smoke audit readiness treats the viewer-local canonical record
+  as `disconnectObserved=true`
+- **AND** it does not require a duplicate viewer disconnect requested or sent
+  action
+
 #### Scenario: Wrong-role or partial smoke audit evidence fails closed
 
 - **WHEN** the configured smoke audit files are parseable but host-required
   evidence appears only in the viewer log, viewer-required evidence appears
-  only in the host log, disconnect evidence is missing for either role, or one
-  or more required records are denied or failed
+  only in the host log, disconnect evidence is missing for either role, a
+  canonical viewer local disconnect record is denied or failed, or one or more
+  other required records are denied or failed
 - **THEN** the smoke helper exits non-zero with bounded diagnostics
 - **AND** it reports only the fixed `audit-not-ready` reason
 - **AND** diagnostics MUST NOT expose raw logs, paths, record details,
@@ -631,8 +643,8 @@ contents, file-transfer contents, diagnostics dumps, or full secrets.
   bounded audit summary inside the aggregate smoke check metadata
 - **AND** ready output MUST NOT echo raw child output, generated command
   strings, audit paths, raw audit records, raw action strings, event ids,
-  authorization ids, tokens, pairing codes, credentials, private reasons, or
-  full secrets
+  authorization ids, actor ids, target ids, details, reasons, frame bytes,
+  input contents, tokens, pairing codes, credentials, or full secrets
 
 #### Scenario: Malformed audit summary fails closed
 
