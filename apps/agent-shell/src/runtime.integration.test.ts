@@ -62,6 +62,9 @@ type InputCloseBoundaryContext = {
   hostEvents: AgentShellEvent[];
   viewerEvents: AgentShellEvent[];
 };
+type CaptureCloseBoundaryContext = InputCloseBoundaryContext & {
+  relay: RelayRuntime;
+};
 
 const silentLogger: TestLogger = {
   log: () => undefined,
@@ -412,6 +415,33 @@ describe("agent shell consent workflow", () => {
         "host input application without local audit sink",
         { hostApplyInput: true },
         "Runtime host input application"
+      ],
+      [
+        "capture adapter without close boundary",
+        {
+          screenCapture: {
+            capturePrimaryScreen: async () => {
+              throw new Error("not invoked");
+            }
+          } as unknown as WindowsScreenCaptureAdapter
+        },
+        "Runtime host screen capture"
+      ],
+      [
+        "viewer host capture adapter",
+        {
+          role: "viewer",
+          peerId: "viewer-1",
+          displayName: "Viewer",
+          deviceId: "dev_viewer_1",
+          screenCapture: {
+            capturePrimaryScreen: async () => {
+              throw new Error("not invoked");
+            },
+            close: () => undefined
+          }
+        },
+        "Runtime host screen capture"
       ],
       [
         "viewer host input application flag",
@@ -2416,6 +2446,89 @@ describe("agent shell consent workflow", () => {
     expect(serialized).not.toContain("raw-token");
   });
 
+  it("does not let capture close diagnostics delay host pause", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const rawCloseFailure = "capture close failed with raw-screen-content raw-token";
+    const frameData = Buffer.from("capture-close-failure-private-screen").toString("base64");
+    const close = vi.fn(() => {
+      throw new Error(rawCloseFailure);
+    });
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>(
+      async (grant) => ({
+        authorizationId: grant.authorizationId,
+        capturedAt: new Date().toISOString(),
+        format: "jpeg",
+        width: 2,
+        height: 2,
+        dataBase64: frameData,
+        dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+      })
+    );
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await host.captureAndSendScreenFrame({ frameId: "frame_capture_before_close_failure", sequence: 0 });
+
+    expect(() => host.pause()).not.toThrow();
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "paused"
+    );
+
+    expect(close).toHaveBeenCalled();
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain(rawCloseFailure);
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain("raw-token");
+  });
+
+  it("closes capture on partial permission revoke and re-enables retained screen access", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const frameData = Buffer.from("capture-partial-revoke-private-screen").toString("base64");
+    const close = vi.fn();
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>(
+      async (grant) => ({
+        authorizationId: grant.authorizationId,
+        capturedAt: new Date().toISOString(),
+        format: "jpeg",
+        width: 2,
+        height: 2,
+        dataBase64: frameData,
+        dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+      })
+    );
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view", "input:pointer"], viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await host.captureAndSendScreenFrame({ frameId: "frame_capture_before_partial_revoke", sequence: 0 });
+    const closeCountBeforeRevoke = close.mock.calls.length;
+
+    host.revokePermission("input:pointer");
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active" &&
+        message.permissions.length === 1 &&
+        message.permissions[0] === "screen:view"
+    );
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforeRevoke);
+
+    await host.captureAndSendScreenFrame({ frameId: "frame_capture_after_partial_revoke", sequence: 1 });
+    expect(capturePrimaryScreen).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain(frameData);
+  });
+
   it.each([
     {
       name: "permission revoke",
@@ -2883,7 +2996,7 @@ describe("agent shell consent workflow", () => {
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostAuditSink,
       hostDecision: "approve",
-      hostScreenCapture: { capturePrimaryScreen },
+      hostScreenCapture: { capturePrimaryScreen, close: vi.fn() },
       visibleToHost: true
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -3129,7 +3242,7 @@ describe("agent shell consent workflow", () => {
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostAuditSink,
       hostDecision: "approve",
-      hostScreenCapture: { capturePrimaryScreen },
+      hostScreenCapture: { capturePrimaryScreen, close: vi.fn() },
       visibleToHost: true
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -3789,6 +3902,373 @@ describe("agent shell consent workflow", () => {
     expect(JSON.stringify([viewerEvents, viewerAuditSink.records()])).not.toContain("raw-token");
   });
 
+  it("blocks Windows capture without an audit sink before adapter invocation", async () => {
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>();
+    const close = vi.fn();
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+
+    await expect(
+      host.captureAndSendScreenFrame({
+        frameId: "frame_capture_missing_audit",
+        sequence: 0
+      })
+    ).rejects.toThrow("Agent shell runtime error");
+
+    expect(capturePrimaryScreen).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(
+      hostEvents.some(
+        (event) => event.direction === "sent" && event.message.type === "screen-frame"
+      )
+    ).toBe(false);
+  });
+
+  it("keeps Windows capture blocked when active indicator delivery fails", async () => {
+    const rawIndicatorFailure = "active indicator failed with raw-screen-content raw-token";
+    const hostAuditSink = new MemoryAuditSink();
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>();
+    const close = vi.fn();
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostOnEvent: (event) => {
+        if (event.direction === "indicator" && event.cause === "activated") {
+          throw new Error(rawIndicatorFailure);
+        }
+      },
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForRuntimeError(hostEvents);
+
+    await expect(
+      host.captureAndSendScreenFrame({
+        frameId: "frame_capture_failed_indicator",
+        sequence: 0
+      })
+    ).rejects.toThrow("Agent shell runtime error");
+
+    expect(capturePrimaryScreen).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(
+      hostAuditSink.records().some(
+        (record) => record.action === "agent-shell.remote-interaction.screen-capture.requested"
+      )
+    ).toBe(false);
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain(rawIndicatorFailure);
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain("raw-token");
+  });
+
+  it("closes and resumes the runtime capture adapter across host pause", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const frameData = Buffer.from("capture-pause-resume-private-screen").toString("base64");
+    const close = vi.fn();
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>(
+      async (grant) => ({
+        authorizationId: grant.authorizationId,
+        capturedAt: new Date().toISOString(),
+        format: "jpeg",
+        width: 2,
+        height: 2,
+        dataBase64: frameData,
+        dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+      })
+    );
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+
+    await host.captureAndSendScreenFrame({ frameId: "frame_capture_before_pause", sequence: 0 });
+    const closeCountBeforePause = close.mock.calls.length;
+    host.pause();
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "paused"
+    );
+
+    await expect(
+      host.captureAndSendScreenFrame({ frameId: "frame_capture_while_paused", sequence: 1 })
+    ).rejects.toThrow("Agent shell runtime error");
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforePause);
+    expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
+
+    host.resume();
+    await waitForMessage(
+      viewerEvents,
+      (message) => message.type === "session-authorization-state" && message.status === "active"
+    );
+    await host.captureAndSendScreenFrame({ frameId: "frame_capture_after_resume", sequence: 2 });
+
+    expect(capturePrimaryScreen).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain(frameData);
+  });
+
+  it("keeps native capture blocked when pause audit persistence fails", async () => {
+    const backingSink = new MemoryAuditSink();
+    const rawAuditFailure = "capture pause audit failed with raw-screen-content raw-token";
+    const failingSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.authorization.paused") {
+          throw new Error(rawAuditFailure);
+        }
+
+        return backingSink.write(input);
+      }
+    };
+    const frameData = Buffer.from("capture-before-failed-pause-private-screen").toString("base64");
+    const close = vi.fn();
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>(
+      async (grant) => ({
+        authorizationId: grant.authorizationId,
+        capturedAt: new Date().toISOString(),
+        format: "jpeg",
+        width: 2,
+        height: 2,
+        dataBase64: frameData,
+        dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+      })
+    );
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await host.captureAndSendScreenFrame({ frameId: "frame_capture_before_failed_pause", sequence: 0 });
+    const closeCountBeforePause = close.mock.calls.length;
+
+    expect(() => host.pause()).toThrow("Agent shell runtime error");
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforePause);
+
+    await expect(
+      host.captureAndSendScreenFrame({ frameId: "frame_capture_after_failed_pause", sequence: 1 })
+    ).rejects.toThrow("Agent shell runtime error");
+
+    expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
+    expect(
+      backingSink.records().some(
+        (record) => record.detail.frameId === "frame_capture_after_failed_pause"
+      )
+    ).toBe(false);
+    expect(JSON.stringify([hostEvents, backingSink.records()])).not.toContain(rawAuditFailure);
+    expect(JSON.stringify([hostEvents, backingSink.records()])).not.toContain("raw-token");
+  });
+
+  it.each([
+    {
+      name: "permission revoke",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ host, viewerEvents }: CaptureCloseBoundaryContext) => {
+        host.revokePermission("screen:view");
+        await waitForMessage(
+          viewerEvents,
+          (message) =>
+            message.type === "session-authorization-state" && message.status === "revoked"
+        );
+      }
+    },
+    {
+      name: "termination",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ host, viewerEvents }: CaptureCloseBoundaryContext) => {
+        host.terminate();
+        await waitForMessage(
+          viewerEvents,
+          (message) =>
+            message.type === "session-authorization-state" && message.status === "terminated"
+        );
+      }
+    },
+    {
+      name: "local disconnect",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ host, hostEvents }: CaptureCloseBoundaryContext) => {
+        host.disconnect();
+        await waitForClosedEvent(hostEvents);
+      }
+    },
+    {
+      name: "peer disconnect",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ viewer, hostEvents }: CaptureCloseBoundaryContext) => {
+        await viewer.leave();
+        await waitForMessage(hostEvents, (message) => message.type === "peer-disconnected");
+      }
+    },
+    {
+      name: "authorization expiration",
+      authorizationTtlMs: 100,
+      crossBoundary: async ({ viewerEvents }: CaptureCloseBoundaryContext) => {
+        await waitForMessage(
+          viewerEvents,
+          (message) =>
+            message.type === "session-authorization-state" && message.status === "expired"
+        );
+      }
+    },
+    {
+      name: "socket close",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ relay, hostEvents }: CaptureCloseBoundaryContext) => {
+        await relay.stop();
+        forgetRelayRuntime(relay);
+        await waitForClosedEvent(hostEvents);
+      }
+    },
+    {
+      name: "runtime stop",
+      authorizationTtlMs: undefined,
+      crossBoundary: async ({ host }: CaptureCloseBoundaryContext) => {
+        await host.stop();
+      }
+    }
+  ])("closes the runtime capture adapter on $name", async ({
+    authorizationTtlMs,
+    crossBoundary
+  }) => {
+    const hostAuditSink = new MemoryAuditSink();
+    const frameData = Buffer.from("capture-lifecycle-private-screen").toString("base64");
+    const close = vi.fn();
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>(
+      async (grant) => ({
+        authorizationId: grant.authorizationId,
+        capturedAt: new Date().toISOString(),
+        format: "jpeg",
+        width: 2,
+        height: 2,
+        dataBase64: frameData,
+        dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+      })
+    );
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      authorizationTtlMs,
+      hostAuditSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await host.captureAndSendScreenFrame({ frameId: "frame_capture_before_boundary", sequence: 0 });
+    const closeCountBeforeBoundary = close.mock.calls.length;
+
+    await crossBoundary({ relay, host, viewer, hostEvents, viewerEvents });
+
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforeBoundary);
+    expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify([hostEvents, hostAuditSink.records()])).not.toContain(frameData);
+  });
+
+  it("closes the runtime capture adapter before authorization replacement", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const frameData = Buffer.from("capture-replacement-private-screen").toString("base64");
+    const close = vi.fn();
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>(
+      async (grant) => ({
+        authorizationId: grant.authorizationId,
+        capturedAt: new Date().toISOString(),
+        format: "jpeg",
+        width: 2,
+        height: 2,
+        dataBase64: frameData,
+        dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+      })
+    );
+    const { relay, host, hostEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    const rawViewer = await startRawViewer(relay.url());
+
+    try {
+      sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
+      await waitForSentActiveAuthorizationId(hostEvents);
+      await host.captureAndSendScreenFrame({ frameId: "frame_capture_before_replacement", sequence: 0 });
+      const closeCountBeforeReplacement = close.mock.calls.length;
+
+      sendRawViewerAuthorizationRequest(rawViewer, ["screen:view"]);
+      await vi.waitFor(() =>
+        expect(
+          hostEvents.filter(
+            (event) =>
+              event.direction === "sent" &&
+              event.message.type === "session-authorization-state" &&
+              event.message.status === "active"
+          )
+        ).toHaveLength(2)
+      );
+
+      expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforeReplacement);
+      expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
+    } finally {
+      await closeRawSocket(rawViewer);
+    }
+  });
+
+  it("closes the runtime capture adapter before a failing stop indicator callback", async () => {
+    const rawIndicatorFailure = "runtime stop capture indicator failed with raw-token";
+    const hostAuditSink = new MemoryAuditSink();
+    const frameData = Buffer.from("capture-stop-indicator-private-screen").toString("base64");
+    const close = vi.fn();
+    let closeCountBeforeStop = 0;
+    let captureClosedBeforeStopIndicator = false;
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>(
+      async (grant) => ({
+        authorizationId: grant.authorizationId,
+        capturedAt: new Date().toISOString(),
+        format: "jpeg",
+        width: 2,
+        height: 2,
+        dataBase64: frameData,
+        dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+      })
+    );
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "approve",
+      hostOnEvent: (event) => {
+        if (event.direction === "indicator" && event.cause === "runtime-stop") {
+          captureClosedBeforeStopIndicator = close.mock.calls.length > closeCountBeforeStop;
+          throw new Error(rawIndicatorFailure);
+        }
+      },
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+    await host.captureAndSendScreenFrame({ frameId: "frame_capture_before_stop", sequence: 0 });
+    closeCountBeforeStop = close.mock.calls.length;
+
+    await expect(host.stop()).resolves.toBeUndefined();
+
+    expect(close.mock.calls.length).toBeGreaterThan(closeCountBeforeStop);
+    expect(captureClosedBeforeStopIndicator).toBe(true);
+    expect(JSON.stringify(hostEvents)).not.toContain(rawIndicatorFailure);
+    expect(JSON.stringify(hostEvents)).not.toContain("raw-token");
+  });
+
   it("blocks Windows capture before adapter invocation when capture audit fails", async () => {
     const backingSink = new MemoryAuditSink();
     const rawAuditFailure = "capture audit failed with raw-screen-content raw-token";
@@ -3813,7 +4293,7 @@ describe("agent shell consent workflow", () => {
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostAuditSink: failingSink,
       hostDecision: "approve",
-      hostScreenCapture: { capturePrimaryScreen },
+      hostScreenCapture: { capturePrimaryScreen, close: vi.fn() },
       visibleToHost: true
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -3849,6 +4329,7 @@ describe("agent shell consent workflow", () => {
     const backingSink = new MemoryAuditSink();
     const rawAuditFailure = "capture completion audit failed with raw-screen-content raw-token";
     const frameData = Buffer.from("capture-completed-audit-failed-raw-screen-content").toString("base64");
+    const close = vi.fn();
     const capturePrimaryScreen = vi.fn(async (grant) => ({
       authorizationId: grant.authorizationId,
       capturedAt: new Date().toISOString(),
@@ -3870,7 +4351,7 @@ describe("agent shell consent workflow", () => {
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostAuditSink: failingSink,
       hostDecision: "approve",
-      hostScreenCapture: { capturePrimaryScreen },
+      hostScreenCapture: { capturePrimaryScreen, close },
       visibleToHost: true
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -3904,14 +4385,98 @@ describe("agent shell consent workflow", () => {
     expect(backingSink.records().some((record) => record.action === "agent-shell.remote-interaction.screen-frame.sent")).toBe(false);
     expect(hostEvents.some((event) => event.direction === "sent" && event.message.type === "screen-frame")).toBe(false);
     expect(viewerEvents.some((event) => event.direction === "received" && event.message.type === "screen-frame")).toBe(false);
+    expect(close).toHaveBeenCalled();
+
+    await expect(
+      host.captureAndSendScreenFrame({
+        frameId: "frame_capture_after_completed_audit_failure",
+        sequence: 1
+      })
+    ).rejects.toThrow("Agent shell runtime error");
+    expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
+    expect(
+      backingSink.records().some(
+        (record) => record.detail.frameId === "frame_capture_after_completed_audit_failure"
+      )
+    ).toBe(false);
     expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain(rawAuditFailure);
     expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain(frameData);
     expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain("raw-screen-content");
     expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain("raw-token");
   });
 
+  it("blocks later capture when audited frame send fails after native success", async () => {
+    const backingSink = new MemoryAuditSink();
+    const rawAuditFailure = "captured frame send audit failed with raw-screen-content raw-token";
+    const frameData = Buffer.from("capture-send-audit-failed-private-screen").toString("base64");
+    const close = vi.fn();
+    const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>(
+      async (grant) => ({
+        authorizationId: grant.authorizationId,
+        capturedAt: new Date().toISOString(),
+        format: "jpeg",
+        width: 2,
+        height: 2,
+        dataBase64: frameData,
+        dataBase64Bytes: Buffer.byteLength(frameData, "utf8")
+      })
+    );
+    const failingSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.remote-interaction.screen-frame.sent") {
+          throw new Error(rawAuditFailure);
+        }
+
+        return backingSink.write(input);
+      }
+    };
+    const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      hostScreenCapture: { capturePrimaryScreen, close },
+      visibleToHost: true
+    });
+    await startViewer(relay.url(), ["screen:view"], viewerEvents);
+    await waitForSentActiveAuthorizationId(hostEvents);
+    await waitForReceivedActiveAuthorizationId(viewerEvents);
+
+    await expect(
+      host.captureAndSendScreenFrame({ frameId: "frame_capture_send_audit_failed", sequence: 0 })
+    ).rejects.toThrow("Agent shell runtime error");
+
+    expect(close).toHaveBeenCalled();
+    expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
+    expect(
+      backingSink.records().some(
+        (record) => record.action === "agent-shell.remote-interaction.screen-capture.completed"
+      )
+    ).toBe(true);
+    expect(
+      backingSink.records().some(
+        (record) => record.action === "agent-shell.remote-interaction.screen-frame.sent"
+      )
+    ).toBe(false);
+    expect(
+      hostEvents.some(
+        (event) => event.direction === "sent" && event.message.type === "screen-frame"
+      )
+    ).toBe(false);
+
+    await expect(
+      host.captureAndSendScreenFrame({ frameId: "frame_capture_after_send_audit_failure", sequence: 1 })
+    ).rejects.toThrow("Agent shell runtime error");
+    expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain(
+      rawAuditFailure
+    );
+    expect(JSON.stringify([hostEvents, viewerEvents, backingSink.records()])).not.toContain(
+      frameData
+    );
+  });
+
   it("withholds capture completion when authorization is revoked during adapter work", async () => {
     const hostAuditSink = new MemoryAuditSink();
+    const close = vi.fn();
     let resolveCapture: ((frame: WindowsScreenCaptureFrame) => void) | undefined;
     const capturePrimaryScreen = vi.fn<WindowsScreenCaptureAdapter["capturePrimaryScreen"]>(
       () => new Promise((resolve) => {
@@ -3921,7 +4486,7 @@ describe("agent shell consent workflow", () => {
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostAuditSink,
       hostDecision: "approve",
-      hostScreenCapture: { capturePrimaryScreen },
+      hostScreenCapture: { capturePrimaryScreen, close },
       visibleToHost: true
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);
@@ -3934,6 +4499,7 @@ describe("agent shell consent workflow", () => {
     });
     expect(capturePrimaryScreen).toHaveBeenCalledTimes(1);
     host.revokePermission("screen:view");
+    expect(close).toHaveBeenCalled();
     const frameData = Buffer.from("capture-revoked-in-flight-raw-screen-content").toString("base64");
     if (!resolveCapture) {
       throw new Error("Expected pending capture adapter");
@@ -3973,7 +4539,7 @@ describe("agent shell consent workflow", () => {
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
       hostAuditSink,
       hostDecision: "approve",
-      hostScreenCapture: { capturePrimaryScreen },
+      hostScreenCapture: { capturePrimaryScreen, close: vi.fn() },
       visibleToHost: true
     });
     await startViewer(relay.url(), ["screen:view"], viewerEvents);

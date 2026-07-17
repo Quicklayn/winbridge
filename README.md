@@ -72,8 +72,10 @@ The `@winbridge/windows-capture` package is a reviewed native boundary for MVP
 host viewing. It performs no capture at import or construction time, requires an
 explicit active visible `screen:view` grant, rejects non-Windows and
 expired/disconnected/invisible grants before native calls, and returns a bounded
-JPEG preview or PNG frame only to the immediate caller. The host agent shell can now opt into
-this adapter with `--dev-screen-frame-source windows-capture`. The viewer agent
+JPEG preview or PNG frame only to the immediate caller. After the first audited
+authorized capture, one direct foreground PowerShell child is reused by the
+host runtime instead of starting a process for every frame. The host agent shell
+can opt into this adapter with `--dev-screen-frame-source windows-capture`. The viewer agent
 shell can opt into saving the latest authorized received frame to an explicit
 local file with `--viewer-screen-frame-output` and can expose that file through
 a loopback-only development viewer surface with `--viewer-control-surface-port`.
@@ -972,16 +974,20 @@ npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:vi
 To exercise the Windows capture source on a Windows host:
 
 ```powershell
-npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --dev-screen-frame-after-ms 1000 --dev-screen-frame-source windows-capture
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --audit-log logs\host-audit.jsonl --dev-screen-frame-after-ms 1000 --dev-screen-frame-source windows-capture
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
-`--dev-screen-frame-source windows-capture` is host-only. It waits for active visible unexpired `screen:view` authorization, verified peer routing, open socket, connected viewer, and metadata-only local capture audit before invoking the Windows capture adapter. The captured JPEG preview or PNG frame then goes through the existing `sendScreenFrame()` authorization, routing, audit-before-send, socket, and redaction gates, so pause, revoke, expiration, disconnect, audit failure, adapter failure, or runtime rejection fails closed. Capture source rejects static payload options such as `--dev-screen-frame-data-base64`; it does not render a viewer desktop, inject OS input, sync clipboard, transfer files, collect diagnostics, install services, configure startup persistence, elevate privileges, run unattended, bypass Windows prompts, or hide capture from the host.
+`--dev-screen-frame-source windows-capture` is host-only and requires local
+audit through `--audit-log` or `WINBRIDGE_AGENT_AUDIT_LOG_PATH`. It waits for
+active visible unexpired `screen:view` authorization, verified peer routing,
+open socket, connected viewer, and successful metadata-only local capture audit
+before creating or invoking the Windows capture adapter. The captured JPEG preview or PNG frame then goes through the existing `sendScreenFrame()` authorization, routing, audit-before-send, socket, and redaction gates, so pause, revoke, expiration, disconnect, audit failure, adapter failure, or runtime rejection fails closed. Capture source rejects static payload options such as `--dev-screen-frame-data-base64`; it does not render a viewer desktop, inject OS input, sync clipboard, transfer files, collect diagnostics, install services, configure startup persistence, elevate privileges, run unattended, bypass Windows prompts, or hide capture from the host.
 
 To save the latest authorized received frame on the viewer side:
 
 ```powershell
-npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --dev-screen-frame-after-ms 1000 --dev-screen-frame-source windows-capture
+npm run dev:agent -- host --session demo --pairing 123-456 --host-decision approve --visible-session true --audit-log logs\host-audit.jsonl --dev-screen-frame-after-ms 1000 --dev-screen-frame-source windows-capture
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view --audit-log logs\viewer-audit.jsonl --viewer-screen-frame-output frames\latest.jpg
 ```
 
@@ -1070,7 +1076,18 @@ npm run dev:agent -- host --session demo --pairing 123-456 --host-decision appro
 npm run dev:agent -- viewer --session demo --pairing 123-456 --request screen:view
 ```
 
-`--dev-screen-frame-count` and `--dev-screen-frame-interval-ms` make the host send a finite stream of static or Windows-captured development frames. Count must be an exact integer from `1` through `1000`; multi-frame streams require a positive exact interval. Each frame uses a deterministic derived frame id and increasing sequence. Static frames go through `sendScreenFrame()` authorization, routing, audit-before-send, and redaction gates. Windows-captured streams additionally wait for each async capture/send attempt to finish before scheduling the next frame and stop on authorization loss, disconnect, audit failure, adapter failure, runtime rejection, or local shutdown. This still does not read arbitrary frame files or render a viewer desktop.
+`--dev-screen-frame-count` and `--dev-screen-frame-interval-ms` make the host send a finite stream of static or Windows-captured development frames. Count must be an exact integer from `1` through `1000`; multi-frame streams require a positive exact interval. Each frame uses a deterministic derived frame id and increasing sequence. Static frames go through `sendScreenFrame()` authorization, routing, audit-before-send, and redaction gates. Windows-captured streams additionally wait for each async capture/send attempt to finish before scheduling the next frame. One reusable helper processes a bounded FIFO queue with at most one native capture in flight. Pause, any permission revoke, termination, expiration, local or peer disconnect, socket close, authorization replacement, runtime reset, and runtime stop locally block capture and close the helper before later screen data can be trusted or sent. A successful partial revoke or resume can enable a fresh helper generation only when current active visible authorization still grants `screen:view`. Lifecycle audit failure leaves capture blocked, and completion/send audit failure after native success closes the helper and blocks later capture under that authorization. This still does not read arbitrary frame files or render a viewer desktop.
+
+The capture child receives only internal request correlation; capture limits are
+embedded in its reviewed static script. It does not receive session,
+authorization, frame or peer identifiers, relay tokens, pairing codes, audit
+paths, credentials, endpoints, arbitrary commands, or user scripts. Timeout,
+process, protocol, output, and shutdown failures remain generic and do not put
+raw or encoded frames, screen contents, native diagnostics, paths, or secrets
+in runtime events, logs, audit records, or API errors. The helper is a direct
+non-detached child of the visible foreground host process, exits on pipe close,
+and never installs a service, startup entry, listener, persistence, elevation,
+unattended access, hidden capture, AV/EDR evasion, or Windows prompt bypass.
 
 Exercise a consent-bound development input message:
 

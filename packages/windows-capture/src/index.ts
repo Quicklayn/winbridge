@@ -1,14 +1,33 @@
-import { execFile } from "node:child_process";
 import {
   AuthorizationIdSchema,
   PermissionSchema,
   type Permission
 } from "@winbridge/protocol";
+import {
+  createPowerShellWindowsScreenCaptureWorker,
+  type WindowsScreenCaptureNativeWorker,
+  type WindowsScreenCaptureNativeWorkerFactory
+} from "./persistent-worker.js";
+
+export {
+  createPowerShellWindowsScreenCaptureWorker,
+  createPowerShellWindowsScreenCaptureWorkerCommand,
+  DEFAULT_WINDOWS_CAPTURE_WORKER_MAX_REQUEST_BYTES,
+  DEFAULT_WINDOWS_CAPTURE_WORKER_MAX_RESPONSE_BYTES,
+  WINDOWS_CAPTURE_WORKER_ERROR_MESSAGE
+} from "./persistent-worker.js";
+export type {
+  PowerShellWindowsScreenCaptureWorkerOptions,
+  WindowsScreenCaptureNativeWorker,
+  WindowsScreenCaptureNativeWorkerFactory,
+  WindowsScreenCaptureWorkerProcessFactory
+} from "./persistent-worker.js";
 
 export const DEFAULT_WINDOWS_CAPTURE_MAX_DATA_BASE64_BYTES = 48 * 1024;
 export const DEFAULT_WINDOWS_CAPTURE_PREVIEW_MAX_WIDTH = 1280;
 export const DEFAULT_WINDOWS_CAPTURE_PREVIEW_MAX_HEIGHT = 720;
 export const DEFAULT_WINDOWS_CAPTURE_TIMEOUT_MS = 5_000;
+export const DEFAULT_WINDOWS_CAPTURE_MAX_QUEUE_SIZE = 2;
 export const MAX_WINDOWS_CAPTURE_TIMEOUT_MS = 2_147_483_647;
 export const WINDOWS_SCREEN_CAPTURE_GRANT_ERROR_MESSAGE =
   "Windows screen capture requires an active visible screen:view grant";
@@ -52,14 +71,17 @@ export type WindowsScreenCaptureNativeRunner = (
 
 export type WindowsScreenCaptureAdapterOptions = Readonly<{
   runner?: WindowsScreenCaptureNativeRunner;
+  workerFactory?: WindowsScreenCaptureNativeWorkerFactory;
   platform?: NodeJS.Platform;
   now?: () => Date;
   maxDataBase64Bytes?: number;
   timeoutMs?: number;
+  maxQueueSize?: number;
 }>;
 
 export type WindowsScreenCaptureAdapter = Readonly<{
   capturePrimaryScreen(grant: WindowsScreenCaptureGrant): Promise<WindowsScreenCaptureFrame>;
+  close(): void;
 }>;
 
 type NativeCaptureOutput = Readonly<{
@@ -68,6 +90,18 @@ type NativeCaptureOutput = Readonly<{
   height: number;
   dataBase64: string;
 }>;
+
+type QueuedWindowsScreenCapture = {
+  generation: number;
+  grant: WindowsScreenCaptureGrant;
+  resolve(frame: WindowsScreenCaptureFrame): void;
+  reject(error: Error): void;
+};
+
+type ActiveWindowsScreenCapture = {
+  entry: QueuedWindowsScreenCapture;
+  settled: boolean;
+};
 
 const BASE64_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const MAX_SCREEN_DIMENSION = 16_384;
@@ -166,7 +200,11 @@ try {
 export function createWindowsScreenCaptureAdapter(
   options: WindowsScreenCaptureAdapterOptions = {}
 ): WindowsScreenCaptureAdapter {
-  const runner = options.runner ?? runPowerShellPrimaryScreenCapture;
+  if (options.runner !== undefined && options.workerFactory !== undefined) {
+    throw new Error(WINDOWS_SCREEN_CAPTURE_OUTPUT_ERROR_MESSAGE);
+  }
+
+  const runner = options.runner;
   const platform = options.platform ?? process.platform;
   const now = options.now ?? (() => new Date());
   const timeoutMs = validateBoundedPositiveSafeInteger(
@@ -179,24 +217,181 @@ export function createWindowsScreenCaptureAdapter(
     DEFAULT_WINDOWS_CAPTURE_MAX_DATA_BASE64_BYTES,
     WINDOWS_SCREEN_CAPTURE_OUTPUT_ERROR_MESSAGE
   );
+  const maxOutputBytes = maxDataBase64Bytes + 4096;
+  const maxQueueSize = validateBoundedPositiveSafeInteger(
+    options.maxQueueSize ?? DEFAULT_WINDOWS_CAPTURE_MAX_QUEUE_SIZE,
+    DEFAULT_WINDOWS_CAPTURE_MAX_QUEUE_SIZE,
+    WINDOWS_SCREEN_CAPTURE_OUTPUT_ERROR_MESSAGE
+  );
+  const workerFactory =
+    options.workerFactory ??
+    (() =>
+      createPowerShellWindowsScreenCaptureWorker({
+        maxDataBase64Bytes,
+        maxOutputBytes,
+        previewMaxWidth: DEFAULT_WINDOWS_CAPTURE_PREVIEW_MAX_WIDTH,
+        previewMaxHeight: DEFAULT_WINDOWS_CAPTURE_PREVIEW_MAX_HEIGHT
+      }));
+  let generation = 0;
+  let worker: WindowsScreenCaptureNativeWorker | undefined;
+  let active: ActiveWindowsScreenCapture | undefined;
+  const queue: QueuedWindowsScreenCapture[] = [];
+
+  const close = () => {
+    generation += 1;
+    const error = new Error(WINDOWS_SCREEN_CAPTURE_RUNNER_ERROR_MESSAGE);
+    const activeToClose = active;
+    active = undefined;
+    if (activeToClose && !activeToClose.settled) {
+      activeToClose.settled = true;
+      activeToClose.entry.reject(error);
+    }
+    for (const entry of queue.splice(0)) {
+      entry.reject(new Error(WINDOWS_SCREEN_CAPTURE_RUNNER_ERROR_MESSAGE));
+    }
+    const workerToClose = worker;
+    worker = undefined;
+    closeNativeWorkerBestEffort(workerToClose);
+  };
+
+  const discardWorker = (workerToDiscard: WindowsScreenCaptureNativeWorker): void => {
+    if (worker !== workerToDiscard) {
+      return;
+    }
+    worker = undefined;
+    closeNativeWorkerBestEffort(workerToDiscard);
+  };
+
+  const dispatchNativeCapture = async (
+    entry: QueuedWindowsScreenCapture
+  ): Promise<WindowsScreenCaptureFrame> => {
+    if (entry.generation !== generation) {
+      throw new Error(WINDOWS_SCREEN_CAPTURE_RUNNER_ERROR_MESSAGE);
+    }
+
+    assertCaptureGrant(entry.grant, platform, now());
+    const request = {
+      timeoutMs,
+      maxDataBase64Bytes,
+      maxOutputBytes
+    } as const;
+    let output: string;
+    let activeWorker: WindowsScreenCaptureNativeWorker | undefined;
+    if (runner) {
+      output = await runNativeCapture(runner, request);
+    } else {
+      activeWorker = worker;
+      if (!activeWorker) {
+        try {
+          activeWorker = workerFactory();
+          worker = activeWorker;
+        } catch {
+          throw new Error(WINDOWS_SCREEN_CAPTURE_RUNNER_ERROR_MESSAGE);
+        }
+      }
+
+      const workerForRequest = activeWorker;
+      try {
+        output = await runNativeCapture(
+          (nativeRequest) => workerForRequest.run(nativeRequest),
+          request
+        );
+      } catch (error) {
+        discardWorker(workerForRequest);
+        throw error;
+      }
+    }
+
+    if (entry.generation !== generation) {
+      throw new Error(WINDOWS_SCREEN_CAPTURE_RUNNER_ERROR_MESSAGE);
+    }
+
+    let frame: NativeCaptureOutput;
+    try {
+      frame = parseNativeCaptureOutput(output, maxDataBase64Bytes);
+    } catch (error) {
+      if (activeWorker) {
+        discardWorker(activeWorker);
+      }
+      throw error;
+    }
+
+    const completedAt = now();
+    assertCaptureGrant(entry.grant, platform, completedAt);
+    return {
+      authorizationId: entry.grant.authorizationId,
+      capturedAt: completedAt.toISOString(),
+      ...frame,
+      dataBase64Bytes: Buffer.byteLength(frame.dataBase64, "utf8")
+    };
+  };
+
+  const drain = () => {
+    if (active || queue.length === 0) {
+      return;
+    }
+
+    const entry = queue.shift();
+    if (!entry) {
+      return;
+    }
+
+    if (entry.generation !== generation) {
+      entry.reject(new Error(WINDOWS_SCREEN_CAPTURE_RUNNER_ERROR_MESSAGE));
+      queueMicrotask(drain);
+      return;
+    }
+
+    const activeCapture: ActiveWindowsScreenCapture = { entry, settled: false };
+    active = activeCapture;
+    void dispatchNativeCapture(entry)
+      .then(
+        (frame) => {
+          if (!activeCapture.settled) {
+            activeCapture.settled = true;
+            entry.resolve(frame);
+          }
+        },
+        (error: unknown) => {
+          if (!activeCapture.settled) {
+            activeCapture.settled = true;
+            entry.reject(
+              error instanceof Error
+                ? error
+                : new Error(WINDOWS_SCREEN_CAPTURE_RUNNER_ERROR_MESSAGE)
+            );
+          }
+        }
+      )
+      .finally(() => {
+        if (active === activeCapture) {
+          active = undefined;
+        }
+        drain();
+      });
+  };
 
   return {
-    async capturePrimaryScreen(grant) {
+    capturePrimaryScreen(grant) {
       assertCaptureGrant(grant, platform, now());
-      const output = await runNativeCapture(runner, {
-        timeoutMs,
-        maxDataBase64Bytes,
-        maxOutputBytes: maxDataBase64Bytes + 4096
-      });
-      const frame = parseNativeCaptureOutput(output, maxDataBase64Bytes);
-
-      return {
+      if (queue.length + (active ? 1 : 0) >= maxQueueSize) {
+        return Promise.reject(new Error(WINDOWS_SCREEN_CAPTURE_RUNNER_ERROR_MESSAGE));
+      }
+      const grantSnapshot: WindowsScreenCaptureGrant = {
         authorizationId: grant.authorizationId,
-        capturedAt: now().toISOString(),
-        ...frame,
-        dataBase64Bytes: Buffer.byteLength(frame.dataBase64, "utf8")
+        authorizationStatus: grant.authorizationStatus,
+        visibleToHost: grant.visibleToHost,
+        permissions: [...grant.permissions],
+        peerConnected: grant.peerConnected,
+        expiresAt: grant.expiresAt
       };
-    }
+
+      return new Promise<WindowsScreenCaptureFrame>((resolve, reject) => {
+        queue.push({ generation, grant: grantSnapshot, resolve, reject });
+        drain();
+      });
+    },
+    close
   };
 }
 
@@ -204,7 +399,12 @@ export async function capturePrimaryScreen(
   grant: WindowsScreenCaptureGrant,
   options: WindowsScreenCaptureAdapterOptions = {}
 ): Promise<WindowsScreenCaptureFrame> {
-  return createWindowsScreenCaptureAdapter(options).capturePrimaryScreen(grant);
+  const adapter = createWindowsScreenCaptureAdapter(options);
+  try {
+    return await adapter.capturePrimaryScreen(grant);
+  } finally {
+    adapter.close();
+  }
 }
 
 export function createPowerShellPrimaryScreenCaptureCommand(
@@ -253,31 +453,6 @@ async function runNativeCapture(
   }
 }
 
-function runPowerShellPrimaryScreenCapture(
-  request: WindowsScreenCaptureNativeRequest
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "powershell.exe",
-      [...createPowerShellPrimaryScreenCaptureCommand({
-        maxDataBase64Bytes: request.maxDataBase64Bytes
-      })],
-      {
-        timeout: request.timeoutMs,
-        maxBuffer: request.maxOutputBytes
-      },
-      (error, stdout) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(stdout);
-      }
-    );
-  });
-}
-
 function assertCaptureGrant(
   grant: WindowsScreenCaptureGrant,
   platform: NodeJS.Platform,
@@ -301,6 +476,14 @@ function assertCaptureGrant(
     }
   } catch {
     throw new Error(WINDOWS_SCREEN_CAPTURE_GRANT_ERROR_MESSAGE);
+  }
+}
+
+function closeNativeWorkerBestEffort(worker: WindowsScreenCaptureNativeWorker | undefined): void {
+  try {
+    worker?.close();
+  } catch {
+    // Authorization loss and adapter shutdown must not expose native diagnostics.
   }
 }
 

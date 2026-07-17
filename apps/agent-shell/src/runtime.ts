@@ -310,6 +310,8 @@ const RUNTIME_HOST_SIGNAL_PROBE_ACK_ERROR_MESSAGE =
   "Runtime host signal probe acknowledgement is only valid for host runtimes";
 const RUNTIME_HOST_INPUT_APPLICATION_ERROR_MESSAGE =
   "Runtime host input application requires an explicit host runtime with a local audit sink";
+const RUNTIME_HOST_SCREEN_CAPTURE_ERROR_MESSAGE =
+  "Runtime host screen capture requires a host runtime with a valid closeable adapter";
 const RUNTIME_VIEWER_SCREEN_FRAME_OUTPUT_ERROR_MESSAGE =
   "Runtime viewer screen-frame output requires a viewer runtime with requested screen:view permission and a local audit sink";
 const RUNTIME_HOST_WORKFLOW_OPTIONS_ERROR_MESSAGE =
@@ -406,6 +408,8 @@ type AgentShellSessionState = {
   viewerSignalProbeGeneration: number;
   hostSignalProbeAckAuthorizationId?: string;
   hostIndicator?: AgentShellHostIndicatorEvent;
+  windowsCaptureAdapter?: WindowsScreenCaptureAdapter;
+  hostScreenCaptureBlocked: boolean;
   windowsInputAdapter?: WindowsInputAdapter;
   hostInputBlocked: boolean;
 };
@@ -446,6 +450,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
     helloSent: false,
     viewerAuthorizationRequestSent: false,
     viewerSignalProbeGeneration: 0,
+    hostScreenCaptureBlocked: true,
     windowsInputAdapter:
       options.hostApplyInput === true
         ? options.windowsInput ?? createWindowsInputAdapter()
@@ -475,6 +480,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
     }
     timers.clear();
     blockHostWindowsInput(sessionState);
+    blockHostWindowsCapture(sessionState);
     deactivateHostIndicatorBestEffort(options, sessionState, "runtime-stop");
     resetConnectionScopedSessionState(sessionState);
 
@@ -517,6 +523,7 @@ export function createAgentShellRuntime(options: AgentShellRuntimeOptions): Agen
         const suppressViewerSocketClosedStatus = suppressNextViewerSocketCloseInactiveCause;
         suppressNextViewerSocketCloseInactiveCause = false;
         blockHostWindowsInput(sessionState);
+        blockHostWindowsCapture(sessionState);
         sessionState.localPeerDisconnected = true;
         invalidateViewerSignalProbe(sessionState);
         recordViewerSocketClosedStatus(options, sessionState, suppressViewerSocketClosedStatus);
@@ -813,6 +820,7 @@ function rawDataToString(data: RawData): string {
 
 function resetConnectionScopedSessionState(sessionState: AgentShellSessionState): void {
   blockHostWindowsInput(sessionState);
+  blockHostWindowsCapture(sessionState);
   sessionState.localPeerDisconnected = false;
   sessionState.remotePeerDisconnected = false;
   sessionState.remoteDisconnectReasonCode = undefined;
@@ -844,12 +852,28 @@ function blockHostWindowsInput(sessionState: AgentShellSessionState): void {
   }
 }
 
+function blockHostWindowsCapture(sessionState: AgentShellSessionState): void {
+  sessionState.hostScreenCaptureBlocked = true;
+  try {
+    sessionState.windowsCaptureAdapter?.close();
+  } catch {
+    // Local lifecycle loss must not be delayed by native helper diagnostics.
+  }
+}
+
 function enableHostWindowsInput(
   sessionState: AgentShellSessionState,
   permissions: readonly Permission[]
 ): void {
   sessionState.hostInputBlocked =
     !permissions.includes("input:pointer") && !permissions.includes("input:keyboard");
+}
+
+function enableHostWindowsCapture(
+  sessionState: AgentShellSessionState,
+  permissions: readonly Permission[]
+): void {
+  sessionState.hostScreenCaptureBlocked = !permissions.includes("screen:view");
 }
 
 function recordViewerSocketClosedStatus(
@@ -955,6 +979,7 @@ async function handleMessage(
 
   if (envelope.type === "peer-disconnected") {
     blockHostWindowsInput(sessionState);
+    blockHostWindowsCapture(sessionState);
   }
 
   try {
@@ -1563,16 +1588,26 @@ async function captureAndSendDevelopmentScreenFrame(
   sessionState: AgentShellSessionState,
   input: AgentShellCapturedScreenFrameInput
 ): Promise<void> {
+  let nativeCaptureSucceeded = false;
+
   try {
     if (options.role !== "host") {
       throw new Error(AGENT_SHELL_SCREEN_FRAME_ROLE_ERROR_MESSAGE);
+    }
+
+    if (options.auditSink === undefined) {
+      throw new Error(RUNTIME_HOST_SCREEN_CAPTURE_ERROR_MESSAGE);
     }
 
     assertRemoteInteractionSocketReady(socket, sessionState);
     const authorization = getAuthorizedWindowsScreenCaptureAuthorization(options, sessionState, input.toPeerId);
     persistWindowsScreenCaptureAudit(options, authorization, input);
 
-    const captureAdapter = options.screenCapture ?? createWindowsScreenCaptureAdapter();
+    const captureAdapter =
+      sessionState.windowsCaptureAdapter ??
+      options.screenCapture ??
+      createWindowsScreenCaptureAdapter();
+    sessionState.windowsCaptureAdapter = captureAdapter;
     const frame = await captureAdapter.capturePrimaryScreen({
       authorizationId: authorization.authorizationId,
       authorizationStatus: "active",
@@ -1581,6 +1616,7 @@ async function captureAndSendDevelopmentScreenFrame(
       peerConnected: !sessionState.localPeerDisconnected && !sessionState.remotePeerDisconnected,
       expiresAt: authorization.expiresAt
     });
+    nativeCaptureSucceeded = true;
     if (frame.authorizationId !== authorization.authorizationId) {
       throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
     }
@@ -1606,6 +1642,9 @@ async function captureAndSendDevelopmentScreenFrame(
       dataBase64: frame.dataBase64
     });
   } catch (error) {
+    if (nativeCaptureSucceeded) {
+      blockHostWindowsCapture(sessionState);
+    }
     reportRuntimeError(options, error);
     throw createSanitizedRuntimeError();
   }
@@ -1704,6 +1743,10 @@ function getAuthorizedWindowsScreenCaptureAuthorization(
   toPeerId: string | undefined
 ): VisibleRuntimeAuthorizationSnapshot {
   assertRemoteInteractionPeerRouting(options.peerId, toPeerId, options, sessionState, "viewer");
+
+  if (sessionState.hostScreenCaptureBlocked) {
+    throw new Error(AGENT_SHELL_REMOTE_INTERACTION_AUTHORIZATION_ERROR_MESSAGE);
+  }
 
   const snapshot = sessionState.hostAuthorization;
   if (!hasActiveRemoteInteractionAuthorization(snapshot, "screen:view")) {
@@ -2386,6 +2429,7 @@ async function handleHostAuthorizationRequest(
 
   const viewerDeviceIdentity = getObservedViewerDeviceIdentity(sessionState, request.viewerPeerId);
   blockHostWindowsInput(sessionState);
+  blockHostWindowsCapture(sessionState);
 
   switch (decision) {
     case "deny": {
@@ -2518,6 +2562,7 @@ async function handleHostAuthorizationRequest(
   });
   sendProtocol(socket, options, activeAuditEvent);
   enableHostWindowsInput(sessionState, grantedPermissions);
+  enableHostWindowsCapture(sessionState, grantedPermissions);
 
   scheduleHostExpiration(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
   scheduleHostRevoke(socket, options, authorizationId, expiresAt, workflowState, sessionState, scheduleTimer);
@@ -3030,6 +3075,7 @@ function validateRuntimeOptions(options: AgentShellRuntimeOptions): URL {
   assertRuntimeViewerSignalProbe(options);
   assertRuntimeViewerScreenFrameOutput(options);
   assertRuntimeHostSignalProbeAck(options);
+  assertRuntimeHostScreenCapture(options);
   assertRuntimeHostInputApplication(options);
   assertRuntimeWorkflowReasons([
     options.decisionReason,
@@ -3347,6 +3393,20 @@ function assertRuntimeHostInputApplication(options: AgentShellRuntimeOptions): v
   }
 }
 
+function assertRuntimeHostScreenCapture(options: AgentShellRuntimeOptions): void {
+  if (options.screenCapture === undefined) {
+    return;
+  }
+
+  if (
+    options.role !== "host" ||
+    typeof options.screenCapture.capturePrimaryScreen !== "function" ||
+    typeof options.screenCapture.close !== "function"
+  ) {
+    throw new Error(RUNTIME_HOST_SCREEN_CAPTURE_ERROR_MESSAGE);
+  }
+}
+
 function assertRuntimeViewerHasNoHostWorkflowOptions(options: AgentShellRuntimeOptions): void {
   if (options.role !== "viewer") {
     return;
@@ -3367,6 +3427,7 @@ function assertRuntimeViewerHasNoHostWorkflowOptions(options: AgentShellRuntimeO
     options.hostTerminateReason !== undefined ||
     options.hostDisconnectAfterMs !== undefined ||
     options.hostApplyInput !== undefined ||
+    options.screenCapture !== undefined ||
     options.windowsInput !== undefined ||
     options.decisionReason !== undefined
   ) {
@@ -3501,6 +3562,7 @@ function revokeHostPermission(
   reason: string
 ): void {
   blockHostWindowsInput(sessionState);
+  blockHostWindowsCapture(sessionState);
   const remainingPermissions = workflowState.permissions.filter(
     (permission) => permission !== revokedPermission
   );
@@ -3572,6 +3634,7 @@ function revokeHostPermission(
   sendProtocol(socket, options, auditEvent);
   if (!finalGrantRevoked && !workflowState.paused) {
     enableHostWindowsInput(sessionState, remainingPermissions);
+    enableHostWindowsCapture(sessionState, remainingPermissions);
   }
 }
 
@@ -3653,6 +3716,7 @@ function pauseHostAuthorization(
   reasonConfigured: boolean
 ): void {
   blockHostWindowsInput(sessionState);
+  blockHostWindowsCapture(sessionState);
   const auditEvent = prepareDevelopmentAuditEvent(options, {
     action: "agent-shell.authorization.paused",
     outcome: "accepted",
@@ -3754,6 +3818,7 @@ function resumeHostAuthorization(
 
   sendProtocol(socket, options, auditEvent);
   enableHostWindowsInput(sessionState, workflowState.permissions);
+  enableHostWindowsCapture(sessionState, workflowState.permissions);
 }
 
 function scheduleHostPause(
@@ -3905,6 +3970,7 @@ function terminateHostAuthorization(
   reasonConfigured: boolean
 ): void {
   blockHostWindowsInput(sessionState);
+  blockHostWindowsCapture(sessionState);
   const auditEvent = prepareDevelopmentAuditEvent(options, {
     action: "agent-shell.authorization.terminated",
     outcome: "accepted",
@@ -3979,6 +4045,7 @@ function scheduleHostExpiration(
     }
 
     blockHostWindowsInput(sessionState);
+    blockHostWindowsCapture(sessionState);
     const auditEvent = prepareDevelopmentAuditEvent(options, {
       action: "agent-shell.authorization.expired",
       outcome: "accepted",
@@ -4244,6 +4311,7 @@ function closeLocalHostConnection(
   logMessage: string
 ): void {
   blockHostWindowsInput(sessionState);
+  blockHostWindowsCapture(sessionState);
   persistLocalHostDisconnectAudit(options, authorization, options.hostDisconnectReason !== undefined);
   sessionState.localPeerDisconnected = true;
   deactivateHostIndicatorBestEffort(options, sessionState, "local-disconnect");
