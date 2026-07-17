@@ -1,7 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
+import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ViewerLocalControlSurfaceRuntime } from "./viewer-local-control-surface.js";
 import {
@@ -14,9 +16,12 @@ const JPEG_FRAME_BYTES = Buffer.from("/9j/4AAQSkZJRg==", "base64");
 
 const handles: ViewerLocalControlSurfaceHandle[] = [];
 const tempDirs: string[] = [];
+const surfaceFramePaths = new Map<ViewerLocalControlSurfaceHandle, string>();
 
 afterEach(async () => {
   await Promise.all(handles.splice(0).map((handle) => handle.stop()));
+  surfaceFramePaths.clear();
+  vi.restoreAllMocks();
   for (const tempDir of tempDirs.splice(0)) {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -276,9 +281,10 @@ describe("viewer local control surface", () => {
     expect(html).toContain("activeModifiers.clear();");
     expect(html).toContain("const modifiers = Array.from(activeModifiers).join(\",\");");
     expect(html).toContain('const suffix = modifiers ? " " + modifiers : "";');
-    expect(html).toContain("await sendCommand(\"key-down \" + key + suffix);");
-    expect(html).toContain("await sendCommand(\"key-up \" + key + suffix);");
-    expect(html).toContain("finally {\n        clearModifiers();\n      }");
+    expect(html).toContain("return enqueueInputOperation(async () => {");
+    expect(html).toContain("await sendCommandNow(\"key-down \" + key + suffix, generation);");
+    expect(html).toContain("await sendCommandNow(\"key-up \" + key + suffix, generation);");
+    expect(html).toMatch(/finally \{\s+clearModifiers\(\);\s+\}/);
     expect(html).toContain('button.addEventListener("click", () => {');
     expect(html).toContain("if (!isLocalKeyboardReady()) return;");
     expect(html).toContain("updateModifierButtons();");
@@ -301,24 +307,109 @@ describe("viewer local control surface", () => {
     expect(html).toContain("Pointer On");
     expect(html).toContain("let pointerArmed = false;");
     expect(html).toContain("let frameReady = false;");
+    expect(html).toContain("let frameFresh = false;");
     expect(html).toContain("let statusPointerReady = false;");
     expect(html).toContain("let statusKeyboardReady = false;");
     expect(html).toContain("let frameRequestSequence = 0;");
     expect(html).toContain("function isLocalPointerReady()");
-    expect(html).toContain("return frameReady && statusPointerReady;");
+    expect(html).toContain("return frameReady && frameFresh && statusPointerReady;");
     expect(html).toContain("function updatePointerArm()");
     expect(html).toContain('pointerArm.setAttribute("aria-pressed", pointerArmed ? "true" : "false")');
     expect(html).toContain("pointerArm.disabled = !isLocalPointerReady();");
     expect(html).toContain('pointerArm.addEventListener("click"');
     expect(html).toContain("if (!isLocalPointerReady()) return;");
     expect(html).toContain("pointerArmed = !pointerArmed;");
-    expect(html.match(/if \(!pointerArmed \|\| !isLocalPointerReady\(\)\) return;/g)).toHaveLength(4);
+    expect(html.match(/if \(!pointerArmed \|\| !isLocalPointerReady\(\)\) return;/g)).toHaveLength(3);
+    expect(html).toContain("&& !heldPointerButtons.has(button)) return;");
     expect(html.match(/pointerArmed = false;/g)?.length).toBeGreaterThanOrEqual(2);
     expect(html).toContain("frameReady = true;");
     expect(html).toContain('frameStatus.textContent = frameReady ? "frame=refreshing" : "frame=loading"');
     expect(html).toContain('frameStatus.textContent = "frame=not-ready"');
     expect(html).not.toContain("document.addEventListener(\"pointer");
     expect(html).not.toContain("window.addEventListener(\"pointer");
+  });
+
+  it("executes generated pointer down and up through one ordered browser queue", async () => {
+    const runtime = createRuntimeSpy();
+    const handle = await startSurface(runtime);
+    const html = await (await fetch(handle.url)).text();
+    const firstResponse = createDeferred<GeneratedBrowserResponse>();
+    const inputCommands: string[] = [];
+    const browser = await executeGeneratedViewerScript(html, async (path, init) => {
+      expect(path).toBe("/input");
+      const command = JSON.parse(String(init?.body)).command as string;
+      inputCommands.push(command);
+      if (inputCommands.length === 1) {
+        return firstResponse.promise;
+      }
+      return generatedBrowserJsonResponse({ ok: true, action: "input", kind: "pointer-up" });
+    });
+
+    browser.pointerArm.emit("click", {});
+    browser.frame.emit("pointerdown", generatedPointerEvent());
+    browser.frame.emit("pointerup", generatedPointerEvent());
+    await flushGeneratedBrowserTasks();
+
+    expect(inputCommands).toEqual(["pointer-down 0.5 0.5 primary"]);
+    firstResponse.resolve(
+      generatedBrowserJsonResponse({ ok: true, action: "input", kind: "pointer-down" })
+    );
+    await flushGeneratedBrowserTasks();
+
+    expect(inputCommands).toEqual([
+      "pointer-down 0.5 0.5 primary",
+      "pointer-up 0.5 0.5 primary"
+    ]);
+  });
+
+  it("executes server-authoritative cleanup after an ambiguous browser down response", async () => {
+    const runtime = createRuntimeSpy();
+    const handle = await startSurface(runtime);
+    const html = await (await fetch(handle.url)).text();
+    const downResponse = createDeferred<GeneratedBrowserResponse>();
+    const paths: string[] = [];
+    const browser = await executeGeneratedViewerScript(html, async (path) => {
+      paths.push(path);
+      if (path === "/input") {
+        return downResponse.promise;
+      }
+      expect(path).toBe("/release-input");
+      return generatedBrowserJsonResponse({ ok: true, action: "release-input" });
+    });
+
+    browser.pointerArm.emit("click", {});
+    browser.frame.emit("pointerdown", generatedPointerEvent());
+    await flushGeneratedBrowserTasks();
+    expect(paths).toEqual(["/input"]);
+
+    downResponse.reject(new Error("response-lost"));
+    await flushGeneratedBrowserTasks();
+    expect(paths).toEqual(["/input", "/release-input"]);
+  });
+
+  it("executes server-authoritative cleanup after an unreadable browser down response", async () => {
+    const runtime = createRuntimeSpy();
+    const handle = await startSurface(runtime);
+    const html = await (await fetch(handle.url)).text();
+    const paths: string[] = [];
+    const browser = await executeGeneratedViewerScript(html, async (path) => {
+      paths.push(path);
+      if (path === "/input") {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => Promise.reject(new Error("response-body-lost"))
+        };
+      }
+      expect(path).toBe("/release-input");
+      return generatedBrowserJsonResponse({ ok: true, action: "release-input" });
+    });
+
+    browser.pointerArm.emit("click", {});
+    browser.frame.emit("pointerdown", generatedPointerEvent());
+    await flushGeneratedBrowserTasks();
+
+    expect(paths).toEqual(["/input", "/release-input"]);
   });
 
   it("renders local input controls gated on sanitized status and displayed frame readiness", async () => {
@@ -331,6 +422,7 @@ describe("viewer local control surface", () => {
     expect(response.status).toBe(200);
     expect(html).toContain("let statusPointerReady = false;");
     expect(html).toContain("let statusKeyboardReady = false;");
+    expect(html).toContain("let displayedFrameGeneration = undefined;");
     expect(html).toContain("function isAnyLocalInputReady()");
     expect(html).toContain("return isLocalPointerReady() || isLocalKeyboardReady();");
     expect(html).toContain(
@@ -350,12 +442,15 @@ describe("viewer local control surface", () => {
     expect(html).toContain("updateInputControls();");
     expect(html).toContain('if (event.key === "Enter")');
     expect(html).toContain("if (!isAnyLocalInputReady()) return;");
+    expect(html).toContain(
+      'postJson("/input", { command: line, frameGeneration: generation })'
+    );
     expect(html).not.toContain("authorizationId");
     expect(html).not.toContain("raw-token");
     expect(html).not.toContain("pairingCode");
   });
 
-  it("preloads replacement frames without disarming the displayed ready frame", async () => {
+  it("decodes replacement generations before replacing the displayed frame", async () => {
     const runtime = createRuntimeSpy();
     const handle = await startSurface(runtime);
 
@@ -365,12 +460,18 @@ describe("viewer local control surface", () => {
     expect(response.status).toBe(200);
     expect(html).toContain("const frameUrl = \"/frame?t=\" + Date.now();");
     expect(html).toContain("const requestSequence = ++frameRequestSequence;");
+    expect(html).toContain('const generation = response.headers.get("x-winbridge-frame-generation");');
+    expect(html).toContain("if (generation === displayedFrameGeneration)");
+    expect(html).toContain("const frameBlob = await response.blob();");
+    expect(html).toContain("const nextFrameObjectUrl = URL.createObjectURL(frameBlob);");
     expect(html).toContain("const nextFrame = new Image();");
     expect(html).toContain('nextFrame.addEventListener("load"');
     expect(html).toContain('nextFrame.addEventListener("error"');
-    expect(html.match(/if \(requestSequence !== frameRequestSequence\) return;/g)).toHaveLength(2);
-    expect(html).toContain("frame.src = frameUrl;");
-    expect(html).toContain("nextFrame.src = frameUrl;");
+    expect(html.match(/if \(requestSequence !== frameRequestSequence\) return;/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(html).toContain("frame.src = nextFrameObjectUrl;");
+    expect(html).toContain("nextFrame.src = nextFrameObjectUrl;");
+    expect(html).toContain("displayedFrameGeneration = generation;");
+    expect(html).toContain("URL.revokeObjectURL(previousFrameObjectUrl);");
     expect(html).toContain("updateFrameFreshness();");
     expect(html).not.toContain('frame.addEventListener("load"');
     expect(html).not.toContain('frame.addEventListener("error"');
@@ -411,7 +512,7 @@ describe("viewer local control surface", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(contentSecurityPolicy).toContain("default-src 'none'");
     expect(contentSecurityPolicy).toContain("connect-src 'self'");
-    expect(contentSecurityPolicy).toContain("img-src 'self'");
+    expect(contentSecurityPolicy).toContain("img-src 'self' blob:");
     expect(contentSecurityPolicy).toContain("frame-ancestors 'none'");
     expect(contentSecurityPolicy).not.toContain("'unsafe-inline'");
     expect(scriptNonce).toBeDefined();
@@ -455,7 +556,18 @@ describe("viewer local control surface", () => {
     expect(html).toContain("function updateFrameFreshness()");
     expect(html).toContain("const stale = ageMs >= frameStaleAfterMs;");
     expect(html).toContain('"frame=" + (stale ? "stale" : "ready") + " frameAgeMs=" + frameAgeBucket(ageMs)');
-    expect(html).toContain("displayedFrameLoadedAt = Date.now();");
+    expect(html).toContain("displayedFrameLoadedAt = performance.now();");
+    expect(html).toContain("frameFresh = !stale;");
+    expect(html).toContain("activeModifiers.clear();");
+    expect(html).toContain("void releaseHeldInputs();");
+    expect(html).toContain("const heldKeys = new Set();");
+    expect(html).toContain("const heldPointerButtons = new Set();");
+    expect(html).toContain("let inputOperationQueue = Promise.resolve();");
+    expect(html).toContain("inputOperationQueue = result.then(() => undefined, () => undefined);");
+    expect(html).toContain('const body = await postJson("/release-input", {});');
+    expect(html).toContain('window.addEventListener("pagehide", () => {');
+    expect(html).not.toContain("lastAcceptedPointerPoint");
+    expect(html).not.toContain("releaseRequestsInFlight");
     expect(html).toContain("setInterval(updateFrameFreshness, 1000);");
     expect(html).not.toContain("latest.png");
     expect(html).not.toContain("authorizationId");
@@ -476,6 +588,7 @@ describe("viewer local control surface", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-winbridge-frame-generation")).toMatch(/^[A-Za-z0-9_-]{22}$/);
     expect(frame).toEqual(FRAME_BYTES);
   });
 
@@ -540,6 +653,300 @@ describe("viewer local control surface", () => {
     expect(body).toContain("not-ready");
     expect(body).not.toContain("winbridge-123");
     expect(body).not.toContain(tempDir);
+  });
+
+  it("keeps one opaque generation for repeated reads of an unchanged frame", async () => {
+    const runtime = createRuntimeSpy();
+    const tempDir = createTempDir();
+    const framePath = join(tempDir, "latest.png");
+    const handle = await startSurface(runtime, framePath);
+    writeFileSync(framePath, FRAME_BYTES);
+
+    const firstGeneration = await readFrameGeneration(handle);
+    const secondGeneration = await readFrameGeneration(handle);
+
+    expect(firstGeneration).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(secondGeneration).toBe(firstGeneration);
+  });
+
+  it("rejects missing malformed and extra generation evidence before runtime input", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+    const invalidBodies = [
+      { command: "pointer-move 0.5 0.5" },
+      { command: "pointer-move 0.5 0.5", frameGeneration: "" },
+      { command: "pointer-move 0.5 0.5", frameGeneration: "unsafe/raw-generation" },
+      { command: "pointer-move 0.5 0.5", frameGeneration: "a".repeat(23) },
+      { command: "pointer-move 0.5 0.5", frameGeneration: {} },
+      {
+        command: "pointer-move 0.5 0.5",
+        frameGeneration: "a".repeat(22),
+        extra: "raw-token"
+      }
+    ];
+
+    for (const invalidBody of invalidBodies) {
+      const response = await postRawJson(handle, "input", invalidBody);
+      const body = await response.text();
+
+      expect(response.status).toBe(400);
+      expect(body).toContain("rejected");
+      expect(body).not.toContain("raw-generation");
+      expect(body).not.toContain("raw-token");
+    }
+    expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects unseen generation evidence without a frame or runtime input", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+
+    const response = await postRawJson(handle, "input", {
+      command: "key-down KeyA",
+      frameGeneration: "a".repeat(22)
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(409);
+    expect(body).toContain("not-ready");
+    expect(body).not.toContain("KeyA");
+    expect(body).not.toContain("a".repeat(22));
+    expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unchanged generation after the monotonic freshness window", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const tempDir = createTempDir();
+    const framePath = join(tempDir, "latest.png");
+    const handle = await startSurface(runtime, framePath);
+    writeFileSync(framePath, FRAME_BYTES);
+    const generation = await readFrameGeneration(handle);
+
+    const fresh = await postRawJson(handle, "input", {
+      command: "pointer-move 0.25 0.75",
+      frameGeneration: generation
+    });
+    now.mockReturnValue(6_000);
+    const stale = await postRawJson(handle, "input", {
+      command: "pointer-move 0.5 0.5",
+      frameGeneration: generation
+    });
+    const staleBody = await stale.text();
+
+    expect(fresh.status).toBe(202);
+    expect(stale.status).toBe(409);
+    expect(staleBody).toContain("not-ready");
+    expect(staleBody).not.toContain(generation);
+    expect(runtime.sendInputEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("linearly supersedes the old generation only after publishing a replacement", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const tempDir = createTempDir();
+    const framePath = join(tempDir, "latest.png");
+    const handle = await startSurface(runtime, framePath);
+    writeFileSync(framePath, FRAME_BYTES);
+    const firstGeneration = await readFrameGeneration(handle);
+
+    const replacementPath = join(tempDir, ".latest.png.replacement.tmp");
+    writeFileSync(replacementPath, JPEG_FRAME_BYTES);
+    renameSync(replacementPath, framePath);
+    now.mockReturnValue(2_000);
+
+    const beforePublication = await postRawJson(handle, "input", {
+      command: "pointer-move 0.5 0.5",
+      frameGeneration: firstGeneration
+    });
+    const secondGeneration = await readFrameGeneration(handle);
+    const superseded = await postRawJson(handle, "input", {
+      command: "pointer-move 0.5 0.5",
+      frameGeneration: firstGeneration
+    });
+    const recovered = await postRawJson(handle, "input", {
+      command: "pointer-move 0.75 0.25",
+      frameGeneration: secondGeneration
+    });
+
+    expect(beforePublication.status).toBe(202);
+    expect(secondGeneration).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(secondGeneration).not.toBe(firstGeneration);
+    expect(superseded.status).toBe(409);
+    expect(recovered.status).toBe(202);
+    expect(runtime.sendInputEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows one matching key release but no new or duplicate stale key input", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+    const generation = await ensureFreshFrameGeneration(handle);
+
+    const down = await postRawJson(handle, "input", {
+      command: "key-down KeyA shift",
+      frameGeneration: generation
+    });
+    now.mockReturnValue(6_000);
+    const release = await postRawJson(handle, "input", {
+      command: "key-up KeyA shift",
+      frameGeneration: generation
+    });
+    const duplicateRelease = await postRawJson(handle, "input", {
+      command: "key-up KeyA",
+      frameGeneration: generation
+    });
+    const newDown = await postRawJson(handle, "input", {
+      command: "key-down KeyB",
+      frameGeneration: generation
+    });
+
+    expect(down.status).toBe(202);
+    expect(release.status).toBe(202);
+    expect(duplicateRelease.status).toBe(409);
+    expect(newDown.status).toBe(409);
+    expect(runtime.sendInputEvent).toHaveBeenCalledTimes(2);
+    expect(runtime.sendInputEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        event: { kind: "key-up", key: "KeyA", modifiers: [] }
+      })
+    );
+  });
+
+  it("uses last accepted fresh coordinates for one stale pointer release", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+    const generation = await ensureFreshFrameGeneration(handle);
+
+    await postRawJson(handle, "input", {
+      command: "pointer-down 0.25 0.75 primary",
+      frameGeneration: generation
+    });
+    await postRawJson(handle, "input", {
+      command: "pointer-move 0.4 0.6",
+      frameGeneration: generation
+    });
+    now.mockReturnValue(6_000);
+    const release = await postRawJson(handle, "input", {
+      command: "pointer-up 0.99 0.99 primary",
+      frameGeneration: generation
+    });
+    const duplicate = await postRawJson(handle, "input", {
+      command: "pointer-up 0.99 0.99 primary",
+      frameGeneration: generation
+    });
+
+    expect(release.status).toBe(202);
+    expect(duplicate.status).toBe(409);
+    expect(runtime.sendInputEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        event: {
+          kind: "pointer-up",
+          x: 0.4,
+          y: 0.6,
+          button: "primary"
+        }
+      })
+    );
+  });
+
+  it("releases only server-tracked held input through the release-only action", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+    const generation = await ensureFreshFrameGeneration(handle);
+
+    await postRawJson(handle, "input", {
+      command: "key-down KeyA shift",
+      frameGeneration: generation
+    });
+    await postRawJson(handle, "input", {
+      command: "pointer-down 0.25 0.75 primary",
+      frameGeneration: generation
+    });
+    await postRawJson(handle, "input", {
+      command: "pointer-move 0.4 0.6",
+      frameGeneration: generation
+    });
+
+    const release = await postRawJson(handle, "release-input", {});
+    const releaseBody = await release.text();
+    const duplicate = await postRawJson(handle, "release-input", {});
+
+    expect(release.status).toBe(202);
+    expect(releaseBody).toBe('{"ok":true,"action":"release-input"}');
+    expect(releaseBody).not.toContain("KeyA");
+    expect(releaseBody).not.toContain(generation);
+    expect(duplicate.status).toBe(202);
+    expect(runtime.sendInputEvent).toHaveBeenCalledTimes(5);
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({
+        event: { kind: "key-up", key: "KeyA", modifiers: [] }
+      })
+    );
+    expect(runtime.sendInputEvent).toHaveBeenNthCalledWith(
+      5,
+      expect.objectContaining({
+        event: {
+          kind: "pointer-up",
+          x: 0.4,
+          y: 0.6,
+          button: "primary"
+        }
+      })
+    );
+  });
+
+  it("rejects malformed release-only requests before runtime input", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+
+    const response = await postRawJson(handle, "release-input", {
+      command: "key-up KeyA",
+      privateValue: "raw-token"
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(400);
+    expect(body).toContain("rejected");
+    expect(body).not.toContain("KeyA");
+    expect(body).not.toContain("raw-token");
+    expect(runtime.getViewerStatus).not.toHaveBeenCalled();
+    expect(runtime.sendInputEvent).not.toHaveBeenCalled();
+  });
+
+  it("releases abandoned held input at the generation stale boundary", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+    const generation = await ensureFreshFrameGeneration(handle);
+    now.mockReturnValue(5_999);
+
+    const down = await postRawJson(handle, "input", {
+      command: "key-down KeyA",
+      frameGeneration: generation
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(down.status).toBe(202);
+    expect(runtime.sendInputEvent).toHaveBeenCalledTimes(2);
+    expect(runtime.sendInputEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        event: { kind: "key-up", key: "KeyA", modifiers: [] }
+      })
+    );
   });
 
   it("sends pointer input through the viewer runtime with metadata-only response", async () => {
@@ -927,6 +1334,30 @@ describe("viewer local control surface", () => {
     expect(runtime.sendInputEvent).not.toHaveBeenCalled();
   });
 
+  it("attempts server-tracked release before disconnecting", async () => {
+    const runtime = createRuntimeSpy();
+    vi.mocked(runtime.getViewerStatus).mockReturnValue(createActiveStatus());
+    const handle = await startSurface(runtime);
+    const generation = await ensureFreshFrameGeneration(handle);
+    await postRawJson(handle, "input", {
+      command: "key-down KeyA",
+      frameGeneration: generation
+    });
+
+    const response = await postJson(handle, "disconnect", {});
+
+    expect(response.status).toBe(202);
+    expect(runtime.sendInputEvent).toHaveBeenCalledTimes(2);
+    expect(runtime.sendInputEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        event: { kind: "key-up", key: "KeyA", modifiers: [] }
+      })
+    );
+    expect(vi.mocked(runtime.sendInputEvent).mock.invocationCallOrder[1]).toBeLessThan(
+      vi.mocked(runtime.leave).mock.invocationCallOrder[0]
+    );
+  });
+
   it("rejects disconnect without the local mutation token", async () => {
     const runtime = createRuntimeSpy();
     const handle = await startSurface(runtime);
@@ -1059,6 +1490,7 @@ async function startSurface(
     framePath
   });
   handles.push(handle);
+  surfaceFramePaths.set(handle, framePath);
   return handle;
 }
 
@@ -1068,9 +1500,25 @@ function createTempDir(): string {
   return tempDir;
 }
 
-function postJson(
+async function postJson(
   handle: ViewerLocalControlSurfaceHandle,
-  path: "input" | "disconnect",
+  path: "input" | "release-input" | "disconnect",
+  body: unknown
+): Promise<Response> {
+  let requestBody = body;
+  if (path === "input" && isCommandOnlyBody(body)) {
+    requestBody = {
+      ...body,
+      frameGeneration: await ensureFreshFrameGeneration(handle)
+    };
+  }
+
+  return postRawJson(handle, path, requestBody);
+}
+
+function postRawJson(
+  handle: ViewerLocalControlSurfaceHandle,
+  path: "input" | "release-input" | "disconnect",
   body: unknown
 ): Promise<Response> {
   return fetch(`${handle.url}${path}`, {
@@ -1082,6 +1530,40 @@ function postJson(
     },
     body: JSON.stringify(body)
   });
+}
+
+function isCommandOnlyBody(body: unknown): body is { command: string } {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    !Array.isArray(body) &&
+    typeof (body as { command?: unknown }).command === "string" &&
+    !("frameGeneration" in body)
+  );
+}
+
+async function ensureFreshFrameGeneration(
+  handle: ViewerLocalControlSurfaceHandle
+): Promise<string> {
+  const framePath = surfaceFramePaths.get(handle);
+  if (!framePath) {
+    throw new Error("Missing test frame path");
+  }
+  if (!existsSync(framePath)) {
+    writeFileSync(framePath, FRAME_BYTES);
+  }
+
+  return readFrameGeneration(handle);
+}
+
+async function readFrameGeneration(handle: ViewerLocalControlSurfaceHandle): Promise<string> {
+  const response = await fetch(`${handle.url}frame`);
+  await response.arrayBuffer();
+  const generation = response.headers.get("x-winbridge-frame-generation");
+  if (response.status !== 200 || !generation) {
+    throw new Error("Missing test frame generation");
+  }
+  return generation;
 }
 
 function rawSurfaceRequest(
@@ -1133,8 +1615,171 @@ function originForHandle(handle: ViewerLocalControlSurfaceHandle): string {
 }
 
 function removeHandle(handle: ViewerLocalControlSurfaceHandle): void {
+  surfaceFramePaths.delete(handle);
   const index = handles.indexOf(handle);
   if (index !== -1) {
     handles.splice(index, 1);
+  }
+}
+
+type GeneratedBrowserResponse = {
+  ok?: boolean;
+  status?: number;
+  headers?: { get(name: string): string | null };
+  body?: { cancel(): Promise<void> };
+  json?(): Promise<unknown>;
+  blob?(): Promise<{ type: string }>;
+};
+
+type GeneratedBrowserMutationFetch = (
+  path: string,
+  init?: RequestInit
+) => Promise<GeneratedBrowserResponse>;
+
+type GeneratedBrowserListener = (event: Record<string, unknown>) => void;
+
+class GeneratedBrowserElement {
+  textContent = "";
+  disabled = false;
+  value = "";
+  dataset: Record<string, string> = {};
+  private readonly listeners = new Map<string, GeneratedBrowserListener[]>();
+
+  addEventListener(type: string, listener: GeneratedBrowserListener): void {
+    const listeners = this.listeners.get(type) ?? [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  emit(type: string, event: Record<string, unknown>): void {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(event);
+    }
+  }
+
+  setAttribute(): void {}
+
+  getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
+    return { left: 0, top: 0, width: 100, height: 100 };
+  }
+
+  setPointerCapture(): void {}
+}
+
+class GeneratedBrowserImage extends GeneratedBrowserElement {
+  private imageSource = "";
+
+  set src(value: string) {
+    this.imageSource = value;
+    queueMicrotask(() => this.emit("load", {}));
+  }
+
+  get src(): string {
+    return this.imageSource;
+  }
+}
+
+async function executeGeneratedViewerScript(
+  html: string,
+  mutationFetch: GeneratedBrowserMutationFetch
+): Promise<{ frame: GeneratedBrowserElement; pointerArm: GeneratedBrowserElement }> {
+  const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
+  if (!script) {
+    throw new Error("Missing generated viewer script");
+  }
+
+  const elements = new Map<string, GeneratedBrowserElement>();
+  for (const id of ["frame", "status", "frameStatus", "pointerArm", "command", "send", "disconnect"]) {
+    elements.set(id, new GeneratedBrowserElement());
+  }
+  const frame = elements.get("frame")!;
+  const pointerArm = elements.get("pointerArm")!;
+  const windowElement = new GeneratedBrowserElement();
+  const fetchImpl = async (path: string, init?: RequestInit): Promise<GeneratedBrowserResponse> => {
+    if (path === "/status") {
+      return generatedBrowserJsonResponse({
+        ok: true,
+        state: {
+          state: "active",
+          visibleToHost: true,
+          permissionCount: 3,
+          inputPointerReady: true,
+          inputKeyboardReady: true,
+          signalProbeAckReceived: true
+        }
+      });
+    }
+    if (path.startsWith("/frame?t=")) {
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (name) => name === "x-winbridge-frame-generation" ? "a".repeat(22) : null },
+        body: { cancel: async () => undefined },
+        blob: async () => ({ type: "image/png" })
+      };
+    }
+    return mutationFetch(path, init);
+  };
+
+  runInNewContext(script, {
+    console,
+    document: {
+      getElementById: (id: string) => elements.get(id),
+      querySelectorAll: () => []
+    },
+    fetch: fetchImpl,
+    Image: GeneratedBrowserImage,
+    performance: { now: () => 1_000 },
+    setInterval: () => 1,
+    clearInterval: () => undefined,
+    URL: {
+      createObjectURL: () => "blob:winbridge-frame",
+      revokeObjectURL: () => undefined
+    },
+    window: windowElement
+  });
+  await flushGeneratedBrowserTasks();
+  return { frame, pointerArm };
+}
+
+function generatedBrowserJsonResponse(body: unknown): GeneratedBrowserResponse {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => body
+  };
+}
+
+function generatedPointerEvent(): Record<string, unknown> {
+  return {
+    button: 0,
+    pointerId: 1,
+    clientX: 50,
+    clientY: 50,
+    preventDefault: () => undefined
+  };
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushGeneratedBrowserTasks(): Promise<void> {
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
   }
 }

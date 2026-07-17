@@ -11,7 +11,7 @@ export const DEFAULT_MVP_SMOKE_OPTIONS = Object.freeze({
   viewerPeer: "viewer-smoke",
   pairing: "123-456",
   captureAfterMs: 250,
-  captureCount: 3,
+  captureCount: 30,
   captureIntervalMs: 250,
   lifecycleRevokeAfterMs: 8_000
 });
@@ -43,6 +43,9 @@ const RELAY_SHARED_TOKEN_MAX_BYTES = 1024;
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]{0,127}$/;
 const SMOKE_AUDIT_LOG_CONTENT_LIMIT_BYTES = 256 * 1024;
 const SMOKE_AUDIT_LOG_LINE_LIMIT_BYTES = 4096;
+const SMOKE_FRAME_CONTENT_LIMIT_BYTES = 16 * 1024 * 1024;
+const SMOKE_PNG_SIGNATURE = Object.freeze([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const SMOKE_JPEG_SIGNATURE = Object.freeze([0xff, 0xd8, 0xff]);
 const MVP_SMOKE_CHECK_NAMES = Object.freeze([
   "relay",
   "indicator",
@@ -158,6 +161,8 @@ const SMOKE_HOST_HEADER_PROBE_TIMEOUT_MS = 500;
 const SMOKE_HOST_HEADER_PROBE_MAX_RESPONSE_BYTES = 1024;
 const SMOKE_HOST_CONTROL_GUARD_BODY = JSON.stringify({ command: "pause" });
 const SURFACE_MUTATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
+const SURFACE_FRAME_GENERATION_HEADER = "x-winbridge-frame-generation";
+const SURFACE_FRAME_GENERATION_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "relay-not-ready": 0,
   "port-unavailable": 0,
@@ -520,6 +525,12 @@ async function runMvpSessionSmokeSteps(context) {
   }
   await waitForSmokeAuditLogs(
     [readyPlan.hostAuditPath, readyPlan.viewerAuditPath],
+    deadline,
+    options
+  );
+  await waitForPointerPermissionRevoked(
+    readyPlan.hostAuditPath,
+    surfaceUrl,
     deadline,
     options
   );
@@ -1369,9 +1380,30 @@ function hasExactRejectedSurfaceGuardShape(body) {
 
 async function waitForViewerSurfaceInput(surfaceUrl, mutationToken, deadline, options) {
   while (options.now() <= deadline) {
+    const frameGeneration = await tryReadSurfaceFrameGeneration(
+      options.fetchImpl,
+      surfaceUrl
+    );
     const accepted =
-      (await tryPostSurfaceInput(options.fetchImpl, surfaceUrl, mutationToken)) &&
-      (await tryPostSurfaceKeyboardInput(options.fetchImpl, surfaceUrl, mutationToken));
+      frameGeneration !== undefined &&
+      (await tryPostSurfaceInput(
+        options.fetchImpl,
+        surfaceUrl,
+        mutationToken,
+        frameGeneration
+      )) &&
+      (await tryPostSurfaceKeyboardInput(
+        options.fetchImpl,
+        surfaceUrl,
+        mutationToken,
+        frameGeneration
+      )) &&
+      (await tryPostSurfaceKeyboardReleaseInput(
+        options.fetchImpl,
+        surfaceUrl,
+        mutationToken,
+        frameGeneration
+      ));
     if (accepted) {
       return;
     }
@@ -1380,23 +1412,51 @@ async function waitForViewerSurfaceInput(surfaceUrl, mutationToken, deadline, op
   throw new Error("input-not-ready");
 }
 
-export async function tryPostSurfaceInput(fetchImpl, surfaceUrl, mutationToken) {
+export async function tryPostSurfaceInput(
+  fetchImpl,
+  surfaceUrl,
+  mutationToken,
+  frameGeneration
+) {
   return tryPostSurfaceInputCommand(
     fetchImpl,
     surfaceUrl,
     mutationToken,
     "pointer-move 0.5 0.5",
-    "pointer-move"
+    "pointer-move",
+    frameGeneration
   );
 }
 
-export async function tryPostSurfaceKeyboardInput(fetchImpl, surfaceUrl, mutationToken) {
+export async function tryPostSurfaceKeyboardInput(
+  fetchImpl,
+  surfaceUrl,
+  mutationToken,
+  frameGeneration
+) {
   return tryPostSurfaceInputCommand(
     fetchImpl,
     surfaceUrl,
     mutationToken,
     "key-down KeyA shift,control",
-    "key-down"
+    "key-down",
+    frameGeneration
+  );
+}
+
+export async function tryPostSurfaceKeyboardReleaseInput(
+  fetchImpl,
+  surfaceUrl,
+  mutationToken,
+  frameGeneration
+) {
+  return tryPostSurfaceInputCommand(
+    fetchImpl,
+    surfaceUrl,
+    mutationToken,
+    "key-up KeyA shift,control",
+    "key-up",
+    frameGeneration
   );
 }
 
@@ -1411,12 +1471,86 @@ async function waitForViewerSurfaceInputDenied(surfaceUrl, mutationToken, deadli
   throw new Error("lifecycle-not-ready");
 }
 
-export async function tryPostSurfaceInputDenied(fetchImpl, surfaceUrl, mutationToken) {
+async function waitForPointerPermissionRevoked(hostAuditPath, surfaceUrl, deadline, options) {
+  while (options.now() <= deadline) {
+    let auditReady = false;
+    try {
+      auditReady = hasAcceptedPointerPermissionRevokeAudit(
+        readFileSync(hostAuditPath, "utf8")
+      );
+    } catch {
+      // Keep polling until the bounded deadline.
+    }
+    const statusReady = await tryReadViewerPointerPermissionRevoked(
+      options.fetchImpl,
+      surfaceUrl
+    );
+    if (auditReady && statusReady) {
+      return;
+    }
+    await options.sleep(100);
+  }
+  throw new Error("lifecycle-not-ready");
+}
+
+export async function tryReadViewerPointerPermissionRevoked(fetchImpl, surfaceUrl) {
+  try {
+    const response = await fetchImpl(`${surfaceUrl}status`, { cache: "no-store" });
+    if (response.status !== 200) {
+      return false;
+    }
+    return isBoundedViewerPointerPermissionRevokedStatus(await response.json());
+  } catch {
+    return false;
+  }
+}
+
+function isBoundedViewerPointerPermissionRevokedStatus(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return false;
+  }
+  const keys = Object.keys(body);
+  if (
+    !keys.includes("ok") ||
+    !keys.includes("state") ||
+    !keys.every((key) => SAFE_SURFACE_STATUS_TOP_LEVEL_KEYS.includes(key))
+  ) {
+    return false;
+  }
+
+  const state = body.state;
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    return false;
+  }
+  if (!Object.keys(state).every((key) => SAFE_SURFACE_STATUS_STATE_KEYS.includes(key))) {
+    return false;
+  }
+
+  return (
+    body.ok === true &&
+    state.state === "active" &&
+    state.authorizationStatus === "active" &&
+    state.visibleToHost === true &&
+    Number.isInteger(state.permissionCount) &&
+    state.permissionCount > 0 &&
+    state.inputPointerReady === false &&
+    state.inputKeyboardReady === true &&
+    state.signalProbeAckReceived === true
+  );
+}
+
+export async function tryPostSurfaceInputDenied(
+  fetchImpl,
+  surfaceUrl,
+  mutationToken,
+  frameGeneration
+) {
   const result = await tryPostSurfaceInputCommandStatus(
     fetchImpl,
     surfaceUrl,
     mutationToken,
-    "pointer-move 0.5 0.5"
+    "pointer-move 0.5 0.5",
+    frameGeneration
   );
   return result === "denied";
 }
@@ -1450,13 +1584,38 @@ export async function tryPostSurfaceDisconnect(fetchImpl, surfaceUrl, mutationTo
   }
 }
 
-async function tryPostSurfaceInputCommand(fetchImpl, surfaceUrl, mutationToken, command, expectedKind) {
-  const result = await tryPostSurfaceInputCommandStatus(fetchImpl, surfaceUrl, mutationToken, command);
+async function tryPostSurfaceInputCommand(
+  fetchImpl,
+  surfaceUrl,
+  mutationToken,
+  command,
+  expectedKind,
+  frameGeneration
+) {
+  const result = await tryPostSurfaceInputCommandStatus(
+    fetchImpl,
+    surfaceUrl,
+    mutationToken,
+    command,
+    frameGeneration
+  );
   return result !== "denied" && result?.ok === true && result.action === "input" && result.kind === expectedKind;
 }
 
-async function tryPostSurfaceInputCommandStatus(fetchImpl, surfaceUrl, mutationToken, command) {
+async function tryPostSurfaceInputCommandStatus(
+  fetchImpl,
+  surfaceUrl,
+  mutationToken,
+  command,
+  frameGeneration
+) {
   try {
+    const resolvedFrameGeneration =
+      frameGeneration ?? (await tryReadSurfaceFrameGeneration(fetchImpl, surfaceUrl));
+    if (!SURFACE_FRAME_GENERATION_PATTERN.test(resolvedFrameGeneration ?? "")) {
+      return undefined;
+    }
+
     const response = await fetchImpl(`${surfaceUrl}input`, {
       method: "POST",
       headers: {
@@ -1464,7 +1623,7 @@ async function tryPostSurfaceInputCommandStatus(fetchImpl, surfaceUrl, mutationT
         origin: surfaceUrl.replace(/\/$/, ""),
         "x-winbridge-local-surface-token": mutationToken
       },
-      body: JSON.stringify({ command })
+      body: JSON.stringify({ command, frameGeneration: resolvedFrameGeneration })
     });
     const body = await response.json();
     if (response.status === 202) {
@@ -1477,6 +1636,89 @@ async function tryPostSurfaceInputCommandStatus(fetchImpl, surfaceUrl, mutationT
   } catch {
     return undefined;
   }
+}
+
+export async function tryReadSurfaceFrameGeneration(fetchImpl, surfaceUrl) {
+  try {
+    const response = await fetchImpl(`${surfaceUrl}frame`, {
+      cache: "no-store",
+      headers: { accept: "image/png,image/jpeg" }
+    });
+    const generation = response.headers?.get?.(SURFACE_FRAME_GENERATION_HEADER);
+    if (
+      response.status !== 200 ||
+      typeof generation !== "string" ||
+      !SURFACE_FRAME_GENERATION_PATTERN.test(generation)
+    ) {
+      await response.body?.cancel?.();
+      return undefined;
+    }
+
+    const contentType = response.headers?.get?.("content-type")?.split(";", 1)[0]?.trim();
+    const frame = await readBoundedSmokeFrameResponse(response);
+    return isSupportedSmokeFrame(frame, contentType) ? generation : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function readBoundedSmokeFrameResponse(response) {
+  const contentLength = response.headers?.get?.("content-length");
+  if (contentLength !== null && contentLength !== undefined) {
+    if (!/^(0|[1-9]\d*)$/.test(contentLength)) {
+      await response.body?.cancel?.();
+      return undefined;
+    }
+    const parsedLength = Number(contentLength);
+    if (!Number.isSafeInteger(parsedLength) || parsedLength > SMOKE_FRAME_CONTENT_LIMIT_BYTES) {
+      await response.body?.cancel?.();
+      return undefined;
+    }
+  }
+
+  const reader = response.body?.getReader?.();
+  if (reader) {
+    const chunks = [];
+    let byteLength = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      byteLength += chunk.byteLength;
+      if (byteLength > SMOKE_FRAME_CONTENT_LIMIT_BYTES) {
+        await reader.cancel();
+        return undefined;
+      }
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks, byteLength);
+  }
+
+  if (typeof response.arrayBuffer !== "function") {
+    return undefined;
+  }
+  const frame = Buffer.from(await response.arrayBuffer());
+  return frame.byteLength <= SMOKE_FRAME_CONTENT_LIMIT_BYTES ? frame : undefined;
+}
+
+function isSupportedSmokeFrame(frame, contentType) {
+  if (!Buffer.isBuffer(frame) || frame.byteLength === 0) {
+    return false;
+  }
+  if (contentType === "image/png") {
+    return hasSmokeFrameSignature(frame, SMOKE_PNG_SIGNATURE);
+  }
+  if (contentType === "image/jpeg") {
+    return hasSmokeFrameSignature(frame, SMOKE_JPEG_SIGNATURE);
+  }
+  return false;
+}
+
+function hasSmokeFrameSignature(frame, signature) {
+  return (
+    frame.byteLength >= signature.length &&
+    signature.every((byte, index) => frame[index] === byte)
+  );
 }
 
 async function waitForSmokeAuditLogs(auditPaths, deadline, options) {
@@ -1532,6 +1774,18 @@ export function hasSmokeAuditLogAction(content, action) {
   }
   const records = parseSmokeAuditLogRecords(content);
   return records?.some((record) => record.action === action && record.outcome === "accepted") === true;
+}
+
+export function hasAcceptedPointerPermissionRevokeAudit(content) {
+  const records = parseSmokeAuditLogRecords(content);
+  return (
+    records?.some(
+      (record) =>
+        record.action === "agent-shell.permission.revoked" &&
+        record.outcome === "accepted" &&
+        record.detail?.revokedPermission === "input:pointer"
+    ) === true
+  );
 }
 
 export function tryReadSmokeAuditSummary(hostAuditPath, viewerAuditPath) {

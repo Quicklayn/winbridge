@@ -1,10 +1,13 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { readFile, unlink } from "node:fs/promises";
+import type { BigIntStats } from "node:fs";
+import { open, unlink } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname } from "node:path";
+import { performance } from "node:perf_hooks";
 import { isControlPromptCommandLineTooLong } from "./control-prompt-input.js";
 import {
   createAgentShellErrorDiagnostic,
+  type AgentShellInputEventInput,
   type AgentShellRuntime,
   type AgentShellViewerStatusSnapshot
 } from "./runtime.js";
@@ -36,7 +39,12 @@ export type ViewerLocalControlSurfaceHandle = {
 };
 
 type LocalSurfaceJson =
-  | { ok: true; state?: LocalSurfaceViewerStatus; action?: "input" | "disconnect"; kind?: string }
+  | {
+      ok: true;
+      state?: LocalSurfaceViewerStatus;
+      action?: "input" | "release-input" | "disconnect";
+      kind?: string;
+    }
   | { ok: false; error: "not-found" | "method-not-allowed" | "rejected" | "failed" | "not-ready"; messageBytes?: number };
 
 type LocalSurfaceViewerStatus = Omit<
@@ -47,10 +55,43 @@ type LocalSurfaceViewerStatus = Omit<
   inputKeyboardReady: boolean;
 };
 
+type LocalSurfaceInputEvent = AgentShellInputEventInput["event"];
+type LocalSurfacePointerButton = Extract<
+  LocalSurfaceInputEvent,
+  { kind: "pointer-down" | "pointer-up" }
+>["button"];
+type LocalSurfaceKey = Extract<
+  LocalSurfaceInputEvent,
+  { kind: "key-down" | "key-up" }
+>["key"];
+type LocalSurfacePointerPoint = Readonly<{ x: number; y: number }>;
+type LocalSurfaceFrameGeneration = Readonly<{
+  fingerprint: string;
+  generation: string;
+  observedAtMs: number;
+}>;
+type LocalSurfaceFrameState = {
+  current?: LocalSurfaceFrameGeneration;
+};
+type LocalSurfaceHeldInputState = {
+  keys: Set<LocalSurfaceKey>;
+  pointerButtons: Set<LocalSurfacePointerButton>;
+  lastPointerPoint?: LocalSurfacePointerPoint;
+  releaseTimer?: NodeJS.Timeout;
+};
+type LocalSurfaceInputRequest = Readonly<{
+  command: string;
+  frameGeneration: string;
+}>;
+
 const VIEWER_LOCAL_CONTROL_SURFACE_HOST = "127.0.0.1";
 const VIEWER_LOCAL_CONTROL_SURFACE_BODY_BYTES = 1024;
 const VIEWER_LOCAL_CONTROL_SURFACE_TOKEN_BYTES = 32;
 const VIEWER_LOCAL_CONTROL_SURFACE_TOKEN_HEADER = "x-winbridge-local-surface-token";
+const VIEWER_LOCAL_CONTROL_SURFACE_FRAME_GENERATION_HEADER =
+  "x-winbridge-frame-generation";
+const VIEWER_LOCAL_CONTROL_SURFACE_FRAME_GENERATION_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+const VIEWER_LOCAL_CONTROL_SURFACE_FRAME_STALE_AFTER_MS = 5_000;
 const VIEWER_LOCAL_CONTROL_SURFACE_READY_MESSAGE =
   "[winbridge-agent] viewer local control surface";
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff] as const;
@@ -66,10 +107,17 @@ export async function startViewerLocalControlSurface(
   let nextInputSequence = 0;
   let localOrigin: string | undefined;
   const token = createViewerLocalControlSurfaceToken();
+  const frameState: LocalSurfaceFrameState = {};
+  const heldInputState: LocalSurfaceHeldInputState = {
+    keys: new Set(),
+    pointerButtons: new Set()
+  };
   const server = createServer({ requireHostHeader: false }, (request, response) => {
     void handleViewerLocalControlSurfaceRequest(
       runtime,
       options.framePath,
+      frameState,
+      heldInputState,
       token,
       () => localOrigin,
       () => nextInputSequence++,
@@ -100,7 +148,11 @@ export async function startViewerLocalControlSurface(
     url,
     port: address.port,
     token,
-    stop: () => closeServer(server)
+    stop: async () => {
+      clearHeldInputReleaseTimer(heldInputState);
+      releaseTrackedLocalSurfaceInput(runtime, heldInputState, () => nextInputSequence++);
+      await closeServer(server);
+    }
   };
 }
 
@@ -125,6 +177,8 @@ export function assertViewerLocalControlSurfacePort(
 async function handleViewerLocalControlSurfaceRequest(
   runtime: ViewerControlRuntime,
   framePath: string,
+  frameState: LocalSurfaceFrameState,
+  heldInputState: LocalSurfaceHeldInputState,
   token: string,
   getLocalOrigin: () => string | undefined,
   allocateInputSequence: () => number,
@@ -158,7 +212,7 @@ async function handleViewerLocalControlSurfaceRequest(
     }
 
     if (request.method === "GET" && requestUrl.pathname === "/frame") {
-      await writeFrame(response, framePath);
+      await writeFrame(response, framePath, frameState);
       return;
     }
 
@@ -167,7 +221,29 @@ async function handleViewerLocalControlSurfaceRequest(
         writeJson(response, 403, { ok: false, error: "rejected" });
         return;
       }
-      await handleInputRequest(runtime, allocateInputSequence, request, response);
+      await handleInputRequest(
+        runtime,
+        frameState,
+        heldInputState,
+        allocateInputSequence,
+        request,
+        response
+      );
+      return;
+    }
+
+    if (request.method === "POST" && requestUrl.pathname === "/release-input") {
+      if (!isViewerLocalMutationRequestAllowed(request, token, getLocalOrigin())) {
+        writeJson(response, 403, { ok: false, error: "rejected" });
+        return;
+      }
+      await handleReleaseInputRequest(
+        runtime,
+        heldInputState,
+        allocateInputSequence,
+        request,
+        response
+      );
       return;
     }
 
@@ -176,7 +252,7 @@ async function handleViewerLocalControlSurfaceRequest(
         writeJson(response, 403, { ok: false, error: "rejected" });
         return;
       }
-      await handleDisconnectRequest(runtime, response);
+      await handleDisconnectRequest(runtime, heldInputState, allocateInputSequence, response);
       return;
     }
 
@@ -265,6 +341,8 @@ function safeTokenEquals(value: string, expected: string): boolean {
 
 async function handleInputRequest(
   runtime: ViewerControlRuntime,
+  frameState: LocalSurfaceFrameState,
+  heldInputState: LocalSurfaceHeldInputState,
   allocateInputSequence: () => number,
   request: IncomingMessage,
   response: ServerResponse
@@ -275,25 +353,45 @@ async function handleInputRequest(
     return;
   }
 
-  const commandLine = parseInputCommandBody(body);
+  const inputRequest = parseInputCommandBody(body);
   if (
-    commandLine === undefined ||
-    isControlPromptCommandLineTooLong(commandLine)
+    inputRequest === undefined ||
+    isControlPromptCommandLineTooLong(inputRequest.command)
   ) {
     writeJson(response, 400, { ok: false, error: "rejected" });
     return;
   }
 
-  const command = parseViewerControlCommand(commandLine);
+  const command = parseViewerControlCommand(inputRequest.command);
   if (!command || command.action !== "input") {
     writeJson(response, 400, { ok: false, error: "rejected" });
+    return;
+  }
+
+  const fresh = isCurrentFrameGenerationFresh(
+    frameState.current,
+    inputRequest.frameGeneration,
+    performance.now()
+  );
+  const event = fresh
+    ? command.event
+    : createMatchingReleaseOnlyEvent(command.event, heldInputState);
+  if (!event) {
+    writeJson(response, 409, { ok: false, error: "not-ready" });
     return;
   }
 
   try {
     const accepted = sendViewerControlInputEvent(
       runtime,
-      command.event,
+      event,
+      allocateInputSequence
+    );
+    recordAcceptedLocalSurfaceInput(event, heldInputState);
+    updateHeldInputReleaseTimer(
+      runtime,
+      frameState.current,
+      heldInputState,
       allocateInputSequence
     );
     writeJson(response, 202, { ok: true, action: accepted.action, kind: accepted.kind });
@@ -303,12 +401,46 @@ async function handleInputRequest(
   }
 }
 
-async function handleDisconnectRequest(
-  runtime: Pick<ViewerControlRuntime, "leave">,
+async function handleReleaseInputRequest(
+  runtime: ViewerControlRuntime,
+  heldInputState: LocalSurfaceHeldInputState,
+  allocateInputSequence: () => number,
+  request: IncomingMessage,
   response: ServerResponse
 ): Promise<void> {
+  const body = await readBoundedRequestBody(request);
+  if (body === undefined || !isExactEmptyJsonObject(body)) {
+    writeJson(response, body === undefined ? 413 : 400, { ok: false, error: "rejected" });
+    return;
+  }
+
+  const released = releaseTrackedLocalSurfaceInput(
+    runtime,
+    heldInputState,
+    allocateInputSequence
+  );
+  writeJson(
+    response,
+    released ? 202 : 409,
+    released
+      ? { ok: true, action: "release-input" }
+      : { ok: false, error: "not-ready" }
+  );
+}
+
+async function handleDisconnectRequest(
+  runtime: ViewerControlRuntime,
+  heldInputState: LocalSurfaceHeldInputState,
+  allocateInputSequence: () => number,
+  response: ServerResponse
+): Promise<void> {
+  releaseTrackedLocalSurfaceInput(runtime, heldInputState, allocateInputSequence);
   try {
     await runtime.leave();
+    clearHeldInputReleaseTimer(heldInputState);
+    heldInputState.keys.clear();
+    heldInputState.pointerButtons.clear();
+    heldInputState.lastPointerPoint = undefined;
     writeJson(response, 202, { ok: true, action: "disconnect" });
   } catch (error) {
     const diagnostic = createAgentShellErrorDiagnostic(error);
@@ -316,18 +448,226 @@ async function handleDisconnectRequest(
   }
 }
 
-async function writeFrame(response: ServerResponse, framePath: string): Promise<void> {
+async function writeFrame(
+  response: ServerResponse,
+  framePath: string,
+  frameState: LocalSurfaceFrameState
+): Promise<void> {
   try {
-    const frame = await readFile(framePath);
+    const snapshot = await readStableFrame(framePath);
+    if (!snapshot) {
+      writeJson(response, 404, { ok: false, error: "not-ready" });
+      return;
+    }
+
+    const generation = observeFrameFingerprint(
+      frameState,
+      snapshot.fingerprint,
+      performance.now()
+    );
     response.writeHead(200, {
       "cache-control": "no-store",
-      "content-length": frame.byteLength,
-      "content-type": contentTypeForFrame(frame, framePath),
+      "content-length": snapshot.frame.byteLength,
+      "content-type": contentTypeForFrame(snapshot.frame, framePath),
+      [VIEWER_LOCAL_CONTROL_SURFACE_FRAME_GENERATION_HEADER]: generation.generation,
       "x-content-type-options": "nosniff"
     });
-    response.end(frame);
+    response.end(snapshot.frame);
   } catch {
     writeJson(response, 404, { ok: false, error: "not-ready" });
+  }
+}
+
+async function readStableFrame(
+  framePath: string
+): Promise<Readonly<{ frame: Buffer; fingerprint: string }> | undefined> {
+  const frameHandle = await open(framePath, "r");
+  try {
+    const before = await frameHandle.stat({ bigint: true });
+    const frame = await frameHandle.readFile();
+    const after = await frameHandle.stat({ bigint: true });
+    const fingerprint = createFrameFingerprint(before);
+    if (fingerprint !== createFrameFingerprint(after)) {
+      return undefined;
+    }
+
+    return { frame, fingerprint };
+  } finally {
+    await frameHandle.close();
+  }
+}
+
+function createFrameFingerprint(stats: BigIntStats): string {
+  return [
+    stats.dev,
+    stats.ino,
+    stats.size,
+    stats.mtimeNs,
+    stats.ctimeNs,
+    stats.birthtimeNs
+  ].join(":");
+}
+
+function observeFrameFingerprint(
+  frameState: LocalSurfaceFrameState,
+  fingerprint: string,
+  nowMs: number
+): LocalSurfaceFrameGeneration {
+  if (frameState.current?.fingerprint === fingerprint) {
+    return frameState.current;
+  }
+
+  const current = {
+    fingerprint,
+    generation: randomBytes(16).toString("base64url"),
+    observedAtMs: nowMs
+  };
+  frameState.current = current;
+  return current;
+}
+
+function isCurrentFrameGenerationFresh(
+  current: LocalSurfaceFrameGeneration | undefined,
+  generation: string,
+  nowMs: number
+): boolean {
+  if (!current || current.generation !== generation) {
+    return false;
+  }
+
+  const ageMs = nowMs - current.observedAtMs;
+  return ageMs >= 0 && ageMs < VIEWER_LOCAL_CONTROL_SURFACE_FRAME_STALE_AFTER_MS;
+}
+
+function createMatchingReleaseOnlyEvent(
+  event: LocalSurfaceInputEvent,
+  heldInputState: LocalSurfaceHeldInputState
+): LocalSurfaceInputEvent | undefined {
+  if (event.kind === "key-up" && heldInputState.keys.has(event.key)) {
+    return { ...event, modifiers: [] };
+  }
+
+  if (
+    event.kind === "pointer-up" &&
+    heldInputState.pointerButtons.has(event.button) &&
+    heldInputState.lastPointerPoint
+  ) {
+    return {
+      ...event,
+      x: heldInputState.lastPointerPoint.x,
+      y: heldInputState.lastPointerPoint.y
+    };
+  }
+
+  return undefined;
+}
+
+function recordAcceptedLocalSurfaceInput(
+  event: LocalSurfaceInputEvent,
+  heldInputState: LocalSurfaceHeldInputState
+): void {
+  switch (event.kind) {
+    case "pointer-move":
+    case "pointer-wheel":
+      heldInputState.lastPointerPoint = { x: event.x, y: event.y };
+      return;
+    case "pointer-down":
+      heldInputState.pointerButtons.add(event.button);
+      heldInputState.lastPointerPoint = { x: event.x, y: event.y };
+      return;
+    case "pointer-up":
+      heldInputState.pointerButtons.delete(event.button);
+      heldInputState.lastPointerPoint = { x: event.x, y: event.y };
+      return;
+    case "key-down":
+      heldInputState.keys.add(event.key);
+      return;
+    case "key-up":
+      heldInputState.keys.delete(event.key);
+  }
+}
+
+function updateHeldInputReleaseTimer(
+  runtime: ViewerControlRuntime,
+  currentFrame: LocalSurfaceFrameGeneration | undefined,
+  heldInputState: LocalSurfaceHeldInputState,
+  allocateInputSequence: () => number
+): void {
+  if (!hasTrackedHeldInput(heldInputState)) {
+    clearHeldInputReleaseTimer(heldInputState);
+    return;
+  }
+
+  clearHeldInputReleaseTimer(heldInputState);
+  const staleAtMs =
+    (currentFrame?.observedAtMs ?? performance.now()) +
+    VIEWER_LOCAL_CONTROL_SURFACE_FRAME_STALE_AFTER_MS;
+  const delayMs = Math.max(1, staleAtMs - performance.now());
+  const releaseTimer = setTimeout(() => {
+    heldInputState.releaseTimer = undefined;
+    releaseTrackedLocalSurfaceInput(runtime, heldInputState, allocateInputSequence);
+  }, delayMs);
+  releaseTimer.unref();
+  heldInputState.releaseTimer = releaseTimer;
+}
+
+function releaseTrackedLocalSurfaceInput(
+  runtime: ViewerControlRuntime,
+  heldInputState: LocalSurfaceHeldInputState,
+  allocateInputSequence: () => number
+): boolean {
+  let released = true;
+  for (const key of [...heldInputState.keys].sort()) {
+    try {
+      sendViewerControlInputEvent(
+        runtime,
+        { kind: "key-up", key, modifiers: [] },
+        allocateInputSequence
+      );
+      heldInputState.keys.delete(key);
+    } catch {
+      released = false;
+    }
+  }
+
+  const pointerPoint = heldInputState.lastPointerPoint;
+  for (const button of [...heldInputState.pointerButtons].sort()) {
+    if (!pointerPoint) {
+      released = false;
+      continue;
+    }
+    try {
+      sendViewerControlInputEvent(
+        runtime,
+        {
+          kind: "pointer-up",
+          x: pointerPoint.x,
+          y: pointerPoint.y,
+          button
+        },
+        allocateInputSequence
+      );
+      heldInputState.pointerButtons.delete(button);
+    } catch {
+      released = false;
+    }
+  }
+
+  if (!hasTrackedHeldInput(heldInputState)) {
+    clearHeldInputReleaseTimer(heldInputState);
+    heldInputState.lastPointerPoint = undefined;
+  }
+  return released && !hasTrackedHeldInput(heldInputState);
+}
+
+function hasTrackedHeldInput(heldInputState: LocalSurfaceHeldInputState): boolean {
+  return heldInputState.keys.size > 0 || heldInputState.pointerButtons.size > 0;
+}
+
+function clearHeldInputReleaseTimer(heldInputState: LocalSurfaceHeldInputState): void {
+  if (heldInputState.releaseTimer) {
+    clearTimeout(heldInputState.releaseTimer);
+    heldInputState.releaseTimer = undefined;
   }
 }
 
@@ -356,7 +696,7 @@ function hasSignature(frame: Buffer, signature: readonly number[]): boolean {
   return signature.every((byte, index) => frame[index] === byte);
 }
 
-function parseInputCommandBody(body: string): string | undefined {
+function parseInputCommandBody(body: string): LocalSurfaceInputRequest | undefined {
   let parsed: unknown;
 
   try {
@@ -369,13 +709,41 @@ function parseInputCommandBody(body: string): string | undefined {
     typeof parsed !== "object" ||
     parsed === null ||
     Array.isArray(parsed) ||
-    Object.keys(parsed).length !== 1
+    !hasExactInputRequestKeys(parsed)
   ) {
     return undefined;
   }
 
   const command = (parsed as { command?: unknown }).command;
-  return typeof command === "string" ? command : undefined;
+  const frameGeneration = (parsed as { frameGeneration?: unknown }).frameGeneration;
+  if (
+    typeof command !== "string" ||
+    typeof frameGeneration !== "string" ||
+    !VIEWER_LOCAL_CONTROL_SURFACE_FRAME_GENERATION_PATTERN.test(frameGeneration)
+  ) {
+    return undefined;
+  }
+
+  return { command, frameGeneration };
+}
+
+function hasExactInputRequestKeys(value: object): boolean {
+  const keys = Object.keys(value).sort();
+  return keys.length === 2 && keys[0] === "command" && keys[1] === "frameGeneration";
+}
+
+function isExactEmptyJsonObject(body: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      Object.keys(parsed).length === 0
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function readBoundedRequestBody(request: IncomingMessage): Promise<string | undefined> {
@@ -436,7 +804,7 @@ function createViewerLocalControlSurfaceContentSecurityPolicy(nonce: string): st
     "connect-src 'self'",
     "form-action 'none'",
     "frame-ancestors 'none'",
-    "img-src 'self'",
+    "img-src 'self' blob:",
     `script-src 'nonce-${nonce}'`,
     `style-src 'nonce-${nonce}'`
   ].join("; ");
@@ -560,21 +928,29 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     let lastMoveAt = 0;
     let pointerArmed = false;
     let frameReady = false;
+    let frameFresh = false;
     let statusPointerReady = false;
     let statusKeyboardReady = false;
     let frameRequestSequence = 0;
     let displayedFrameLoadedAt = undefined;
-    const frameStaleAfterMs = 5000;
+    let displayedFrameGeneration = undefined;
+    let displayedFrameObjectUrl = undefined;
+    let inputOperationQueue = Promise.resolve();
+    let releaseRequestPromise = undefined;
+    const frameStaleAfterMs = ${VIEWER_LOCAL_CONTROL_SURFACE_FRAME_STALE_AFTER_MS};
+    const frameGenerationPattern = /^[A-Za-z0-9_-]{22}$/;
     const activeModifiers = new Set();
+    const heldKeys = new Set();
+    const heldPointerButtons = new Set();
     const modifierButtons = Array.from(document.querySelectorAll("[data-key-modifier]"));
     const keyCommandButtons = Array.from(document.querySelectorAll("[data-key-command]"));
 
     function isLocalPointerReady() {
-      return frameReady && statusPointerReady;
+      return frameReady && frameFresh && statusPointerReady;
     }
 
     function isLocalKeyboardReady() {
-      return frameReady && statusKeyboardReady;
+      return frameReady && frameFresh && statusKeyboardReady;
     }
 
     function isAnyLocalInputReady() {
@@ -623,7 +999,7 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
         },
         body: JSON.stringify(body)
       });
-      return response.json().catch(() => ({ ok: false, error: "failed" }));
+      return response.json();
     }
 
     async function refreshStatus() {
@@ -640,6 +1016,12 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
         status.textContent = "status=not-ready";
       }
       updateInputControls();
+      if (
+        (heldKeys.size > 0 && !statusKeyboardReady) ||
+        (heldPointerButtons.size > 0 && !statusPointerReady)
+      ) {
+        void releaseHeldInputs();
+      }
     }
 
     function frameAgeBucket(ageMs) {
@@ -655,38 +1037,86 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
       if (!frameReady || displayedFrameLoadedAt === undefined) {
         return;
       }
-      const ageMs = Date.now() - displayedFrameLoadedAt;
+      const ageMs = performance.now() - displayedFrameLoadedAt;
       const stale = ageMs >= frameStaleAfterMs;
+      const wasFresh = frameFresh;
+      frameFresh = !stale;
       frameStatus.textContent = "frame=" + (stale ? "stale" : "ready") + " frameAgeMs=" + frameAgeBucket(ageMs);
+      if (wasFresh && stale) {
+        pointerArmed = false;
+        activeModifiers.clear();
+        updateInputControls();
+        void releaseHeldInputs();
+      }
     }
 
-    function refreshFrame() {
+    async function refreshFrame() {
       const frameUrl = "/frame?t=" + Date.now();
       const requestSequence = ++frameRequestSequence;
-      const nextFrame = new Image();
       frameStatus.textContent = frameReady ? "frame=refreshing" : "frame=loading";
 
-      nextFrame.addEventListener("load", () => {
+      try {
+        const response = await fetch(frameUrl, { cache: "no-store" });
         if (requestSequence !== frameRequestSequence) return;
-        frame.src = frameUrl;
-        frameReady = true;
-        displayedFrameLoadedAt = Date.now();
-        updateInputControls();
-        updateFrameFreshness();
-      });
+        if (!response.ok) throw new Error("frame-not-ready");
+        const generation = response.headers.get("${VIEWER_LOCAL_CONTROL_SURFACE_FRAME_GENERATION_HEADER}");
+        if (!generation || !frameGenerationPattern.test(generation)) {
+          throw new Error("frame-generation-not-ready");
+        }
+        if (generation === displayedFrameGeneration) {
+          await response.body?.cancel();
+          updateFrameFreshness();
+          return;
+        }
 
-      nextFrame.addEventListener("error", () => {
+        const frameBlob = await response.blob();
+        if (requestSequence !== frameRequestSequence) return;
+        if (frameBlob.type !== "image/png" && frameBlob.type !== "image/jpeg") {
+          throw new Error("frame-type-not-ready");
+        }
+
+        const nextFrameObjectUrl = URL.createObjectURL(frameBlob);
+        const nextFrame = new Image();
+        nextFrame.addEventListener("load", () => {
+          if (requestSequence !== frameRequestSequence) {
+            URL.revokeObjectURL(nextFrameObjectUrl);
+            return;
+          }
+          const previousFrameObjectUrl = displayedFrameObjectUrl;
+          frame.src = nextFrameObjectUrl;
+          displayedFrameObjectUrl = nextFrameObjectUrl;
+          displayedFrameGeneration = generation;
+          displayedFrameLoadedAt = performance.now();
+          frameReady = true;
+          frameFresh = true;
+          if (previousFrameObjectUrl) URL.revokeObjectURL(previousFrameObjectUrl);
+          updateInputControls();
+          updateFrameFreshness();
+        }, { once: true });
+        nextFrame.addEventListener("error", () => {
+          URL.revokeObjectURL(nextFrameObjectUrl);
+          if (requestSequence !== frameRequestSequence) return;
+          if (!frameReady) {
+            frameFresh = false;
+            pointerArmed = false;
+            updateInputControls();
+            frameStatus.textContent = "frame=not-ready";
+            return;
+          }
+          updateFrameFreshness();
+        }, { once: true });
+        nextFrame.src = nextFrameObjectUrl;
+      } catch {
         if (requestSequence !== frameRequestSequence) return;
         if (!frameReady) {
+          frameFresh = false;
           pointerArmed = false;
           updateInputControls();
           frameStatus.textContent = "frame=not-ready";
           return;
         }
         updateFrameFreshness();
-      });
-
-      nextFrame.src = frameUrl;
+      }
     }
 
     function normalizedPointer(event) {
@@ -707,27 +1137,87 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
       return "primary";
     }
 
-    async function sendCommand(line) {
-      const body = await postJson("/input", { command: line });
-      if (body.ok) {
-        status.textContent = "input=accepted kind=" + body.kind;
-      } else {
-        status.textContent = "input=" + body.error;
+    function trackAcceptedInput(line) {
+      const tokens = line.split(" ");
+      const kind = tokens[0];
+      if (kind === "key-down" && tokens[1]) {
+        heldKeys.add(tokens[1]);
+      } else if (kind === "key-up" && tokens[1]) {
+        heldKeys.delete(tokens[1]);
+      } else if (kind === "pointer-down" && tokens[3]) {
+        heldPointerButtons.add(tokens[3]);
+      } else if (kind === "pointer-up" && tokens[3]) {
+        heldPointerButtons.delete(tokens[3]);
       }
-      return body;
+
+      if (!frameFresh && (heldKeys.size > 0 || heldPointerButtons.size > 0)) {
+        void releaseHeldInputs();
+      }
     }
 
-    async function sendKeyPress(key) {
-      if (typeof key !== "string" || key.length === 0) return;
+    function enqueueInputOperation(operation) {
+      const result = inputOperationQueue.then(operation, operation);
+      inputOperationQueue = result.then(() => undefined, () => undefined);
+      return result;
+    }
+
+    async function sendCommandNow(line, generation = displayedFrameGeneration) {
+      try {
+        const body = await postJson("/input", { command: line, frameGeneration: generation });
+        if (body.ok) {
+          trackAcceptedInput(line);
+          status.textContent = "input=accepted kind=" + body.kind;
+        } else {
+          status.textContent = "input=" + body.error;
+        }
+        return body;
+      } catch {
+        status.textContent = "input=failed";
+        void releaseHeldInputs();
+        return { ok: false, error: "failed" };
+      }
+    }
+
+    function sendCommand(line, generation = displayedFrameGeneration) {
+      return enqueueInputOperation(() => sendCommandNow(line, generation));
+    }
+
+    function releaseHeldInputs() {
+      if (releaseRequestPromise) return releaseRequestPromise;
+      const request = enqueueInputOperation(async () => {
+        try {
+          const body = await postJson("/release-input", {});
+          if (body.ok) {
+            heldKeys.clear();
+            heldPointerButtons.clear();
+          }
+          return body;
+        } catch {
+          return { ok: false, error: "failed" };
+        }
+      });
+      releaseRequestPromise = request.finally(() => {
+        releaseRequestPromise = undefined;
+      });
+      return releaseRequestPromise;
+    }
+
+    function sendKeyPress(key) {
+      if (typeof key !== "string" || key.length === 0) {
+        return Promise.resolve({ ok: false, error: "rejected" });
+      }
       const modifiers = Array.from(activeModifiers).join(",");
       const suffix = modifiers ? " " + modifiers : "";
-      try {
-        const down = await sendCommand("key-down " + key + suffix);
-        if (!down.ok) return;
-        await sendCommand("key-up " + key + suffix);
-      } finally {
-        clearModifiers();
-      }
+      const generation = displayedFrameGeneration;
+      return enqueueInputOperation(async () => {
+        try {
+          const down = await sendCommandNow("key-down " + key + suffix, generation);
+          if (!down.ok) return down;
+          return await sendCommandNow("key-up " + key + suffix, generation);
+        } finally {
+          clearModifiers();
+        }
+      });
     }
 
     frame.addEventListener("pointerdown", (event) => {
@@ -740,11 +1230,12 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     frame.addEventListener("pointerup", (event) => {
-      if (!pointerArmed || !isLocalPointerReady()) return;
+      const button = pointerButton(event);
+      if ((!pointerArmed || !isLocalPointerReady()) && !heldPointerButtons.has(button)) return;
       const point = normalizedPointer(event);
       if (!point) return;
       event.preventDefault();
-      void sendCommand("pointer-up " + point.x + " " + point.y + " " + pointerButton(event));
+      void sendCommand("pointer-up " + point.x + " " + point.y + " " + button);
     });
 
     frame.addEventListener("pointermove", (event) => {
@@ -815,15 +1306,22 @@ function renderViewerLocalControlSurfaceHtml(token: string, nonce: string): stri
     });
 
     document.getElementById("disconnect").addEventListener("click", async () => {
-      const body = await postJson("/disconnect", {});
+      await releaseHeldInputs();
+      const body = await enqueueInputOperation(() => postJson("/disconnect", {})).catch(
+        () => ({ ok: false, error: "failed" })
+      );
       status.textContent = body.ok ? "disconnect=accepted" : "disconnect=" + body.error;
     });
 
+    window.addEventListener("pagehide", () => {
+      void releaseHeldInputs();
+    });
+
     setInterval(refreshStatus, 1000);
-    setInterval(refreshFrame, 1000);
+    setInterval(() => void refreshFrame(), 1000);
     setInterval(updateFrameFreshness, 1000);
     void refreshStatus();
-    refreshFrame();
+    void refreshFrame();
     updatePointerArm();
     updateModifierButtons();
     updateInputControls();

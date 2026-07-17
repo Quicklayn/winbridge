@@ -13,6 +13,7 @@ import {
   formatMvpSessionSmokeJsonError,
   formatMvpSessionSmokeJsonSuccess,
   formatMvpSessionSmokeSuccess,
+  hasAcceptedPointerPermissionRevokeAudit,
   hasActiveVisibleHostIndicatorOutput,
   hasSmokeAuditLogAction,
   hasUsableSmokeAuditLogContent,
@@ -33,8 +34,14 @@ import {
   tryPostSurfaceInputDenied,
   tryPostSurfaceDisconnect,
   tryPostSurfaceKeyboardInput,
+  tryPostSurfaceKeyboardReleaseInput,
+  tryReadViewerPointerPermissionRevoked,
+  tryReadSurfaceFrameGeneration,
   tryReadSmokeAuditSummary
 } from "./mvp-session-smoke.mjs";
+
+const SAFE_FRAME_GENERATION = "a".repeat(22);
+const SAFE_PNG_FRAME = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 describe("MVP session smoke check", () => {
   it("parses bounded timeout options", () => {
@@ -566,7 +573,7 @@ describe("MVP session smoke check", () => {
     expect(plan.host.args).not.toContain("static");
     expect(plan.host.args).not.toContain("--dev-screen-frame-data-base64");
     expect(plan.host.args).toContain("--dev-screen-frame-count");
-    expect(plan.host.args).toContain("3");
+    expect(plan.host.args).toContain("30");
     expect(serialized).not.toContain("host-apply-input");
     expect(serialized).not.toContain("Start-Process");
     expect(serialized).not.toContain("playwright");
@@ -853,6 +860,126 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeError(new Error("input-not-ready"))).not.toContain("raw-token");
   });
 
+  it("reads only one bounded opaque generation from the live frame response", async () => {
+    const calls: unknown[] = [];
+    const generation = await tryReadSurfaceFrameGeneration(
+      async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return new Response(SAFE_PNG_FRAME, {
+          status: 200,
+          headers: {
+            "content-type": "image/png",
+            "x-winbridge-frame-generation": SAFE_FRAME_GENERATION
+          }
+        });
+      },
+      "http://127.0.0.1:35987/"
+    );
+
+    expect(generation).toBe(SAFE_FRAME_GENERATION);
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:35987/frame",
+        init: {
+          cache: "no-store",
+          headers: { accept: "image/png,image/jpeg" }
+        }
+      }
+    ]);
+  });
+
+  it("rejects failed or malformed live frame generation metadata", async () => {
+    const responses = [
+      new Response(null, {
+        status: 404,
+        headers: { "x-winbridge-frame-generation": SAFE_FRAME_GENERATION }
+      }),
+      new Response(null, { status: 200 }),
+      new Response(null, {
+        status: 200,
+        headers: { "x-winbridge-frame-generation": "a".repeat(21) }
+      }),
+      new Response(null, {
+        status: 200,
+        headers: { "x-winbridge-frame-generation": "unsafe/raw-generation" }
+      })
+    ];
+
+    for (const response of responses) {
+      await expect(
+        tryReadSurfaceFrameGeneration(async () => response, "http://127.0.0.1:35987/")
+      ).resolves.toBeUndefined();
+    }
+    for (const response of [
+      new Response(SAFE_PNG_FRAME, {
+        status: 200,
+        headers: {
+          "content-type": "text/plain",
+          "x-winbridge-frame-generation": SAFE_FRAME_GENERATION
+        }
+      }),
+      new Response(Buffer.from("not-a-frame"), {
+        status: 200,
+        headers: {
+          "content-type": "image/png",
+          "x-winbridge-frame-generation": SAFE_FRAME_GENERATION
+        }
+      }),
+      new Response(SAFE_PNG_FRAME, {
+        status: 200,
+        headers: {
+          "content-length": String(16 * 1024 * 1024 + 1),
+          "content-type": "image/png",
+          "x-winbridge-frame-generation": SAFE_FRAME_GENERATION
+        }
+      })
+    ]) {
+      await expect(
+        tryReadSurfaceFrameGeneration(async () => response, "http://127.0.0.1:35987/")
+      ).resolves.toBeUndefined();
+    }
+    expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain(
+      "raw-generation"
+    );
+  });
+
+  it("obtains a live generation before posting surface input by default", async () => {
+    const calls: unknown[] = [];
+    const accepted = await tryPostSurfaceInput(
+      async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        if (url.endsWith("/frame")) {
+          return new Response(SAFE_PNG_FRAME, {
+            status: 200,
+            headers: {
+              "content-type": "image/png",
+              "x-winbridge-frame-generation": SAFE_FRAME_GENERATION
+            }
+          });
+        }
+        return {
+          status: 202,
+          json: async () => ({ ok: true, action: "input", kind: "pointer-move" })
+        } as Response;
+      },
+      "http://127.0.0.1:35987/",
+      "safe-token"
+    );
+
+    expect(accepted).toBe(true);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({ url: "http://127.0.0.1:35987/frame" });
+    expect(calls[1]).toMatchObject({
+      url: "http://127.0.0.1:35987/input",
+      init: {
+        body: JSON.stringify({
+          command: "pointer-move 0.5 0.5",
+          frameGeneration: SAFE_FRAME_GENERATION
+        })
+      }
+    });
+  });
+
   it("posts a bounded pointer command through the token-protected surface input path", async () => {
     const calls: unknown[] = [];
     const accepted = await tryPostSurfaceInput(
@@ -864,7 +991,8 @@ describe("MVP session smoke check", () => {
         } as Response;
       },
       "http://127.0.0.1:35987/",
-      "safe-token"
+      "safe-token",
+      SAFE_FRAME_GENERATION
     );
 
     expect(accepted).toBe(true);
@@ -878,7 +1006,10 @@ describe("MVP session smoke check", () => {
             origin: "http://127.0.0.1:35987",
             "x-winbridge-local-surface-token": "safe-token"
           },
-          body: JSON.stringify({ command: "pointer-move 0.5 0.5" })
+          body: JSON.stringify({
+            command: "pointer-move 0.5 0.5",
+            frameGeneration: SAFE_FRAME_GENERATION
+          })
         }
       }
     ]);
@@ -895,7 +1026,8 @@ describe("MVP session smoke check", () => {
         } as Response;
       },
       "http://127.0.0.1:35987/",
-      "safe-token"
+      "safe-token",
+      SAFE_FRAME_GENERATION
     );
 
     expect(accepted).toBe(true);
@@ -909,13 +1041,45 @@ describe("MVP session smoke check", () => {
             origin: "http://127.0.0.1:35987",
             "x-winbridge-local-surface-token": "safe-token"
           },
-          body: JSON.stringify({ command: "key-down KeyA shift,control" })
+          body: JSON.stringify({
+            command: "key-down KeyA shift,control",
+            frameGeneration: SAFE_FRAME_GENERATION
+          })
         }
       }
     ]);
     expect(formatMvpSessionSmokeError(new Error("input-not-ready"))).not.toContain("KeyA");
     expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("shift");
     expect(formatMvpSessionSmokeJsonError(new Error("input-not-ready"))).not.toContain("control");
+  });
+
+  it("posts a matching keyboard release through the same generation-bound path", async () => {
+    const calls: unknown[] = [];
+    const accepted = await tryPostSurfaceKeyboardReleaseInput(
+      async (url: string, init: RequestInit) => {
+        calls.push({ url, init });
+        return {
+          status: 202,
+          json: async () => ({ ok: true, action: "input", kind: "key-up" })
+        } as Response;
+      },
+      "http://127.0.0.1:35987/",
+      "safe-token",
+      SAFE_FRAME_GENERATION
+    );
+
+    expect(accepted).toBe(true);
+    expect(calls).toEqual([
+      {
+        url: "http://127.0.0.1:35987/input",
+        init: expect.objectContaining({
+          body: JSON.stringify({
+            command: "key-up KeyA shift,control",
+            frameGeneration: SAFE_FRAME_GENERATION
+          })
+        })
+      }
+    ]);
   });
 
   it("verifies bounded host surface HTML and sanitized active status", async () => {
@@ -999,7 +1163,8 @@ describe("MVP session smoke check", () => {
           })
         }) as Response,
       "http://127.0.0.1:35987/",
-      "safe-token"
+      "safe-token",
+      SAFE_FRAME_GENERATION
     );
 
     expect(accepted).toBe(false);
@@ -1410,7 +1575,8 @@ describe("MVP session smoke check", () => {
         } as Response;
       },
       "http://127.0.0.1:35987/",
-      "safe-token"
+      "safe-token",
+      SAFE_FRAME_GENERATION
     );
 
     expect(denied).toBe(true);
@@ -1424,7 +1590,10 @@ describe("MVP session smoke check", () => {
             origin: "http://127.0.0.1:35987",
             "x-winbridge-local-surface-token": "safe-token"
           },
-          body: JSON.stringify({ command: "pointer-move 0.5 0.5" })
+          body: JSON.stringify({
+            command: "pointer-move 0.5 0.5",
+            frameGeneration: SAFE_FRAME_GENERATION
+          })
         }
       }
     ]);
@@ -1436,6 +1605,52 @@ describe("MVP session smoke check", () => {
     );
   });
 
+  it("requires sanitized viewer pointer-revoke status before lifecycle denial", async () => {
+    const revokedStatus = {
+      ok: true,
+      state: {
+        state: "active",
+        authorizationStatus: "active",
+        visibleToHost: true,
+        permissionCount: 2,
+        inputPointerReady: false,
+        inputKeyboardReady: true,
+        signalProbeAckReceived: true
+      }
+    };
+
+    await expect(
+      tryReadViewerPointerPermissionRevoked(
+        async () =>
+          ({ status: 200, json: async () => revokedStatus }) as Response,
+        "http://127.0.0.1:35987/"
+      )
+    ).resolves.toBe(true);
+    await expect(
+      tryReadViewerPointerPermissionRevoked(
+        async () =>
+          ({
+            status: 200,
+            json: async () => ({
+              ...revokedStatus,
+              state: { ...revokedStatus.state, inputPointerReady: true }
+            })
+          }) as Response,
+        "http://127.0.0.1:35987/"
+      )
+    ).resolves.toBe(false);
+    await expect(
+      tryReadViewerPointerPermissionRevoked(
+        async () =>
+          ({
+            status: 200,
+            json: async () => ({ ...revokedStatus, privateValue: "raw-token" })
+          }) as Response,
+        "http://127.0.0.1:35987/"
+      )
+    ).resolves.toBe(false);
+  });
+
   it("does not treat accepted input or network failures as lifecycle denial", async () => {
     await expect(
       tryPostSurfaceInputDenied(
@@ -1445,7 +1660,8 @@ describe("MVP session smoke check", () => {
             json: async () => ({ ok: true, action: "input", kind: "pointer-move" })
           }) as Response,
         "http://127.0.0.1:35987/",
-        "safe-token"
+        "safe-token",
+        SAFE_FRAME_GENERATION
       )
     ).resolves.toBe(false);
 
@@ -1455,7 +1671,8 @@ describe("MVP session smoke check", () => {
           throw new Error("raw-token network failure");
         },
         "http://127.0.0.1:35987/",
-        "safe-token"
+        "safe-token",
+        SAFE_FRAME_GENERATION
       )
     ).resolves.toBe(false);
   });
@@ -1641,6 +1858,27 @@ describe("MVP session smoke check", () => {
     expect(formatMvpSessionSmokeJsonError(new Error("audit-not-ready"))).not.toContain(
       "agent-shell.authorization.active"
     );
+  });
+
+  it("requires accepted pointer-specific revoke audit evidence", () => {
+    const pointerRevoke = smokeAuditLine("agent-shell.permission.revoked", "accepted", {
+      authorizationId: "authz_safe",
+      revokedPermission: "input:pointer"
+    });
+    const keyboardRevoke = smokeAuditLine("agent-shell.permission.revoked", "accepted", {
+      authorizationId: "authz_safe",
+      revokedPermission: "input:keyboard"
+    });
+
+    expect(hasAcceptedPointerPermissionRevokeAudit(pointerRevoke)).toBe(true);
+    expect(hasAcceptedPointerPermissionRevokeAudit(keyboardRevoke)).toBe(false);
+    expect(
+      hasAcceptedPointerPermissionRevokeAudit(
+        smokeAuditLine("agent-shell.permission.revoked", "denied", {
+          revokedPermission: "input:pointer"
+        })
+      )
+    ).toBe(false);
   });
 
   it("summarizes smoke audit logs with fixed safe metadata only", () => {
@@ -2213,13 +2451,17 @@ function fakeChild(pid: number) {
   return child;
 }
 
-function smokeAuditLine(action: string, outcome = "accepted") {
+function smokeAuditLine(
+  action: string,
+  outcome = "accepted",
+  detail: Record<string, unknown> = { authorizationId: "authz_safe" }
+) {
   return JSON.stringify({
     eventId: "audit_safe123",
     timestamp: "2026-06-22T08:00:00.000Z",
     actor: { type: "host", id: "host-smoke" },
     action,
     outcome,
-    detail: { authorizationId: "authz_safe" }
+    detail
   });
 }

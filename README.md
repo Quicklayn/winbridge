@@ -610,11 +610,15 @@ bounded pointer/keyboard input readiness for the current consent-bound signal
 readiness probe without raw authorization ids or permission arrays, verifies
 that the local `/input` endpoint rejects fixed unsafe mutation requests with
 missing token, foreign origin, and unsafe content type before accepted input
-handling, submits one bounded pointer command and one bounded keyboard command
-with explicit modifiers through the token-protected local `/input` path,
+handling, consumes a bounded supported image from the live `/frame` response,
+obtains its bounded opaque generation, submits one bounded pointer command and
+one matching keyboard down/up pair with explicit modifiers and that same
+generation through the token-protected local `/input` path,
 verifies that both configured host and viewer JSONL audit logs contain bounded
-audit records, verifies that scheduled host revocation of `input:pointer` makes
-a later pointer command fail closed through the same local `/input` path,
+audit records, verifies scheduled host revocation of `input:pointer` through
+both accepted pointer-specific host audit evidence and sanitized viewer status
+with pointer readiness disabled, then verifies a later current-generation
+pointer command fails closed through the same local `/input` path,
 verifies that the token-protected local `/disconnect` path closes the viewer
 side through the existing local surface route, and then stops the child
 processes. The host indicator, host surface, signal readiness, audit, surface
@@ -1024,15 +1028,33 @@ Open `http://127.0.0.1:35987/` on the viewer machine. The page displays only
 the latest authorized frame from the explicit output file. Visible input
 controls stay disabled until the page has a ready displayed frame and sanitized
 active visible viewer status with matching bounded input readiness metadata.
+Each stable atomically published frame-file version receives a per-surface
+opaque generation when `/frame` successfully serves it. The page resets
+freshness only after a different generation has decoded successfully, and every
+local input POST carries the generation that is actually displayed. The server
+atomically compares that value with its in-memory latest-served generation and
+synchronously enters the runtime input path with no intervening file access or
+`await`. Missing, malformed, unseen, superseded, or five-second-stale evidence
+is rejected before runtime input; a replacement becomes superseding only when
+`/frame` successfully publishes its new generation.
 Browser pointer actions on the displayed frame are disabled by default and
 require `input:pointer` readiness plus the visible `Pointer Off/On` control
 before pointer movement, wheel, or button events can send input. Explicit key
 buttons and modifier toggles require `input:keyboard` readiness. The manual
 command box is available when at least one input readiness flag is true, but the
 runtime still rejects commands whose exact permission is absent. The page
-preloads replacement frames before swapping the displayed frame, so ordinary
-refreshes do not disarm pointer control while a ready frame remains visible;
-initial missing frames keep input controls disabled. The frame also suppresses
+decodes replacement frames from same-origin blobs before swapping the displayed
+frame, so rereading an unchanged source does not refresh its age and ordinary
+new generations do not disarm pointer control while the stream remains fresh;
+initial missing frames keep input controls disabled. Browser input transitions
+use one promise queue so pointer or key up cannot overtake its down. A stale
+transition disarms pointer mode, clears pending modifiers, disables action
+controls, and requests a token-protected server release-only action. That action
+can release only keys and pointer buttons already accepted and tracked by this
+surface, and pointer cleanup uses the last server-accepted coordinates. The
+same cleanup is requested after ambiguous input responses and page exit.
+Forged, duplicate, move, wheel, or new-down stale input remains blocked. The
+frame also suppresses
 browser-native context menu and image drag defaults only on that frame.
 Command-box input and browser pointer input use the same `sendInputEvent()`
 path as the terminal viewer prompt. It also provides
@@ -1046,12 +1068,17 @@ viewer-only, binds only to
 `127.0.0.1`,
 requires `--viewer-screen-frame-output`, clears any pre-existing latest-frame
 file on startup, ignores same-directory temporary frame output files, and
-rejects malformed ports before relay startup. Input and
+rejects malformed ports before relay startup. Input, release-only cleanup, and
 disconnect POSTs require the generated local page's same-origin per-run token
-before request bodies or authorization state are read. The local readiness gate
-is only a UI affordance: token, origin, content-type, active visible
-authorization, permission, routing, socket, audit, pause, revoke, termination,
-expiration, disconnect, and redaction gates still run for every input POST.
+before request bodies or authorization state are read. The release-only action
+accepts no caller-selected input. A bounded server timer attempts release at the
+held generation's stale boundary, and disconnect or surface stop attempts
+release before teardown without allowing cleanup failure to block disconnect.
+Frame generation and
+freshness form an additional server-side deny gate; token, origin, content-type,
+active visible authorization, permission, routing, socket, audit, pause, revoke,
+termination, expiration, disconnect, and redaction gates still run for every
+accepted ordinary input or matching release-only POST.
 Disconnect remains available even while input controls are not ready.
 
 If the default local surface port is already occupied on the viewer PC, pass
@@ -1070,12 +1097,19 @@ and CLI diagnostics stay metadata-only and do not echo pointer coordinates,
 buttons, key values, frame bytes, tokens, pairing codes, credentials, or private
 reasons.
 
-The viewer page also shows local frame freshness metadata such as
-`frameAgeMs=<bucket>` and marks the displayed frame stale when no replacement
-frame has loaded within the local threshold. This is browser-local readiness
-metadata only; it is not a capture timestamp, does not grant permissions, and
-does not expose frame paths, frame bytes, URLs, authorization ids, tokens,
+The viewer page also shows bounded local freshness metadata such as
+`frameAgeMs=<bucket>` and marks the displayed generation stale when no different
+generation has loaded within the fixed threshold. The server independently
+enforces the same window with a monotonic clock. The opaque generation is not a
+capture timestamp, does not grant permissions, and does not expose frame paths,
+frame bytes, source timestamps, file metadata, URLs, authorization ids, tokens,
 pairing codes, or raw protocol data.
+
+The release-only queue, endpoint, and stale-boundary timer are limited to the viewer surface while the
+existing runtime still authorizes input. Native Windows input worker shutdown
+does not yet constitute a verified release-all-held-input guarantee after host
+pause, revoke, terminate, or disconnect; that host-side cleanup remains a
+separate required safety increment before the two-PC MVP field trial.
 
 When the generated command plan enables the development signal probe, the local
 viewer page may show `signalProbeAckReceived=true` in its status text after a
