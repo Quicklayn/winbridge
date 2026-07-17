@@ -618,8 +618,23 @@ a later pointer command fail closed through the same local `/input` path,
 verifies that the token-protected local `/disconnect` path closes the viewer
 side through the existing local surface route, and then stops the child
 processes. The host indicator, host surface, signal readiness, audit, surface
-guard, lifecycle, and viewer-disconnect checks are metadata-only. Successful
-JSON output may include a
+guard, lifecycle, and viewer-disconnect checks are metadata-only.
+
+The host and viewer mismatched-Host checks use a fixed direct HTTP request only
+because Fetch API may replace that forbidden header with the URL host. The
+direct request revalidates the existing uncredentialed
+`http://127.0.0.1:<non-privileged-port>/` surface URL, connects only to literal
+loopback, uses a fixed method/path/body, sends one exact mismatched Host value,
+follows no redirects, disables connection reuse, caps response headers and body,
+enforces an absolute wall-clock deadline, and is aborted by smoke cleanup. Each
+mismatched-Host negative probe runs once after surface readiness; an accepted,
+timed-out, malformed, oversized, interrupted, or otherwise unsafe result fails
+the subcheck immediately without retrying a host lifecycle mutation. Other
+readiness and token/origin/content-type requests retain the existing fetch path.
+No URL, port, Host value, token, body, response data, or raw transport error is
+included in smoke diagnostics.
+
+Successful JSON output may include a
 fixed audit summary with host/viewer record counts, outcome counts, and coverage booleans
 for expected smoke evidence such as consent, frame, input, revocation, and
 disconnect. Before reporting `audit=verified`, smoke requires accepted

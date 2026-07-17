@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -152,6 +153,10 @@ const SAFE_HOST_SURFACE_STATUS_STATE_KEYS = Object.freeze([
 ]);
 const SMOKE_VIEWER_SURFACE_MISMATCHED_HOST = "example.invalid:80";
 const SMOKE_HOST_SURFACE_MISMATCHED_HOST = "example.invalid:80";
+const SMOKE_HOST_HEADER_PROBE_TIMEOUT_MS = 500;
+const SMOKE_HOST_HEADER_PROBE_MAX_RESPONSE_BYTES = 1024;
+const SMOKE_HOST_CONTROL_GUARD_BODY = JSON.stringify({ command: "pause" });
+const SURFACE_MUTATION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,256}$/;
 const MVP_SMOKE_FAILURE_CHECK_INDEX = Object.freeze({
   "relay-not-ready": 0,
   "port-unavailable": 0,
@@ -418,12 +423,14 @@ export function createMvpSmokePlan(options) {
 }
 
 export async function runMvpSessionSmokeCheck(rawOptions = {}) {
+  const hostGuardAbortController = new AbortController();
   const options = {
     timeoutMs: rawOptions.timeoutMs ?? DEFAULT_MVP_SMOKE_OPTIONS.timeoutMs,
     cwd: rawOptions.cwd ?? process.cwd(),
     spawnProcess: rawOptions.spawnProcess ?? spawn,
     killProcessTree: rawOptions.killProcessTree ?? killProcessTree,
     fetchImpl: rawOptions.fetchImpl ?? fetch,
+    hostGuardSignal: hostGuardAbortController.signal,
     now: rawOptions.now ?? (() => Date.now()),
     sleep: rawOptions.sleep ?? sleep,
     signalTarget: rawOptions.signalTarget ?? process
@@ -447,6 +454,7 @@ export async function runMvpSessionSmokeCheck(rawOptions = {}) {
   const children = [];
   let cleanupPromise;
   const cleanupOnce = () => {
+    hostGuardAbortController.abort();
     cleanupPromise ??= stopSmokeProcesses(children, options.killProcessTree);
     return cleanupPromise;
   };
@@ -499,12 +507,12 @@ async function runMvpSessionSmokeSteps(context) {
   await waitForHostActiveVisibleIndicator(host, deadline, options);
   const hostSurfaceUrl = await waitForHostSurfaceUrl(host, deadline, options);
   const hostSurface = await waitForHostSurface(hostSurfaceUrl, deadline, options);
-  await waitForHostSurfaceGuards(hostSurfaceUrl, hostSurface.mutationToken, deadline, options);
+  await verifyHostSurfaceGuards(hostSurfaceUrl, hostSurface.mutationToken, options);
   await waitForFrameFile(readyPlan.framePath, deadline, options);
   const surfaceUrl = readyPlan.surfaceUrl ?? (await waitForViewerSurfaceUrl(viewer, deadline, options));
   const surface = await waitForViewerSurface(surfaceUrl, deadline, options);
   await waitForViewerSignalReadiness(surfaceUrl, deadline, options);
-  await waitForViewerSurfaceGuards(surfaceUrl, surface.mutationToken, deadline, options);
+  await verifyViewerSurfaceGuards(surfaceUrl, surface.mutationToken, options);
   await waitForViewerSurfaceInput(surfaceUrl, surface.mutationToken, deadline, options);
   if (rawOptions.windowsInput) {
     await waitForWindowsInputAudit(readyPlan.hostAuditPath, deadline, options);
@@ -1060,21 +1068,29 @@ function isBoundedSurfaceStatusReady(body) {
   );
 }
 
-async function waitForViewerSurfaceGuards(surfaceUrl, mutationToken, deadline, options) {
-  while (options.now() <= deadline) {
-    const guarded = await tryPostSurfaceGuardDenials(options.fetchImpl, surfaceUrl, mutationToken);
-    if (guarded) {
-      return;
-    }
-    await options.sleep(100);
+async function verifyViewerSurfaceGuards(surfaceUrl, mutationToken, options) {
+  const guarded = await tryPostSurfaceGuardDenials(
+    options.fetchImpl,
+    surfaceUrl,
+    mutationToken,
+    (url) => tryFetchSurfaceHostGuardRejection(url, httpRequest, options.hostGuardSignal)
+  );
+  if (!guarded) {
+    throw new Error("surface-guards-not-ready");
   }
-  throw new Error("surface-guards-not-ready");
 }
 
-export async function tryPostSurfaceGuardDenials(fetchImpl, surfaceUrl, mutationToken) {
+export async function tryPostSurfaceGuardDenials(
+  fetchImpl,
+  surfaceUrl,
+  mutationToken,
+  hostGuardProbeImpl = tryFetchSurfaceHostGuardRejection
+) {
   const localOrigin = surfaceUrl.replace(/\/$/, "");
+  if (!(await hostGuardProbeImpl(surfaceUrl))) {
+    return false;
+  }
   const guarded = await Promise.all([
-    tryFetchSurfaceHostGuardRejection(fetchImpl, surfaceUrl),
     tryPostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
       "content-type": "application/json",
       origin: localOrigin
@@ -1093,26 +1109,35 @@ export async function tryPostSurfaceGuardDenials(fetchImpl, surfaceUrl, mutation
   return guarded.every(Boolean);
 }
 
-async function waitForHostSurfaceGuards(surfaceUrl, mutationToken, deadline, options) {
-  while (options.now() <= deadline) {
-    const guarded = await tryPostHostSurfaceGuardDenials(options.fetchImpl, surfaceUrl, mutationToken);
-    if (guarded) {
-      return;
-    }
-    await options.sleep(100);
+async function verifyHostSurfaceGuards(surfaceUrl, mutationToken, options) {
+  const guarded = await tryPostHostSurfaceGuardDenials(
+    options.fetchImpl,
+    surfaceUrl,
+    mutationToken,
+    (url, token) =>
+      tryPostHostSurfaceMismatchedHostGuardRejection(
+        url,
+        token,
+        httpRequest,
+        options.hostGuardSignal
+      )
+  );
+  if (!guarded) {
+    throw new Error("host-surface-not-ready");
   }
-  throw new Error("host-surface-not-ready");
 }
 
-export async function tryPostHostSurfaceGuardDenials(fetchImpl, surfaceUrl, mutationToken) {
+export async function tryPostHostSurfaceGuardDenials(
+  fetchImpl,
+  surfaceUrl,
+  mutationToken,
+  hostGuardProbeImpl = tryPostHostSurfaceMismatchedHostGuardRejection
+) {
   const localOrigin = surfaceUrl.replace(/\/$/, "");
+  if (!(await hostGuardProbeImpl(surfaceUrl, mutationToken))) {
+    return false;
+  }
   const guarded = await Promise.all([
-    tryPostHostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
-      "content-type": "application/json",
-      host: SMOKE_HOST_SURFACE_MISMATCHED_HOST,
-      origin: localOrigin,
-      "x-winbridge-local-surface-token": mutationToken
-    }),
     tryPostHostSurfaceGuardProbe(fetchImpl, surfaceUrl, {
       "content-type": "application/json",
       origin: localOrigin
@@ -1148,23 +1173,171 @@ async function tryPostHostSurfaceGuardProbe(fetchImpl, surfaceUrl, headers) {
   }
 }
 
-export async function tryFetchSurfaceHostGuardRejection(fetchImpl, surfaceUrl) {
-  try {
-    const response = await fetchImpl(`${surfaceUrl}status`, {
-      cache: "no-store",
+export async function tryFetchSurfaceHostGuardRejection(
+  surfaceUrl,
+  requestImpl = httpRequest,
+  signal
+) {
+  return tryDirectHostHeaderGuardRejection(
+    surfaceUrl,
+    {
+      method: "GET",
+      path: "/status",
       headers: {
+        accept: "application/json",
+        connection: "close",
         host: SMOKE_VIEWER_SURFACE_MISMATCHED_HOST
       }
-    });
-    if (response.status < 400 || response.status >= 500) {
-      return false;
-    }
+    },
+    requestImpl,
+    signal
+  );
+}
 
-    const body = await response.json();
-    return hasExactRejectedSurfaceGuardShape(body);
-  } catch {
+export async function tryPostHostSurfaceMismatchedHostGuardRejection(
+  surfaceUrl,
+  mutationToken,
+  requestImpl = httpRequest,
+  signal
+) {
+  if (
+    typeof mutationToken !== "string" ||
+    !SURFACE_MUTATION_TOKEN_PATTERN.test(mutationToken)
+  ) {
     return false;
   }
+
+  const safeSurfaceUrl = parseSafeLoopbackSurfaceUrl(surfaceUrl);
+  if (safeSurfaceUrl === undefined) {
+    return false;
+  }
+
+  return tryDirectHostHeaderGuardRejection(
+    safeSurfaceUrl,
+    {
+      method: "POST",
+      path: "/control",
+      headers: {
+        accept: "application/json",
+        connection: "close",
+        "content-length": String(Buffer.byteLength(SMOKE_HOST_CONTROL_GUARD_BODY, "utf8")),
+        "content-type": "application/json",
+        host: SMOKE_HOST_SURFACE_MISMATCHED_HOST,
+        origin: safeSurfaceUrl.replace(/\/$/, ""),
+        "x-winbridge-local-surface-token": mutationToken
+      },
+      body: SMOKE_HOST_CONTROL_GUARD_BODY
+    },
+    requestImpl,
+    signal
+  );
+}
+
+function tryDirectHostHeaderGuardRejection(surfaceUrl, probe, requestImpl, signal) {
+  const safeSurfaceUrl = parseSafeLoopbackSurfaceUrl(surfaceUrl);
+  if (safeSurfaceUrl === undefined || signal?.aborted) {
+    return Promise.resolve(false);
+  }
+
+  const endpoint = new URL(safeSurfaceUrl);
+  return new Promise((resolve) => {
+    let settled = false;
+    let request;
+    let response;
+    let timeout;
+    const onAbort = () => {
+      response?.destroy();
+      request?.destroy();
+      settle(false);
+    };
+    const settle = (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+
+    try {
+      request = requestImpl(
+        {
+          protocol: "http:",
+          hostname: "127.0.0.1",
+          family: 4,
+          port: Number(endpoint.port),
+          method: probe.method,
+          path: probe.path,
+          headers: probe.headers,
+          agent: false,
+          maxHeaderSize: 4096,
+          setHost: false
+        },
+        (incomingResponse) => {
+          response = incomingResponse;
+          const chunks = [];
+          let responseBytes = 0;
+          let ended = false;
+
+          incomingResponse.on("data", (chunk) => {
+            if (settled) {
+              return;
+            }
+            const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            responseBytes += bytes.length;
+            if (responseBytes > SMOKE_HOST_HEADER_PROBE_MAX_RESPONSE_BYTES) {
+              incomingResponse.destroy();
+              request.destroy();
+              settle(false);
+              return;
+            }
+            chunks.push(bytes);
+          });
+          incomingResponse.on("end", () => {
+            ended = true;
+            if (settled) {
+              return;
+            }
+            const status = incomingResponse.statusCode ?? 0;
+            if (status < 400 || status >= 500) {
+              settle(false);
+              return;
+            }
+            try {
+              const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+              settle(hasExactRejectedSurfaceGuardShape(body));
+            } catch {
+              settle(false);
+            }
+          });
+          incomingResponse.on("aborted", () => settle(false));
+          incomingResponse.on("error", () => settle(false));
+          incomingResponse.on("close", () => {
+            if (!ended) {
+              settle(false);
+            }
+          });
+        }
+      );
+    } catch {
+      settle(false);
+      return;
+    }
+
+    request.on("error", () => settle(false));
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    timeout = setTimeout(() => {
+      response?.destroy();
+      request.destroy();
+      settle(false);
+    }, SMOKE_HOST_HEADER_PROBE_TIMEOUT_MS);
+    request.end(probe.body);
+  });
 }
 
 async function tryPostSurfaceGuardProbe(fetchImpl, surfaceUrl, headers) {

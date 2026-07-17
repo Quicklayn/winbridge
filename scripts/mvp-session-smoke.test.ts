@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -26,6 +27,7 @@ import {
   tryFetchSurfaceHostGuardRejection,
   tryFetchSurfaceSignalReadiness,
   tryPostHostSurfaceGuardDenials,
+  tryPostHostSurfaceMismatchedHostGuardRejection,
   tryPostSurfaceGuardDenials,
   tryPostSurfaceInput,
   tryPostSurfaceInputDenied,
@@ -1007,36 +1009,26 @@ describe("MVP session smoke check", () => {
 
   it("verifies local surface token origin and content-type guard denials", async () => {
     const calls: unknown[] = [];
+    const hostProbeCalls: unknown[] = [];
     const guarded = await tryPostSurfaceGuardDenials(
       async (url: string, init: RequestInit) => {
         calls.push({ url, init });
-        if (url === "http://127.0.0.1:35987/status") {
-          return {
-            status: 403,
-            json: async () => ({ ok: false, error: "rejected" })
-          } as Response;
-        }
-
         return {
           status: 403,
           json: async () => ({ ok: false, error: "rejected", token: "raw-secret-token" })
         } as Response;
       },
       "http://127.0.0.1:35987/",
-      "safe-token"
+      "safe-token",
+      async (surfaceUrl: string) => {
+        hostProbeCalls.push(surfaceUrl);
+        return true;
+      }
     );
 
     expect(guarded).toBe(true);
+    expect(hostProbeCalls).toEqual(["http://127.0.0.1:35987/"]);
     expect(calls).toEqual([
-      {
-        url: "http://127.0.0.1:35987/status",
-        init: {
-          cache: "no-store",
-          headers: {
-            host: "example.invalid:80"
-          }
-        }
-      },
       {
         url: "http://127.0.0.1:35987/input",
         init: {
@@ -1089,6 +1081,7 @@ describe("MVP session smoke check", () => {
 
   it("verifies host surface control guard denials without accepted host mutations", async () => {
     const calls: unknown[] = [];
+    const hostProbeCalls: unknown[] = [];
     const guarded = await tryPostHostSurfaceGuardDenials(
       async (url: string, init: RequestInit) => {
         calls.push({ url, init });
@@ -1098,24 +1091,21 @@ describe("MVP session smoke check", () => {
         } as Response;
       },
       "http://127.0.0.1:35988/",
-      "safe-token"
+      "safe-token",
+      async (surfaceUrl: string, mutationToken: string) => {
+        hostProbeCalls.push({ surfaceUrl, mutationToken });
+        return true;
+      }
     );
 
     expect(guarded).toBe(true);
-    expect(calls).toEqual([
+    expect(hostProbeCalls).toEqual([
       {
-        url: "http://127.0.0.1:35988/control",
-        init: {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            host: "example.invalid:80",
-            origin: "http://127.0.0.1:35988",
-            "x-winbridge-local-surface-token": "safe-token"
-          },
-          body: JSON.stringify({ command: "pause" })
-        }
-      },
+        surfaceUrl: "http://127.0.0.1:35988/",
+        mutationToken: "safe-token"
+      }
+    ]);
+    expect(calls).toEqual([
       {
         url: "http://127.0.0.1:35988/control",
         init: {
@@ -1161,6 +1151,28 @@ describe("MVP session smoke check", () => {
   });
 
   it("does not treat accepted host surface guard probes as guarded", async () => {
+    let mismatchedHostProbeCalls = 0;
+    let laterProbeCalls = 0;
+    await expect(
+      tryPostHostSurfaceGuardDenials(
+        async () => {
+          laterProbeCalls += 1;
+          return {
+            status: 403,
+            json: async () => ({ ok: false, error: "rejected" })
+          } as Response;
+        },
+        "http://127.0.0.1:35988/",
+        "safe-token",
+        async () => {
+          mismatchedHostProbeCalls += 1;
+          return false;
+        }
+      )
+    ).resolves.toBe(false);
+    expect(mismatchedHostProbeCalls).toBe(1);
+    expect(laterProbeCalls).toBe(0);
+
     await expect(
       tryPostHostSurfaceGuardDenials(
         async () =>
@@ -1169,7 +1181,8 @@ describe("MVP session smoke check", () => {
             json: async () => ({ ok: true, action: "pause" })
           }) as Response,
         "http://127.0.0.1:35988/",
-        "safe-token"
+        "safe-token",
+        async () => true
       )
     ).resolves.toBe(false);
 
@@ -1181,83 +1194,185 @@ describe("MVP session smoke check", () => {
             json: async () => ({ ok: false, error: "rejected", token: "raw-secret-token" })
           }) as Response,
         "http://127.0.0.1:35988/",
-        "safe-token"
+        "safe-token",
+        async () => true
       )
     ).resolves.toBe(false);
   });
 
-  it("verifies local surface mismatched Host rejection with bounded JSON", async () => {
-    const calls: unknown[] = [];
-    const rejected = await tryFetchSurfaceHostGuardRejection(
-      async (url: string, init: RequestInit) => {
-        calls.push({ url, init });
-        return {
-          status: 403,
-          json: async () => ({ ok: false, error: "rejected" })
-        } as Response;
+  it("sends the exact viewer mismatched Host value over direct loopback HTTP", async () => {
+    let observed: unknown;
+    await withLoopbackHttpServer(
+      (request, response) => {
+        observed = {
+          method: request.method,
+          path: request.url,
+          host: request.headers.host,
+          connection: request.headers.connection
+        };
+        sendJson(response, 403, { ok: false, error: "rejected" });
       },
-      "http://127.0.0.1:35987/"
+      async (surfaceUrl) => {
+        await expect(tryFetchSurfaceHostGuardRejection(surfaceUrl)).resolves.toBe(true);
+      }
     );
 
-    expect(rejected).toBe(true);
-    expect(calls).toEqual([
-      {
-        url: "http://127.0.0.1:35987/status",
-        init: {
-          cache: "no-store",
-          headers: {
-            host: "example.invalid:80"
-          }
-        }
-      }
-    ]);
+    expect(observed).toEqual({
+      method: "GET",
+      path: "/status",
+      host: "example.invalid:80",
+      connection: "close"
+    });
     expect(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready"))).not.toContain(
       "example.invalid"
     );
   });
 
-  it("does not treat accepted malformed or failed Host guard probes as guarded", async () => {
-    await expect(
-      tryFetchSurfaceHostGuardRejection(
-        async () =>
-          ({
-            status: 200,
-            json: async () => ({ ok: true, state: {} })
-          }) as Response,
-        "http://127.0.0.1:35987/"
-      )
-    ).resolves.toBe(false);
+  it("sends the exact host control guard request and rejects accepted mutations", async () => {
+    const mutationToken = "safe-mutation-token-1";
+    const observations: unknown[] = [];
+    let responseStatus = 403;
+    await withLoopbackHttpServer(
+      async (request, response) => {
+        observations.push({
+          method: request.method,
+          path: request.url,
+          host: request.headers.host,
+          origin: request.headers.origin,
+          mutationToken: request.headers["x-winbridge-local-surface-token"],
+          contentType: request.headers["content-type"],
+          body: await readRequestBody(request)
+        });
+        sendJson(
+          response,
+          responseStatus,
+          responseStatus === 403
+            ? { ok: false, error: "rejected" }
+            : { ok: true, action: "pause" }
+        );
+      },
+      async (surfaceUrl) => {
+        await expect(
+          tryPostHostSurfaceMismatchedHostGuardRejection(surfaceUrl, mutationToken)
+        ).resolves.toBe(true);
+        responseStatus = 202;
+        await expect(
+          tryPostHostSurfaceMismatchedHostGuardRejection(surfaceUrl, mutationToken)
+        ).resolves.toBe(false);
+      }
+    );
+
+    expect(observations).toEqual([
+      {
+        method: "POST",
+        path: "/control",
+        host: "example.invalid:80",
+        origin: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+        mutationToken,
+        contentType: "application/json",
+        body: JSON.stringify({ command: "pause" })
+      },
+      {
+        method: "POST",
+        path: "/control",
+        host: "example.invalid:80",
+        origin: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+        mutationToken,
+        contentType: "application/json",
+        body: JSON.stringify({ command: "pause" })
+      }
+    ]);
+  });
+
+  it("fails direct Host probes closed for unsafe URLs before opening a socket", async () => {
+    let requestCalls = 0;
+    const requestImpl = () => {
+      requestCalls += 1;
+      throw new Error("must not open");
+    };
 
     await expect(
-      tryFetchSurfaceHostGuardRejection(
-        async () =>
-          ({
-            status: 500,
-            json: async () => ({ ok: false, error: "rejected" })
-          }) as Response,
-        "http://127.0.0.1:35987/"
+      tryFetchSurfaceHostGuardRejection("http://example.invalid:35987/", requestImpl)
+    ).resolves.toBe(false);
+    await expect(
+      tryPostHostSurfaceMismatchedHostGuardRejection(
+        "http://127.0.0.1:80/",
+        "safe-mutation-token-1",
+        requestImpl
       )
     ).resolves.toBe(false);
-
     await expect(
-      tryFetchSurfaceHostGuardRejection(
-        async () =>
-          ({
-            status: 403,
-            json: async () => ({ ok: false, error: "rejected", host: "example.invalid" })
-          }) as Response,
-        "http://127.0.0.1:35987/"
+      tryPostHostSurfaceMismatchedHostGuardRejection(
+        "http://127.0.0.1:35988/",
+        "short-token",
+        requestImpl
       )
     ).resolves.toBe(false);
+    expect(requestCalls).toBe(0);
+  });
 
-    await expect(
-      tryFetchSurfaceHostGuardRejection(
-        async () => {
-          throw new Error("raw-secret-token network failure");
+  it("fails direct Host probes closed for unsafe responses and timeout", async () => {
+    const cases = [
+      { status: 200, body: JSON.stringify({ ok: true, state: {} }) },
+      { status: 302, body: JSON.stringify({ ok: false, error: "rejected" }) },
+      { status: 500, body: JSON.stringify({ ok: false, error: "rejected" }) },
+      {
+        status: 403,
+        body: JSON.stringify({ ok: false, error: "rejected", secret: "raw-secret-token" })
+      },
+      { status: 403, body: "x".repeat(1025) }
+    ];
+
+    for (const testCase of cases) {
+      await withLoopbackHttpServer(
+        (_request, response) => {
+          response.writeHead(testCase.status, { "content-type": "application/json" });
+          response.end(testCase.body);
         },
-        "http://127.0.0.1:35987/"
-      )
-    ).resolves.toBe(false);
+        async (surfaceUrl) => {
+          await expect(tryFetchSurfaceHostGuardRejection(surfaceUrl)).resolves.toBe(false);
+        }
+      );
+    }
+
+    await withLoopbackHttpServer(
+      () => undefined,
+      async (surfaceUrl) => {
+        await expect(tryFetchSurfaceHostGuardRejection(surfaceUrl)).resolves.toBe(false);
+      }
+    );
+
+    const slowDripStartedAt = Date.now();
+    await withLoopbackHttpServer(
+      (_request, response) => {
+        response.writeHead(403, { "content-type": "application/json" });
+        const interval = setInterval(() => response.write(" "), 100);
+        response.once("close", () => clearInterval(interval));
+      },
+      async (surfaceUrl) => {
+        await expect(tryFetchSurfaceHostGuardRejection(surfaceUrl)).resolves.toBe(false);
+      }
+    );
+    expect(Date.now() - slowDripStartedAt).toBeLessThan(1_200);
+
+    const abortController = new AbortController();
+    const abortStartedAt = Date.now();
+    await withLoopbackHttpServer(
+      () => undefined,
+      async (surfaceUrl) => {
+        const probe = tryFetchSurfaceHostGuardRejection(
+          surfaceUrl,
+          undefined,
+          abortController.signal
+        );
+        setTimeout(() => abortController.abort(), 25);
+        await expect(probe).resolves.toBe(false);
+      }
+    );
+    expect(Date.now() - abortStartedAt).toBeLessThan(400);
+    expect(formatMvpSessionSmokeJsonError(new Error("surface-guards-not-ready"))).not.toContain(
+      "raw-secret-token"
+    );
   });
 
   it("does not treat accepted guard probes or network failures as guarded", async () => {
@@ -1929,6 +2044,62 @@ describe("MVP session smoke check", () => {
     expect(signalTarget.listenerCount("SIGTERM")).toBe(0);
   });
 });
+
+async function withLoopbackHttpServer(
+  handler: (
+    request: IncomingMessage,
+    response: ServerResponse
+  ) => void | Promise<void>,
+  run: (surfaceUrl: string) => Promise<void>
+): Promise<void> {
+  const server = createServer((request, response) => {
+    void Promise.resolve(handler(request, response)).catch(() => response.destroy());
+  });
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => reject(error);
+    server.once("error", onError);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", onError);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    throw new Error("Loopback test server did not expose a TCP port");
+  }
+
+  try {
+    await run(`http://127.0.0.1:${address.port}/`);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+function sendJson(response: ServerResponse, status: number, body: unknown): void {
+  response.writeHead(status, { "content-type": "application/json" });
+  response.end(JSON.stringify(body));
+}
+
+function readRequestBody(request: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    request.on("data", (chunk) => {
+      const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += data.length;
+      if (bytes > 1024) {
+        reject(new Error("Test request body exceeded bound"));
+        request.destroy();
+        return;
+      }
+      chunks.push(data);
+    });
+    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    request.on("error", reject);
+  });
+}
 
 function fakeHandle(label: string, pid: number) {
   return {
