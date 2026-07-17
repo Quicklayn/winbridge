@@ -16457,12 +16457,14 @@ describe("agent shell consent workflow", () => {
 
   it("ignores peer-disconnected notices that identify the local peer", async () => {
     const selfDisconnectServer = await startSelfDisconnectNoticeServer();
+    const hostAuditSink = new MemoryAuditSink();
     const hostEvents: AgentShellEvent[] = [];
     const hostLogs: string[] = [];
     let host: AgentShellRuntime | undefined;
 
     try {
       host = createAgentShellRuntime(createRuntimeOptions({
+        auditSink: hostAuditSink,
         relayUrl: selfDisconnectServer.url,
         logger: captureLogger(hostLogs),
         onEvent: (event) => hostEvents.push(event)
@@ -16506,6 +16508,11 @@ describe("agent shell consent workflow", () => {
       expect(serializedRawEvents).not.toContain("peer-disconnected");
       expect(serializedRawEvents).not.toContain("host-1");
       expect(serializedRawEvents).not.toContain("session-demo");
+      expect(
+        hostAuditSink.records().some(
+          (record) => record.action === "agent-shell.session.disconnected"
+        )
+      ).toBe(false);
     } finally {
       await host?.stop();
       await selfDisconnectServer.stop();
@@ -16514,12 +16521,14 @@ describe("agent shell consent workflow", () => {
 
   it("ignores unbound peer-disconnected notices before recording remote disconnect state", async () => {
     const unboundDisconnectServer = await startUnboundPeerDisconnectNoticeServer();
+    const hostAuditSink = new MemoryAuditSink();
     const hostEvents: AgentShellEvent[] = [];
     const hostLogs: string[] = [];
     let host: AgentShellRuntime | undefined;
 
     try {
       host = createAgentShellRuntime(createRuntimeOptions({
+        auditSink: hostAuditSink,
         relayUrl: unboundDisconnectServer.url,
         logger: captureLogger(hostLogs),
         onEvent: (event) => hostEvents.push(event)
@@ -16567,6 +16576,11 @@ describe("agent shell consent workflow", () => {
       expect(serializedRawEvents).not.toContain("peer-disconnected");
       expect(serializedRawEvents).not.toContain("viewer-1");
       expect(serializedRawEvents).not.toContain("session-demo");
+      expect(
+        hostAuditSink.records().some(
+          (record) => record.action === "agent-shell.session.disconnected"
+        )
+      ).toBe(false);
     } finally {
       await host?.stop();
       await unboundDisconnectServer.stop();
@@ -16575,12 +16589,14 @@ describe("agent shell consent workflow", () => {
 
   it("ignores mismatched peer-disconnected notices without suppressing delayed host workflow", async () => {
     const mismatchedDisconnectServer = await startMismatchedDisconnectAfterHostActiveServer();
+    const hostAuditSink = new MemoryAuditSink();
     const hostEvents: AgentShellEvent[] = [];
     const hostLogs: string[] = [];
     let host: AgentShellRuntime | undefined;
 
     try {
       host = createAgentShellRuntime(createRuntimeOptions({
+        auditSink: hostAuditSink,
         relayUrl: mismatchedDisconnectServer.url,
         hostDecision: "approve",
         hostRevokeAfterMs: 80,
@@ -16656,27 +16672,260 @@ describe("agent shell consent workflow", () => {
       expect(serializedRawEvents).not.toContain("peer-disconnected");
       expect(serializedRawEvents).not.toContain("viewer-2");
       expect(serializedRawEvents).not.toContain("session-demo");
+      expect(
+        hostAuditSink.records().some(
+          (record) => record.action === "agent-shell.session.disconnected"
+        )
+      ).toBe(false);
     } finally {
       await host?.stop();
       await mismatchedDisconnectServer.stop();
     }
   });
 
-  it("suppresses delayed host workflow messages after the viewer disconnects", async () => {
+  it("does not persist authorization-bound host disconnect evidence before authorization", async () => {
+    const hostAuditSink = new MemoryAuditSink();
+    const { relay, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink,
+      hostDecision: "none"
+    });
+    const viewer = await startViewer(relay.url(), [], viewerEvents);
+
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "hello" && message.peerId === "viewer-1"
+    );
+    await viewer.stop();
+    await waitForMessage(
+      hostEvents,
+      (message) => message.type === "peer-disconnected" && message.peerId === "viewer-1"
+    );
+    await delay(50);
+
+    expect(
+      hostAuditSink.records().some(
+        (record) => record.action === "agent-shell.session.disconnected"
+      )
+    ).toBe(false);
+    expect(
+      hostEvents.some(
+        (event) =>
+          event.direction === "sent" &&
+          event.message.type === "audit-event" &&
+          event.message.action === "agent-shell.session.disconnected"
+      )
+    ).toBe(false);
+  });
+
+  it("persists one host record despite unsafe notices and a same-id post-disconnect rebind attempt", async () => {
+    const disconnectServer = await startMixedDisconnectNoticesAfterHostActiveServer();
+    const hostAuditSink = new MemoryAuditSink();
+    const hostEvents: AgentShellEvent[] = [];
+    let host: AgentShellRuntime | undefined;
+
+    try {
+      host = createAgentShellRuntime(createRuntimeOptions({
+        auditSink: hostAuditSink,
+        relayUrl: disconnectServer.url,
+        hostDecision: "approve",
+        logger: silentLogger,
+        visibleToHost: true,
+        onEvent: (event) => hostEvents.push(event)
+      }));
+      await host.start();
+
+      const activeState = await waitForSentMessage(
+        hostEvents,
+        (message) =>
+          message.type === "session-authorization-state" &&
+          message.status === "active" &&
+          message.visibleToHost
+      );
+      const disconnectNotice = await waitForMessage(
+        hostEvents,
+        (message) =>
+          message.type === "peer-disconnected" &&
+          message.peerId === "viewer-1" &&
+          message.reasonCode === "heartbeat-timeout"
+      );
+      await delay(80);
+
+      const receivedDisconnects = hostEvents.filter(
+        (event) => event.direction === "received" && event.message.type === "peer-disconnected"
+      );
+      const receivedHellos = hostEvents.filter(
+        (event) => event.direction === "received" && event.message.type === "hello"
+      );
+      const disconnectAuditRecords = hostAuditSink.records().filter(
+        (record) => record.action === "agent-shell.session.disconnected"
+      );
+      expect(receivedDisconnects).toHaveLength(1);
+      expect(receivedHellos).toHaveLength(1);
+      expect(disconnectAuditRecords).toHaveLength(1);
+      expect(disconnectAuditRecords[0]).toEqual(expect.objectContaining({
+        sessionId: "session-demo",
+        action: "agent-shell.session.disconnected",
+        outcome: "accepted",
+        detail: {
+          authorizationId:
+            activeState.type === "session-authorization-state"
+              ? activeState.authorizationId
+              : "",
+          authorizationStatus: "active",
+          cause: "peer-disconnected",
+          visibleToHost: true,
+          permissionCount: 1,
+          reasonCode:
+            disconnectNotice.type === "peer-disconnected"
+              ? disconnectNotice.reasonCode
+              : "peer-closed"
+        }
+      }));
+      expect(JSON.stringify(disconnectAuditRecords)).not.toContain("viewer-1");
+      expect(JSON.stringify(disconnectAuditRecords)).not.toContain("viewer-2");
+      expect(
+        hostEvents.some(
+          (event) =>
+            event.direction === "sent" &&
+            (event.message.type === "peer-disconnected" ||
+              (event.message.type === "audit-event" &&
+                event.message.action === "agent-shell.session.disconnected"))
+        )
+      ).toBe(false);
+    } finally {
+      await host?.stop();
+      await disconnectServer.stop();
+    }
+  });
+
+  it("keeps trusted viewer disconnect cleanup when host audit diagnostics fail", async () => {
+    const backingSink = new MemoryAuditSink();
     const hostLogs: string[] = [];
+    const rawAuditFailure = "remote disconnect audit failed with raw-token";
+    const rawCallbackFailure = "remote disconnect callback failed with callback-token";
+    const rawLoggerFailure = "remote disconnect logger failed with logger-token";
+    const failingSink = createLocalDisconnectHostileAuditFailureSink(
+      backingSink,
+      rawAuditFailure
+    );
     const { relay, host, hostEvents, viewerEvents } = await startRelayAndHost({
+      hostAuditSink: failingSink,
+      hostDecision: "approve",
+      hostLogger: createThrowingLocalDisconnectDiagnosticLogger(hostLogs, rawLoggerFailure),
+      hostOnEvent: createThrowingLocalDisconnectDiagnosticEvent(rawCallbackFailure),
+      visibleToHost: true
+    });
+    const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
+
+    await waitForMessage(
+      viewerEvents,
+      (message) =>
+        message.type === "session-authorization-state" &&
+        message.status === "active"
+    );
+    await viewer.stop();
+    const disconnectNotice = await waitForMessage(
+      hostEvents,
+      (message) => message.type === "peer-disconnected" && message.peerId === "viewer-1"
+    );
+    await waitForIndicatorEvent(
+      hostEvents,
+      (event) => event.state === "inactive" && event.cause === "peer-disconnected"
+    );
+    await delay(80);
+
+    expect(host.getHostStatus()).toEqual(expect.objectContaining({
+      state: "inactive",
+      visibleToHost: false,
+      permissionCount: 0,
+      inactiveCause: "peer-disconnected",
+      remoteDisconnectReasonCode:
+        disconnectNotice.type === "peer-disconnected"
+          ? disconnectNotice.reasonCode
+          : "peer-closed"
+    }));
+    expect(() =>
+      host.send({
+        ...createMessageBase("session-demo"),
+        type: "signal",
+        fromPeerId: "host-1",
+        toPeerId: "viewer-1",
+        payload: { kind: "offer", sdp: "post-failed-audit-offer" }
+      })
+    ).toThrow("Agent shell peer is disconnected");
+    expect(
+      backingSink.records().some(
+        (record) => record.action === "agent-shell.session.disconnected"
+      )
+    ).toBe(false);
+    expect(
+      hostEvents.some(
+        (event) =>
+          event.direction === "sent" &&
+          (event.message.type === "peer-disconnected" ||
+            (event.message.type === "audit-event" &&
+              event.message.action === "agent-shell.session.disconnected"))
+      )
+    ).toBe(false);
+    const serializedDiagnostics = JSON.stringify([hostEvents, backingSink.records(), hostLogs]);
+    expect(serializedDiagnostics).not.toContain(rawAuditFailure);
+    expect(serializedDiagnostics).not.toContain(rawCallbackFailure);
+    expect(serializedDiagnostics).not.toContain(rawLoggerFailure);
+    expect(serializedDiagnostics).not.toContain("post-failed-audit-offer");
+  });
+
+  it("suppresses delayed host workflow messages after the viewer disconnects", async () => {
+    const backingHostAuditSink = new MemoryAuditSink();
+    const hostLogs: string[] = [];
+    const disconnectOrder: string[] = [];
+    const statusAtAuditWrite: AgentShellHostStatusSnapshot[] = [];
+    const sendErrorsAtAuditWrite: string[] = [];
+    let hostRuntime: AgentShellRuntime | undefined;
+    const hostAuditSink: AuditSink = {
+      write: (input) => {
+        if (input.action === "agent-shell.session.disconnected") {
+          disconnectOrder.push("audit");
+          if (!hostRuntime) {
+            throw new Error("Host runtime unavailable during disconnect audit test");
+          }
+          statusAtAuditWrite.push(hostRuntime.getHostStatus());
+          try {
+            hostRuntime.send({
+              ...createMessageBase("session-demo"),
+              type: "signal",
+              fromPeerId: "host-1",
+              toPeerId: "viewer-1",
+              payload: { kind: "offer", sdp: "post-cleanup-audit-probe" }
+            });
+          } catch (error) {
+            sendErrorsAtAuditWrite.push(error instanceof Error ? error.message : "unknown");
+          }
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+        }
+        return backingHostAuditSink.write(input);
+      }
+    };
+    const started = await startRelayAndHost({
       authorizationTtlMs: 200,
+      hostAuditSink,
       hostDecision: "approve",
       hostLogger: captureLogger(hostLogs),
+      hostOnEvent: (event) => {
+        if (event.direction === "indicator" && event.cause === "peer-disconnected") {
+          disconnectOrder.push("indicator");
+        }
+      },
       hostPauseAfterMs: 200,
       hostRevokeAfterMs: 200,
       hostRevokePermission: "screen:view",
       hostTerminateAfterMs: 200,
       visibleToHost: true
     });
+    const { relay, host, hostEvents, viewerEvents } = started;
+    hostRuntime = host;
     const viewer = await startViewer(relay.url(), ["screen:view"], viewerEvents);
 
-    await waitForMessage(
+    const activeState = await waitForMessage(
       viewerEvents,
       (message) =>
         message.type === "session-authorization-state" &&
@@ -16725,6 +16974,61 @@ describe("agent shell consent workflow", () => {
     );
     expect(hostEvents.filter((event) => event.direction === "sent")).toHaveLength(sentCountBeforeStatus);
     expect(hostLogs.join("\n")).toContain("skipped because peer disconnected");
+    const disconnectAuditRecords = backingHostAuditSink.records().filter(
+      (record) => record.action === "agent-shell.session.disconnected"
+    );
+    expect(disconnectAuditRecords).toHaveLength(1);
+    expect(disconnectAuditRecords[0]).toEqual(expect.objectContaining({
+      actor: {
+        type: "host",
+        id: "host-1",
+        deviceId: "dev_host_1"
+      },
+      sessionId: "session-demo",
+      action: "agent-shell.session.disconnected",
+      outcome: "accepted",
+      detail: {
+        authorizationId:
+          activeState.type === "session-authorization-state"
+            ? activeState.authorizationId
+            : "",
+        authorizationStatus: "active",
+        cause: "peer-disconnected",
+        visibleToHost: true,
+        permissionCount: 1,
+        reasonCode: disconnectNotice.reasonCode
+      }
+    }));
+    expect(Object.keys(disconnectAuditRecords[0]?.detail ?? {}).sort()).toEqual([
+      "authorizationId",
+      "authorizationStatus",
+      "cause",
+      "permissionCount",
+      "reasonCode",
+      "visibleToHost"
+    ]);
+    expect(disconnectOrder).toEqual(["indicator", "audit"]);
+    expect(statusAtAuditWrite).toEqual([
+      expect.objectContaining({
+        state: "inactive",
+        visibleToHost: false,
+        permissionCount: 0,
+        inactiveCause: "peer-disconnected",
+        remoteDisconnectReasonCode: disconnectNotice.reasonCode
+      })
+    ]);
+    expect(sendErrorsAtAuditWrite).toEqual(["Agent shell peer is disconnected"]);
+    expect(
+      hostEvents.some(
+        (event) =>
+          event.direction === "sent" &&
+          (event.message.type === "peer-disconnected" ||
+            (event.message.type === "audit-event" &&
+              event.message.action === "agent-shell.session.disconnected"))
+      )
+    ).toBe(false);
+    expect(JSON.stringify(disconnectAuditRecords)).not.toContain("viewer-1");
+    expect(JSON.stringify(disconnectAuditRecords)).not.toContain("post-cleanup-audit-probe");
   });
 
   it("contains delayed host workflow skip logger failure after viewer disconnect", async () => {
@@ -19063,7 +19367,8 @@ function createThrowingLocalDisconnectDiagnosticEvent(
   return (event) => {
     if (
       event.direction === "error" ||
-      (event.direction === "indicator" && event.cause === "local-disconnect")
+      (event.direction === "indicator" &&
+        (event.cause === "local-disconnect" || event.cause === "peer-disconnected"))
     ) {
       throw new Error(thrownMessage);
     }
@@ -20158,6 +20463,114 @@ async function startMismatchedDisconnectAfterHostActiveServer(): Promise<{
   const address = wss.address() as AddressInfo | string | null;
   if (!address || typeof address === "string") {
     throw new Error("Mismatched disconnect test server did not expose a TCP port");
+  }
+
+  return {
+    url: `ws://127.0.0.1:${address.port}`,
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        for (const client of wss.clients) {
+          client.close();
+        }
+
+        wss.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          resolve();
+        });
+      })
+  };
+}
+
+async function startMixedDisconnectNoticesAfterHostActiveServer(): Promise<{
+  url: string;
+  stop(): Promise<void>;
+}> {
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  wss.on("connection", (socket) => {
+    let sentDisconnects = false;
+
+    socket.once("message", () => {
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "relay-ready",
+        peerId: "host-1",
+        roomSize: 2
+      }));
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Viewer",
+        capabilities: ["session:visible", "consent:required", "audit:stdout"]
+      }));
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "session-authorization-request",
+        viewerPeerId: "viewer-1",
+        requestedPermissions: ["screen:view"],
+        reason: "Development viewer request"
+      }));
+    });
+
+    socket.on("message", (data) => {
+      if (sentDisconnects) {
+        return;
+      }
+
+      const parsed = JSON.parse(data.toString()) as ProtocolEnvelope;
+      if (
+        parsed.type !== "session-authorization-state" ||
+        parsed.status !== "active" ||
+        !parsed.visibleToHost
+      ) {
+        return;
+      }
+
+      sentDisconnects = true;
+      for (const notice of [
+        { peerId: "host-2", role: "host" as const, reasonCode: "peer-closed" as const },
+        { peerId: "viewer-2", role: "viewer" as const, reasonCode: "peer-closed" as const }
+      ]) {
+        socket.send(encodeProtocolEnvelope({
+          ...createMessageBase("session-demo"),
+          type: "peer-disconnected",
+          ...notice
+        }));
+      }
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "peer-disconnected",
+        peerId: "viewer-1",
+        role: "viewer",
+        reasonCode: "heartbeat-timeout"
+      }));
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "hello",
+        peerId: "viewer-1",
+        role: "viewer",
+        displayName: "Viewer rebound attempt",
+        capabilities: ["session:visible", "consent:required", "audit:stdout"]
+      }));
+      socket.send(encodeProtocolEnvelope({
+        ...createMessageBase("session-demo"),
+        type: "peer-disconnected",
+        peerId: "viewer-1",
+        role: "viewer",
+        reasonCode: "peer-closed"
+      }));
+    });
+  });
+  await once(wss, "listening");
+
+  const address = wss.address() as AddressInfo | string | null;
+  if (!address || typeof address === "string") {
+    throw new Error("Mixed disconnect test server did not expose a TCP port");
   }
 
   return {

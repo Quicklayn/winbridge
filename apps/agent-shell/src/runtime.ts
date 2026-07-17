@@ -942,6 +942,11 @@ async function handleMessage(
     return;
   }
 
+  if (isHelloAfterRemotePeerDisconnect(envelope, sessionState)) {
+    reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
+    return;
+  }
+
   if (isMisdirectedSignal(envelope, options)) {
     reportIgnoredUnsafeProtocolMessage(inboundMessage.byteLength, options);
     return;
@@ -1006,6 +1011,11 @@ async function handleMessage(
     }
 
     if (envelope.type === "peer-disconnected") {
+      const hostDisconnectAuditInput = createTrustedViewerDisconnectAuditInput(
+        options,
+        sessionState.hostAuthorization,
+        envelope
+      );
       sessionState.remotePeerDisconnected = true;
       sessionState.remoteDisconnectReasonCode = envelope.reasonCode;
       invalidateViewerSignalProbe(sessionState);
@@ -1014,7 +1024,8 @@ async function handleMessage(
       sessionState.observedPeerRole = undefined;
       sessionState.observedPeerDisplayName = undefined;
       sessionState.observedPeerDeviceIdentity = undefined;
-      deactivateHostIndicator(options, sessionState, "peer-disconnected");
+      deactivateHostIndicatorBestEffort(options, sessionState, "peer-disconnected");
+      scheduleTrustedViewerDisconnectAudit(options, hostDisconnectAuditInput);
     }
 
     if (envelope.type === "session-authorization-state") {
@@ -1075,6 +1086,7 @@ function isUntrustedPeerDisconnectNotice(
   }
 
   return (
+    sessionState.remotePeerDisconnected ||
     envelope.role === options.role ||
     envelope.peerId !== sessionState.observedPeerId ||
     envelope.role !== sessionState.observedPeerRole
@@ -1093,6 +1105,13 @@ function isSameRoleHelloMessage(
   options: AgentShellRuntimeOptions
 ): boolean {
   return envelope.type === "hello" && envelope.role === options.role;
+}
+
+function isHelloAfterRemotePeerDisconnect(
+  envelope: ProtocolEnvelope,
+  sessionState: AgentShellSessionState
+): boolean {
+  return envelope.type === "hello" && sessionState.remotePeerDisconnected;
 }
 
 function isMisdirectedSignal(
@@ -4340,6 +4359,51 @@ function persistLocalHostDisconnectAudit(
   } catch (error) {
     reportRuntimeErrorBestEffort(options, error);
   }
+}
+
+function createTrustedViewerDisconnectAuditInput(
+  options: AgentShellRuntimeOptions,
+  snapshot: RuntimeAuthorizationSnapshot | undefined,
+  message: Extract<ProtocolEnvelope, { type: "peer-disconnected" }>
+): DevelopmentAuditInput | undefined {
+  if (
+    options.role !== "host" ||
+    message.role !== "viewer" ||
+    snapshot === undefined ||
+    snapshot.remotePeerId !== message.peerId
+  ) {
+    return undefined;
+  }
+
+  return {
+    action: "agent-shell.session.disconnected",
+    outcome: "accepted",
+    detail: {
+      authorizationId: snapshot.authorizationId,
+      authorizationStatus: snapshot.status,
+      cause: "peer-disconnected",
+      visibleToHost: snapshot.visibleToHost,
+      permissionCount: snapshot.permissions.length,
+      reasonCode: message.reasonCode
+    }
+  };
+}
+
+function scheduleTrustedViewerDisconnectAudit(
+  options: AgentShellRuntimeOptions,
+  input: DevelopmentAuditInput | undefined
+): void {
+  if (input === undefined) {
+    return;
+  }
+
+  setImmediate(() => {
+    try {
+      writeDevelopmentAuditRecord(options, input);
+    } catch (error) {
+      reportRuntimeErrorBestEffort(options, error);
+    }
+  });
 }
 
 function persistLocalViewerLeaveAudit(
